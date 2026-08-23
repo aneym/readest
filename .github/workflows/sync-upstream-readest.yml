@@ -1,0 +1,51 @@
+name: Sync upstream Readest
+
+on:
+  schedule:
+    - cron: "17 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sync-upstream-readest
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+      - name: Fetch upstream main
+        run: |
+          git remote add upstream https://github.com/readest/readest.git
+          git fetch upstream main --tags --prune
+      - name: Fast-forward fork main
+        id: ff
+        run: |
+          if git merge-base --is-ancestor HEAD upstream/main; then
+            git merge --ff-only upstream/main
+            git push origin HEAD:main
+            echo "status=fast-forwarded" >> "$GITHUB_OUTPUT"
+          elif git merge-base --is-ancestor upstream/main HEAD; then
+            echo "status=ahead" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=diverged" >> "$GITHUB_OUTPUT"
+            exit 2
+          fi
+      - name: Open issue when fork diverges
+        if: failure() && steps.ff.outputs.status == 'diverged'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Upstream sync needs a manual rebase"
+          body="The automated fast-forward from readest/readest main refused because this fork diverged. Rebase the Homebase patch branch onto upstream, run the Reader acceptance suite, then update main. The workflow made no history rewrite."
+          existing=$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')
+          if [ -z "$existing" ]; then
+            gh issue create --title "$title" --body "$body"
+          fi
