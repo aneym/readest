@@ -1,7 +1,6 @@
 import { getAPIBaseUrl, isWebAppPlatform } from '@/services/environment';
 import { AppService } from '@/types/system';
 import { getUserID } from '@/utils/access';
-import { getAccessToken } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
 import {
   getHomebaseBaseUrl,
@@ -189,10 +188,15 @@ export const downloadFile = async ({
       const filename = parts[parts.length - 1] ?? '';
       const hash = parts.length >= 2 ? parts[parts.length - 2] : '';
       const ext = filename.includes('.') ? filename.slice(filename.lastIndexOf('.') + 1) : '';
+      // A Homebase-paired device stores its token in localStorage['token'];
+      // getAccessToken() reads the (empty) Supabase session on Tauri, so read
+      // the paired token directly.
+      const homebaseToken =
+        typeof localStorage !== 'undefined' ? (localStorage.getItem('token') ?? '') : '';
       if (base && hash && ext) {
         const response = await fetch(
           `${base}${DEFAULT_HOMEBASE_STORAGE_PATH}/download?fileKey=${encodeURIComponent(`${hash}.${ext}`)}`,
-          { headers: { Authorization: `Bearer ${(await getAccessToken()) ?? ''}` } },
+          { headers: { Authorization: `Bearer ${homebaseToken}` } },
         );
         if (!response.ok) throw new Error(`Homebase download URL failed: ${response.status}`);
         const payload = (await response.json()) as { downloadUrl?: string };
