@@ -52,6 +52,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setToken(access_token);
         setUser(user);
       } else {
+        // A Homebase-paired device holds a token minted by Homebase, not
+        // GoTrue — Supabase's INITIAL_SESSION/SIGNED_OUT (session: null) on
+        // boot must not log it out. See handleHomebaseCallback.
+        try {
+          const storedUser = localStorage.getItem('user');
+          if (storedUser && JSON.parse(storedUser)?.user_metadata?.['homebase'] === true) {
+            return;
+          }
+        } catch {
+          // fall through to the normal sign-out path
+        }
         localStorage.removeItem('token');
         localStorage.removeItem('refresh_token');
         localStorage.removeItem('user');
