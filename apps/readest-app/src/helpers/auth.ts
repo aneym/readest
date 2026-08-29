@@ -40,6 +40,44 @@ export function parseOAuthCallbackUrl(url: string): OAuthCallbackParams {
   };
 }
 
+/**
+ * Homebase device pairing: the token is a Homebase-issued JWT, not a Supabase
+ * session, so Supabase must not validate it. Build the minimal user identity
+ * from the JWT payload (sub = Homebase profile id) and log in directly —
+ * login() persists localStorage 'token'/'user', which getAccessToken() and the
+ * Homebase sync adapter read.
+ */
+export function handleHomebaseCallback({
+  accessToken,
+  login,
+  navigate,
+}: Pick<UseAuthCallbackOptions, 'accessToken' | 'login' | 'navigate'>) {
+  if (!accessToken) {
+    navigate('/auth/error');
+    return;
+  }
+  try {
+    const payloadPart = accessToken.split('.')[1] ?? '';
+    const payload = JSON.parse(atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/'))) as {
+      sub?: string;
+    };
+    if (!payload.sub) throw new Error('homebase token payload has no sub');
+    const now = new Date().toISOString();
+    const user = {
+      id: payload.sub,
+      aud: 'readest-sync',
+      app_metadata: {},
+      user_metadata: { homebase: true },
+      created_at: now,
+    } as User;
+    login(accessToken, user);
+    navigate('/library');
+  } catch (err) {
+    console.error('Homebase pairing token rejected:', err);
+    navigate('/auth/error');
+  }
+}
+
 export function handleAuthCallback({
   accessToken,
   refreshToken,

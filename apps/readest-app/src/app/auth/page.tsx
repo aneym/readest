@@ -18,7 +18,7 @@ import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { start, cancel, onUrl, onInvalidUrl } from '@fabianlars/tauri-plugin-oauth';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { invoke } from '@tauri-apps/api/core';
-import { handleAuthCallback, parseOAuthCallbackUrl } from '@/helpers/auth';
+import { handleAuthCallback, handleHomebaseCallback, parseOAuthCallbackUrl } from '@/helpers/auth';
 import { getUserProfilePlan } from '@/utils/access';
 import { getAppleIdAuth, Scope } from './utils/appleIdAuth';
 import { authWithCustomTab, authWithSafari } from './utils/nativeAuth';
@@ -160,6 +160,10 @@ export default function AuthPage() {
     console.log('Handle OAuth URL:', url);
     const { accessToken, refreshToken, type, next, error, errorCode, errorDescription } =
       parseOAuthCallbackUrl(url);
+    if (type === 'homebase' && accessToken) {
+      handleHomebaseCallback({ accessToken, login, navigate: router.push });
+      return;
+    }
     if (error) {
       console.error('OAuth callback error:', error, errorCode, errorDescription);
       handleAuthCallback({ error, errorCode, errorDescription, login, navigate: router.push });
