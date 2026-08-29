@@ -28,7 +28,17 @@ const PULL_RETRY_DELAYS_MS = [1500, 4000, 10000];
 // `undefined` when the record carries no usable page count.
 const getConfigFraction = (config: BookConfig): number | undefined => {
   const [current, total] = config.progress ?? [];
-  if (!current || !total || total <= 0) return undefined;
+  if (!current || !total || total <= 0) {
+    // A Homebase config carries the reading fraction directly: its source is a
+    // KOReader percentage, and the deployment has no page count to build an
+    // honest [page, total] tuple from. Without this anchor an XPointer cannot
+    // be resolved against foliate's pagination and the reader opens near the
+    // top of the book instead of where the reader left off.
+    const fallback = (config as BookConfig & { hbFraction?: number }).hbFraction;
+    return typeof fallback === 'number' && Number.isFinite(fallback)
+      ? Math.min(Math.max(fallback, 0), 1)
+      : undefined;
+  }
   const fraction = current / total;
   return Number.isFinite(fraction) ? Math.min(fraction, 1) : undefined;
 };
