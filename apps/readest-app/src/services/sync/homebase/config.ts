@@ -13,6 +13,21 @@
 
 import { getRuntimeConfig } from '@/services/runtimeConfig';
 
+// Declared so dot access typechecks under noPropertyAccessFromIndexSignature.
+// Next only inlines literal `process.env.NEXT_PUBLIC_*` member expressions,
+// so bracket access is not an option here.
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace NodeJS {
+    interface ProcessEnv {
+      HOMEBASE_API_BASE_URL?: string;
+      NEXT_PUBLIC_HOMEBASE_API_BASE_URL?: string;
+      HOMEBASE_SYNC_ENABLED?: string;
+      NEXT_PUBLIC_HOMEBASE_SYNC_ENABLED?: string;
+    }
+  }
+}
+
 export interface HomebaseSyncConfig {
   /** Base URL of the Homebase reader API, no trailing slash. */
   baseUrl: string;
@@ -34,10 +49,14 @@ const runtime = () => getRuntimeConfig() ?? {};
 const trimSlash = (url: string) => url.replace(/\/+$/, '');
 
 export const getHomebaseBaseUrl = (): string | null => {
+  // Dot notation is load-bearing: Next's compiler only inlines literal
+  // `process.env.NEXT_PUBLIC_*` member expressions into the static export.
+  // Bracket access reads from the browser's empty process.env shim and made
+  // the Android build silently fall back to the stock client.
   const raw =
     runtime().homebaseApiBaseUrl ||
-    process.env['HOMEBASE_API_BASE_URL'] ||
-    process.env['NEXT_PUBLIC_HOMEBASE_API_BASE_URL'] ||
+    process.env.HOMEBASE_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_HOMEBASE_API_BASE_URL ||
     '';
   return raw ? trimSlash(raw) : null;
 };
@@ -50,8 +69,7 @@ export const getHomebaseBaseUrl = (): string | null => {
 export const isHomebaseSyncEnabled = (): boolean => {
   if (!getHomebaseBaseUrl()) return false;
   if (runtime().homebaseSyncEnabled === true) return true;
-  const flag =
-    process.env['HOMEBASE_SYNC_ENABLED'] ?? process.env['NEXT_PUBLIC_HOMEBASE_SYNC_ENABLED'];
+  const flag = process.env.HOMEBASE_SYNC_ENABLED ?? process.env.NEXT_PUBLIC_HOMEBASE_SYNC_ENABLED;
   return flag === '1' || flag === 'true';
 };
 
