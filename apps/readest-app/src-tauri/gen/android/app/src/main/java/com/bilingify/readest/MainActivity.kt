@@ -55,6 +55,9 @@ class MainActivity : TauriActivity(), KeyDownInterceptor {
 
     override fun onWebViewCreate(webView: WebView) {
         wv = webView
+        // Homebase household build: keep the WebView inspectable so the home
+        // server can drive QA and pairing over ADB/CDP (chrome://inspect).
+        WebView.setWebContentsDebuggingEnabled(true)
         ensureInitialPaint()
     }
 
