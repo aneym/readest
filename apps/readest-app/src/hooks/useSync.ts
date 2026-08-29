@@ -312,9 +312,16 @@ export function useSync(bookKey?: string) {
         }
       }
       if (op === 'pull' || op === 'both') {
+        // A per-book pull must use that book's OWN cursor. The account-wide
+        // cursor advances whenever any config is pulled, so a book whose
+        // config arrived in a library-wide sweep (before its reader was ever
+        // opened) is then permanently newer-than-cursor: the server correctly
+        // returns nothing, and the reader opens at page 1 forever. The
+        // per-book cursor is already written by pullChanges below.
+        const since = bookId ? (config?.lastSyncedAtConfig ?? 0) : lastSyncedAtConfigs;
         await pullChanges(
           'configs',
-          lastSyncedAtConfigs,
+          since,
           setLastSyncedAtConfigs,
           setSyncingConfigs,
           bookId,
