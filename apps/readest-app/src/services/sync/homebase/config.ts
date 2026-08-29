@@ -29,17 +29,7 @@ export interface HomebaseSyncConfig {
   clientId: string;
 }
 
-/**
- * `ReadestRuntimeConfig` does not declare these keys — the spike must not edit
- * shipping types — so read the bag structurally. A real landing adds two
- * optional fields to `ReadestRuntimeConfig` and deletes this cast.
- */
-type HomebaseRuntimeKeys = {
-  homebaseApiBaseUrl?: string;
-  homebaseSyncEnabled?: boolean;
-};
-
-const runtime = (): HomebaseRuntimeKeys => (getRuntimeConfig() ?? {}) as HomebaseRuntimeKeys;
+const runtime = () => getRuntimeConfig() ?? {};
 
 const trimSlash = (url: string) => url.replace(/\/+$/, '');
 
@@ -73,11 +63,12 @@ export const resolveHomebaseConfig = (
 ): HomebaseSyncConfig | null => {
   const baseUrl = overrides.baseUrl ?? getHomebaseBaseUrl();
   if (!baseUrl) return null;
+  if (!overrides.clientId) return null;
   return {
     baseUrl: trimSlash(baseUrl),
     syncPath: overrides.syncPath ?? DEFAULT_HOMEBASE_SYNC_PATH,
     storagePath: overrides.storagePath ?? DEFAULT_HOMEBASE_STORAGE_PATH,
     timeoutMs: overrides.timeoutMs ?? 15000,
-    clientId: overrides.clientId ?? 'readest-unknown-device',
+    clientId: overrides.clientId,
   };
 };

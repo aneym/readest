@@ -1,9 +1,10 @@
 'use client';
 
 import React, { createContext, useContext, useMemo } from 'react';
-import { SyncClient } from '@/libs/sync';
+import type { SyncClient } from '@/libs/sync';
+import { resolveRecordSyncClient } from '@/services/sync/homebase';
 
-const syncClient = new SyncClient();
+const syncClient = resolveRecordSyncClient();
 
 interface SyncContextType {
   syncClient: SyncClient;

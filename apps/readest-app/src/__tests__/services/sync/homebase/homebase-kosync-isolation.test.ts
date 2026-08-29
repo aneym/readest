@@ -72,8 +72,8 @@ describe('source-level isolation', () => {
     // the same context, that edit would no longer be safe on its own.
     const source = read('context/SyncContext.tsx');
     expect(source).not.toContain('KOSync');
-    // And the line the landing diff replaces is exactly where it is documented.
-    expect(source).toContain('const syncClient = new SyncClient();');
+    // The record backend is selected here without adding KOSync to the context.
+    expect(source).toContain('const syncClient = resolveRecordSyncClient();');
   });
 });
 

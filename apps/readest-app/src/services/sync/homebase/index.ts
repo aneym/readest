@@ -21,14 +21,19 @@ export * from './adapter';
 export * from './httpAdapter';
 export * from './memoryAdapter';
 export * from './outbox';
+export * from './persistence';
 export * from './storage';
 export * from './recordSyncClient';
 
 import { SyncClient } from '@/libs/sync';
-import { getAccessToken } from '@/utils/access';
 import { isHomebaseSyncEnabled, resolveHomebaseConfig } from './config';
 import { createHomebaseHttpAdapter } from './httpAdapter';
-import { createMemoryOutboxStore, createSyncOutbox, type OutboxStore } from './outbox';
+import { createSyncOutbox, type OutboxStore } from './outbox';
+import {
+  createPersistentOutboxStore,
+  getHomebaseToken,
+  getOrCreateHomebaseClientId,
+} from './persistence';
 import { HomebaseSyncClient, type RecordSyncClient } from './recordSyncClient';
 
 export interface ResolveRecordSyncClientOptions {
@@ -48,13 +53,13 @@ export const resolveRecordSyncClient = (
   options: ResolveRecordSyncClientOptions = {},
 ): RecordSyncClient => {
   if (!isHomebaseSyncEnabled()) return new SyncClient();
-  const config = resolveHomebaseConfig();
+  const config = resolveHomebaseConfig({ clientId: getOrCreateHomebaseClientId() });
   if (!config) return new SyncClient();
 
   const adapter = createHomebaseHttpAdapter(config, {
-    getToken: options.getToken ?? getAccessToken,
+    getToken: options.getToken ?? getHomebaseToken,
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
-  const outbox = createSyncOutbox({ store: options.outboxStore ?? createMemoryOutboxStore() });
+  const outbox = createSyncOutbox({ store: options.outboxStore ?? createPersistentOutboxStore() });
   return new HomebaseSyncClient({ adapter, outbox });
 };
