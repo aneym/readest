@@ -17,6 +17,7 @@ import {
 import { ClosableFile } from '@/utils/file';
 import { ProgressHandler } from '@/utils/transfer';
 import { CLOUD_BOOKS_SUBDIR, CLOUD_REPLICAS_SUBDIR } from './constants';
+import { isHomebaseSyncEnabled, resolveHomebaseCoverUrl } from './sync/homebase/config';
 import { isBookFileContentSource, resolveBookContentSource } from './bookContent';
 
 export async function deleteBook(
@@ -271,17 +272,31 @@ export async function downloadBookCovers(
       return [lfp, book];
     }),
   );
-  // A Homebase-served book row already carries an absolute, signed cover URL;
-  // fetch those directly instead of asking Readest Cloud's storage API, which
-  // rejects a Homebase device token ("Not authenticated") and used to abort
-  // the whole library adoption batch.
-  const hasAbsoluteCover = (book: Book): boolean => /^https?:\/\//.test(book.coverImageUrl ?? '');
-  const directUrls = books.filter(hasAbsoluteCover).map((book) => ({
-    lfp: getCoverFilename(book),
-    cfp: `${CLOUD_BOOKS_SUBDIR}/${getCoverFilename(book)}`,
-    downloadUrl: book.coverImageUrl ?? undefined,
-  }));
-  const stockBooks = books.filter((book) => !hasAbsoluteCover(book));
+  // Covers come from the household server, freshly signed. A book row's own
+  // `coverImageUrl` is only usable while it is still the remote URL: once a
+  // cover lands on disk the app rewrites it to a local asset:// path, so a
+  // later pass must re-resolve rather than "download" that local path.
+  const isRemoteCover = (book: Book): boolean =>
+    /^https?:\/\//.test(book.coverImageUrl ?? '') &&
+    !/^https?:\/\/(asset|tauri)\.localhost/.test(book.coverImageUrl ?? '');
+  const homebaseTargets = isHomebaseSyncEnabled()
+    ? await Promise.all(
+        books.map(async (book) => ({
+          lfp: getCoverFilename(book),
+          cfp: `${CLOUD_BOOKS_SUBDIR}/${getCoverFilename(book)}`,
+          downloadUrl: isRemoteCover(book)
+            ? (book.coverImageUrl ?? undefined)
+            : ((await resolveHomebaseCoverUrl(book.hash)) ?? undefined),
+        })),
+      )
+    : books.filter(isRemoteCover).map((book) => ({
+        lfp: getCoverFilename(book),
+        cfp: `${CLOUD_BOOKS_SUBDIR}/${getCoverFilename(book)}`,
+        downloadUrl: book.coverImageUrl ?? undefined,
+      }));
+  const directUrls = homebaseTargets.filter((target) => Boolean(target.downloadUrl));
+  const resolvedLfps = new Set(directUrls.map((target) => target.lfp));
+  const stockBooks = books.filter((book) => !resolvedLfps.has(getCoverFilename(book)));
   const filePaths = stockBooks.map((book) => ({
     lfp: getCoverFilename(book),
     cfp: `${CLOUD_BOOKS_SUBDIR}/${getCoverFilename(book)}`,
