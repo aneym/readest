@@ -1,0 +1,211 @@
+{
+  "note": "POST /sync with configs. One config becomes one progress row for the pushing device. The device id comes from the bearer token, never from the payload, so two devices can never collide on a row and no config push needs to name itself. Percent comes from Readest's 1-based page tuple; when the tuple is absent the device's last known percent carries forward, because writing 0 would show a half-read book as unopened.",
+  "context": {
+    "deviceId": "readest-macbook",
+    "profileId": "alex",
+    "now": 1787875200000,
+    "deviceSeq": 7
+  },
+  "cases": [
+    {
+      "name": "the ordinary case: a CFI and a page tuple",
+      "record": {
+        "id": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787796000000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "updatedAt": 1787796000000,
+        "location": "epubcfi(/6/14!/4/2/6/1:0)",
+        "progress": [172, 498]
+      },
+      "expect": {
+        "ok": true,
+        "write": {
+          "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+          "percent": 34.53815261044177,
+          "position": "epubcfi(/6/14!/4/2/6/1:0)",
+          "locatorKind": "epubcfi",
+          "device": "readest-macbook",
+          "deviceSeq": 7,
+          "source": "readest",
+          "updatedAt": 1787796000000,
+          "serverReceivedAt": 1787875200000,
+          "clockSkewed": false
+        }
+      }
+    },
+    {
+      "name": "a KOReader-dialect config from a Readest install that has synced with the Kobo, kept as the KOSync hint",
+      "record": {
+        "id": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787799600000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "updatedAt": 1787799600000,
+        "xpointer": "/body/DocFragment[11]/body/article/div/p[20]/text()[2].167"
+      },
+      "previousPercent": 31.2,
+      "expect": {
+        "ok": true,
+        "write": {
+          "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+          "percent": 31.2,
+          "position": "/body/DocFragment[11]/body/article/div/p[20]/text()[2].167",
+          "locatorKind": "xpointer",
+          "koreaderHint": "/body/DocFragment[11]/body/article/div/p[20]/text()[2].167",
+          "device": "readest-macbook",
+          "deviceSeq": 7,
+          "source": "readest",
+          "updatedAt": 1787799600000,
+          "serverReceivedAt": 1787875200000,
+          "clockSkewed": false
+        }
+      }
+    },
+    {
+      "name": "no locator and no page tuple, but a known previous percent: percent-only is still a legal position",
+      "record": {
+        "id": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787799600000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "updatedAt": 1787799600000
+      },
+      "previousPercent": 31.2,
+      "expect": {
+        "ok": true,
+        "write": {
+          "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+          "percent": 31.2,
+          "locatorKind": "percent-only",
+          "device": "readest-macbook",
+          "deviceSeq": 7,
+          "source": "readest",
+          "updatedAt": 1787799600000,
+          "serverReceivedAt": 1787875200000,
+          "clockSkewed": false
+        }
+      }
+    },
+    {
+      "name": "a PDF config: the page tuple IS the position",
+      "record": {
+        "id": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+        "book_hash": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+        "user_id": "alex",
+        "updated_at": 1787796000000,
+        "deleted_at": null,
+        "bookHash": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+        "updatedAt": 1787796000000,
+        "progress": [3, 40]
+      },
+      "paged": true,
+      "expect": {
+        "ok": true,
+        "write": {
+          "fileHash": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+          "percent": 7.5,
+          "position": "pdf:3",
+          "locatorKind": "pdf-page",
+          "device": "readest-macbook",
+          "deviceSeq": 7,
+          "source": "readest",
+          "updatedAt": 1787796000000,
+          "serverReceivedAt": 1787875200000,
+          "clockSkewed": false
+        }
+      }
+    },
+    {
+      "name": "a clock seven hours ahead is clamped to server time and flagged, not trusted and not dropped",
+      "record": {
+        "id": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787900400000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "updatedAt": 1787900400000,
+        "location": "epubcfi(/6/14!/4/2/6/1:0)",
+        "progress": [172, 498]
+      },
+      "expect": {
+        "ok": true,
+        "write": {
+          "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+          "percent": 34.53815261044177,
+          "position": "epubcfi(/6/14!/4/2/6/1:0)",
+          "locatorKind": "epubcfi",
+          "device": "readest-macbook",
+          "deviceSeq": 7,
+          "source": "readest",
+          "updatedAt": 1787875200000,
+          "serverReceivedAt": 1787875200000,
+          "clockSkewed": true
+        }
+      }
+    },
+    {
+      "name": "REJECT: no tuple and no previous percent, so nothing about the position is known",
+      "record": {
+        "id": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787799600000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "updatedAt": 1787799600000
+      },
+      "expect": { "ok": false, "reason": "no-percent-derivable" }
+    },
+    {
+      "name": "REJECT: a CFI in the xpointer slot, quarantined before it can reach KOSync",
+      "record": {
+        "id": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787799600000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "updatedAt": 1787799600000,
+        "xpointer": "epubcfi(/6/8!/4/2/2/4/2)",
+        "progress": [172, 498]
+      },
+      "expect": { "ok": false, "reason": "cfi-in-xpointer-slot" }
+    },
+    {
+      "name": "REJECT: a clock below the 2020-01-01 floor is a broken device, not an old note",
+      "record": {
+        "id": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "updatedAt": 1000,
+        "progress": [172, 498]
+      },
+      "expect": { "ok": false, "reason": "bad-clock" }
+    },
+    {
+      "name": "REJECT: a Calibre id where a partialMD5 belongs",
+      "record": {
+        "id": "book:calibre:412",
+        "book_hash": "book:calibre:412",
+        "user_id": "alex",
+        "updated_at": 1787799600000,
+        "deleted_at": null,
+        "bookHash": "book:calibre:412",
+        "updatedAt": 1787799600000,
+        "progress": [172, 498]
+      },
+      "expect": { "ok": false, "reason": "bad-file-hash" }
+    }
+  ]
+}

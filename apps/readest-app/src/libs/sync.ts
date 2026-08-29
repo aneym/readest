@@ -8,9 +8,9 @@ const SYNC_API_ENDPOINT = getAPIBaseUrl() + '/sync';
 export type SyncType = 'books' | 'configs' | 'notes' | 'stats';
 export type SyncOp = 'push' | 'pull' | 'both';
 
-interface BookRecord extends BookDataRecord, Book {}
-interface BookConfigRecord extends BookDataRecord, BookConfig {}
-interface BookNoteRecord extends BookDataRecord, BookNote {}
+export interface BookRecord extends BookDataRecord, Book {}
+export interface BookConfigRecord extends BookDataRecord, BookConfig {}
+export interface BookNoteRecord extends BookDataRecord, BookNote {}
 
 export interface StatBookRecord {
   user_id?: string;

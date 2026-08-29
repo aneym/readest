@@ -1,0 +1,209 @@
+{
+  "note": "Annotation merge. The strict comparison is convex/lib/annotationMerge resolveUpsert, reused rather than reimplemented; this layer adds only the tie-break (device sequence, then device id) that an outbox draining several edits inside one millisecond needs. applyAnnotationMerge then re-attaches the server-owned fields the client never saw: a Readest push carries no voice fields, so a plain round-trip through an unmodified reader must not strip the audio off a voice note. A cross-profile id collision is invalid input, not a merge, for the same reason isSameOwner exists on the Convex side.",
+  "cases": [
+    {
+      "name": "a newer client clock wins",
+      "local": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "highlight",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "style": "yellow",
+        "device": "kobo-palma",
+        "deviceSeq": 4,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787792400000
+      },
+      "incoming": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "note",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "note": "Anderson, imagined communities.",
+        "style": "yellow",
+        "device": "readest-macbook",
+        "deviceSeq": 2,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787796000000
+      },
+      "expect": "incoming"
+    },
+    {
+      "name": "an older client clock loses even though it arrived later",
+      "local": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "note",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "note": "Anderson, imagined communities.",
+        "device": "readest-macbook",
+        "deviceSeq": 2,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787796000000
+      },
+      "incoming": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "highlight",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "device": "kobo-palma",
+        "deviceSeq": 9,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787792400000
+      },
+      "expect": "local"
+    },
+    {
+      "name": "an exact tie is broken by the higher device sequence",
+      "local": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "highlight",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "device": "readest-macbook",
+        "deviceSeq": 2,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787796000000
+      },
+      "incoming": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "note",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "note": "second thought, same second",
+        "device": "readest-macbook",
+        "deviceSeq": 3,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787796000000
+      },
+      "expect": "incoming"
+    },
+    {
+      "name": "a tie with equal sequences falls back to the device id, which orders the same on every peer",
+      "local": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "highlight",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "device": "kobo-palma",
+        "deviceSeq": 5,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787796000000
+      },
+      "incoming": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "highlight",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "device": "readest-macbook",
+        "deviceSeq": 5,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787796000000
+      },
+      "expect": "incoming"
+    },
+    {
+      "name": "a total tie keeps the local row, because an unresolvable tie should not churn the store",
+      "local": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "highlight",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "device": "readest-macbook",
+        "deviceSeq": 5,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787796000000
+      },
+      "incoming": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "highlight",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "device": "readest-macbook",
+        "deviceSeq": 5,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787796000000
+      },
+      "expect": "local"
+    },
+    {
+      "name": "a tombstone is an ordinary write and wins on time like any other",
+      "local": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "note",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "note": "Anderson, imagined communities.",
+        "device": "readest-macbook",
+        "createdAt": 1787788800000,
+        "updatedAt": 1787792400000
+      },
+      "incoming": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "note",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "note": "Anderson, imagined communities.",
+        "device": "kobo-palma",
+        "createdAt": 1787788800000,
+        "updatedAt": 1787799600000,
+        "deletedAt": 1787799600000
+      },
+      "expect": "incoming"
+    },
+    {
+      "name": "a newer write from another profile on the same client-generated id is dropped, not merged",
+      "local": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alex",
+        "kind": "note",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "note": "Anderson, imagined communities.",
+        "device": "readest-macbook",
+        "deviceSeq": 2,
+        "createdAt": 1787788800000,
+        "updatedAt": 1787792400000
+      },
+      "incoming": {
+        "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "profileId": "alexandra",
+        "kind": "note",
+        "locatorKind": "epubcfi",
+        "locator": "epubcfi(/6/2!/4/2/2/1:0)",
+        "note": "a different book, a different reader, the same ULID",
+        "device": "readest-ipad",
+        "deviceSeq": 99,
+        "createdAt": 1787796000000,
+        "updatedAt": 1787799600000
+      },
+      "expect": "local"
+    }
+  ]
+}

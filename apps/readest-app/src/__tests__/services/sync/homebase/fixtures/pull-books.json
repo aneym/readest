@@ -1,0 +1,75 @@
+{
+  "note": "GET /sync?type=books. Homebase rows to Readest BookRecord (BookDataRecord snake_case half plus Book camelCase half, exactly as the client's `interface BookRecord extends BookDataRecord, Book`). synced_at is the pull cursor and is server receipt time, never the client's clock. uploaded_at is always set because Homebase always holds the bytes; leaving it null makes Readest treat the book as indexed but unavailable.",
+  "context": { "userId": "alex", "origin": "https://studio.tail1234.ts.net:3141" },
+  "cases": [
+    {
+      "name": "a live book with a Calibre edition and a known page count",
+      "row": {
+        "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "title": "Sapiens",
+        "author": "Yuval Noah Harari",
+        "format": "EPUB",
+        "calibrePath": "Yuval Noah Harari/Sapiens (412)",
+        "addedAt": 1787788800000,
+        "updatedAt": 1787796000000,
+        "serverReceivedAt": 1787796000000,
+        "metaHash": "aefbc5635d72bfaee9ea1bbd168f90cf",
+        "readingStatus": "reading",
+        "readingStatusUpdatedAt": 1787792400000,
+        "metadataUpdatedAt": 1787788800000,
+        "pageTotal": 498
+      },
+      "expect": {
+        "id": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "meta_hash": "aefbc5635d72bfaee9ea1bbd168f90cf",
+        "user_id": "alex",
+        "updated_at": 1787796000000,
+        "deleted_at": null,
+        "synced_at": "2026-08-27T02:00:00.000Z",
+        "uploaded_at": "2026-08-27T00:00:00.000Z",
+        "hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "format": "EPUB",
+        "title": "Sapiens",
+        "author": "Yuval Noah Harari",
+        "createdAt": 1787788800000,
+        "updatedAt": 1787796000000,
+        "deletedAt": null,
+        "coverImageUrl": "https://studio.tail1234.ts.net:3141/api/reader/readest/books/dd76b92e7c1a4f0b93e5a1c8d2f60b37/cover",
+        "readingStatus": "reading",
+        "readingStatusUpdatedAt": 1787792400000,
+        "metadataUpdatedAt": 1787788800000
+      }
+    },
+    {
+      "name": "a book removed from Calibre carries a tombstone in both halves",
+      "row": {
+        "fileHash": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+        "title": "The Dispossessed",
+        "author": "Ursula K. Le Guin",
+        "format": "EPUB",
+        "addedAt": 1787788800000,
+        "updatedAt": 1787799600000,
+        "serverReceivedAt": 1787799600000,
+        "deletedAt": 1787799600000
+      },
+      "expect": {
+        "id": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+        "book_hash": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+        "user_id": "alex",
+        "updated_at": 1787799600000,
+        "deleted_at": 1787799600000,
+        "synced_at": "2026-08-27T03:00:00.000Z",
+        "uploaded_at": "2026-08-27T00:00:00.000Z",
+        "hash": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+        "format": "EPUB",
+        "title": "The Dispossessed",
+        "author": "Ursula K. Le Guin",
+        "createdAt": 1787788800000,
+        "updatedAt": 1787799600000,
+        "deletedAt": 1787799600000,
+        "coverImageUrl": "https://studio.tail1234.ts.net:3141/api/reader/readest/books/a3f19c04b7e25d6188cc0f4b9a2e7d51/cover"
+      }
+    }
+  ]
+}

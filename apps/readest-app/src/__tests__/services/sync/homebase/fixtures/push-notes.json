@@ -1,0 +1,243 @@
+{
+  "note": "POST /sync with notes. Readest upserts notes on (book_hash, id), so the id is the annotation identity and Homebase reuses it verbatim rather than minting its own. Readest's note vocabulary is wider than Homebase's kind, so the original type is stored in sourceKind and replayed on the pull. An id that fails the charset is reported back to the client rather than dropped in silence.",
+  "context": {
+    "deviceId": "readest-macbook",
+    "profileId": "alex",
+    "now": 1787875200000,
+    "deviceSeq": 7
+  },
+  "cases": [
+    {
+      "name": "an annotation with a comment becomes a note, and red collapses to pink",
+      "record": {
+        "id": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787796000000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "type": "annotation",
+        "cfi": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+        "text": "the only animal that can believe in things that exist purely in its own imagination",
+        "note": "Compare with Anderson on imagined communities.",
+        "style": "highlight",
+        "color": "red",
+        "createdAt": 1787792400000,
+        "updatedAt": 1787796000000
+      },
+      "expect": {
+        "ok": true,
+        "row": {
+          "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5V",
+          "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+          "profileId": "alex",
+          "kind": "note",
+          "sourceKind": "annotation",
+          "locatorKind": "epubcfi",
+          "locator": "epubcfi(/6/14!/4/2/6,/1:0,/1:42)",
+          "text": "the only animal that can believe in things that exist purely in its own imagination",
+          "note": "Compare with Anderson on imagined communities.",
+          "style": "pink",
+          "device": "readest-macbook",
+          "deviceSeq": 7,
+          "createdAt": 1787792400000,
+          "updatedAt": 1787796000000
+        }
+      }
+    },
+    {
+      "name": "an excerpt with no comment is a highlight, and underline beats the colour axis",
+      "record": {
+        "id": "01K3ZC4Q7M8N9P0Q1R2S3T4U5X",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787796000000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "type": "excerpt",
+        "cfi": "epubcfi(/6/20!/4/2/12,/1:0,/1:88)",
+        "text": "the imagined order is embedded in the material world",
+        "note": "",
+        "style": "underline",
+        "color": "green",
+        "createdAt": 1787796000000,
+        "updatedAt": 1787796000000
+      },
+      "expect": {
+        "ok": true,
+        "row": {
+          "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5X",
+          "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+          "profileId": "alex",
+          "kind": "highlight",
+          "sourceKind": "excerpt",
+          "locatorKind": "epubcfi",
+          "locator": "epubcfi(/6/20!/4/2/12,/1:0,/1:88)",
+          "text": "the imagined order is embedded in the material world",
+          "style": "underline",
+          "device": "readest-macbook",
+          "deviceSeq": 7,
+          "createdAt": 1787796000000,
+          "updatedAt": 1787796000000
+        }
+      }
+    },
+    {
+      "name": "an xpointer range from a Readest install that reads alongside the Kobo",
+      "record": {
+        "id": "01K3ZC4Q7M8N9P0Q1R2S3T4U5W",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787799600000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "type": "bookmark",
+        "cfi": "",
+        "xpointer0": "/body/DocFragment[11]/body/article/div/p[20]/text()[2].167",
+        "xpointer1": "/body/DocFragment[11]/body/article/div/p[20]/text()[2].203",
+        "note": "",
+        "createdAt": 1787788800000,
+        "updatedAt": 1787799600000
+      },
+      "expect": {
+        "ok": true,
+        "row": {
+          "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5W",
+          "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+          "profileId": "alex",
+          "kind": "bookmark",
+          "sourceKind": "bookmark",
+          "locatorKind": "xpointer",
+          "locator": "/body/DocFragment[11]/body/article/div/p[20]/text()[2].167",
+          "locatorEnd": "/body/DocFragment[11]/body/article/div/p[20]/text()[2].203",
+          "device": "readest-macbook",
+          "deviceSeq": 7,
+          "createdAt": 1787788800000,
+          "updatedAt": 1787799600000
+        }
+      }
+    },
+    {
+      "name": "a tombstone push carries the deletion timestamp through unchanged",
+      "record": {
+        "id": "01K3ZC4Q7M8N9P0Q1R2S3T4U5W",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787799600000,
+        "deleted_at": 1787799600000,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "type": "bookmark",
+        "cfi": "",
+        "xpointer0": "/body/DocFragment[11]/body",
+        "note": "",
+        "createdAt": 1787788800000,
+        "updatedAt": 1787799600000,
+        "deletedAt": 1787799600000
+      },
+      "expect": {
+        "ok": true,
+        "row": {
+          "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5W",
+          "fileHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+          "profileId": "alex",
+          "kind": "bookmark",
+          "sourceKind": "bookmark",
+          "locatorKind": "xpointer",
+          "locator": "/body/DocFragment[11]/body",
+          "device": "readest-macbook",
+          "deviceSeq": 7,
+          "createdAt": 1787788800000,
+          "updatedAt": 1787799600000,
+          "deletedAt": 1787799600000
+        }
+      }
+    },
+    {
+      "name": "a PDF bookmark on a paged book",
+      "record": {
+        "id": "01K3ZC4Q7M8N9P0Q1R2S3T4U5Y",
+        "book_hash": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+        "user_id": "alex",
+        "updated_at": 1787788800000,
+        "deleted_at": null,
+        "bookHash": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+        "type": "bookmark",
+        "cfi": "",
+        "page": 88,
+        "note": "",
+        "createdAt": 1787788800000,
+        "updatedAt": 1787788800000
+      },
+      "paged": true,
+      "expect": {
+        "ok": true,
+        "row": {
+          "annotationId": "01K3ZC4Q7M8N9P0Q1R2S3T4U5Y",
+          "fileHash": "a3f19c04b7e25d6188cc0f4b9a2e7d51",
+          "profileId": "alex",
+          "kind": "bookmark",
+          "sourceKind": "bookmark",
+          "locatorKind": "pdf-page",
+          "locator": "pdf:88",
+          "device": "readest-macbook",
+          "deviceSeq": 7,
+          "createdAt": 1787788800000,
+          "updatedAt": 1787788800000
+        }
+      }
+    },
+    {
+      "name": "REJECT: the same page number on a reflowable EPUB, where it is a reader-local index",
+      "record": {
+        "id": "01K3ZC4Q7M8N9P0Q1R2S3T4U5Y",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787788800000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "type": "bookmark",
+        "cfi": "",
+        "page": 88,
+        "note": "",
+        "createdAt": 1787788800000,
+        "updatedAt": 1787788800000
+      },
+      "paged": false,
+      "expect": { "ok": false, "reason": "ambiguous-number" }
+    },
+    {
+      "name": "REJECT: an id outside the stored charset is reported, not silently dropped",
+      "record": {
+        "id": "note 1/highlight",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787788800000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "type": "annotation",
+        "cfi": "epubcfi(/6/14!/4/2/6/1:0)",
+        "note": "",
+        "createdAt": 1787788800000,
+        "updatedAt": 1787788800000
+      },
+      "expect": { "ok": false, "reason": "bad-annotation-id" }
+    },
+    {
+      "name": "REJECT: a bare path in the cfi field",
+      "record": {
+        "id": "01K3ZC4Q7M8N9P0Q1R2S3T4U5Z",
+        "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "user_id": "alex",
+        "updated_at": 1787788800000,
+        "deleted_at": null,
+        "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+        "type": "annotation",
+        "cfi": "/6/14!/4/2/6/1:0",
+        "note": "",
+        "createdAt": 1787788800000,
+        "updatedAt": 1787788800000
+      },
+      "expect": { "ok": false, "reason": "not-a-cfi" }
+    }
+  ]
+}
