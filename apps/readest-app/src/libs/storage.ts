@@ -1,7 +1,13 @@
 import { getAPIBaseUrl, isWebAppPlatform } from '@/services/environment';
 import { AppService } from '@/types/system';
 import { getUserID } from '@/utils/access';
+import { getAccessToken } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
+import {
+  getHomebaseBaseUrl,
+  isHomebaseSyncEnabled,
+  DEFAULT_HOMEBASE_STORAGE_PATH,
+} from '@/services/sync/homebase/config';
 import {
   tauriUpload,
   tauriDownload,
@@ -174,6 +180,25 @@ export const downloadFile = async ({
 }: DownloadFileParams) => {
   try {
     let downloadUrl = url;
+    // Homebase deployment: book bytes are served by the household server via
+    // signed URLs keyed on `<hash>.<ext>`; Readest Cloud's storage API would
+    // reject the Homebase device token.
+    if (!downloadUrl && isHomebaseSyncEnabled() && cfp) {
+      const base = getHomebaseBaseUrl();
+      const parts = cfp.split('/');
+      const filename = parts[parts.length - 1] ?? '';
+      const hash = parts.length >= 2 ? parts[parts.length - 2] : '';
+      const ext = filename.includes('.') ? filename.slice(filename.lastIndexOf('.') + 1) : '';
+      if (base && hash && ext) {
+        const response = await fetch(
+          `${base}${DEFAULT_HOMEBASE_STORAGE_PATH}/download?fileKey=${encodeURIComponent(`${hash}.${ext}`)}`,
+          { headers: { Authorization: `Bearer ${(await getAccessToken()) ?? ''}` } },
+        );
+        if (!response.ok) throw new Error(`Homebase download URL failed: ${response.status}`);
+        const payload = (await response.json()) as { downloadUrl?: string };
+        downloadUrl = payload.downloadUrl;
+      }
+    }
     if (!downloadUrl) {
       const userId = await getUserID();
       if (!userId) {
