@@ -293,6 +293,21 @@ export const useProgressSync = (bookKey: string) => {
             });
           }
         }
+      } else if (remoteCFILocation && !configCFI) {
+        // First open on this device: the book was adopted from the cloud with
+        // remote progress but has no local position yet, so there is nothing to
+        // compare against and the CFI branch above never fires. Without this a
+        // synced book always opens at page 1 and silently discards the position
+        // every other device agrees on.
+        const isPreview = useReaderStore.getState().getViewState(bookKey)?.previewMode;
+        if (view && !isPreview) {
+          view.goTo(remoteCFILocation);
+          setHoveredBookKey(null);
+          eventDispatcher.dispatch('hint', {
+            bookKey,
+            message: _('Reading Progress Synced'),
+          });
+        }
       } else if (xpointerUnresolved && remoteFraction !== undefined) {
         // No CFI anywhere and the XPointer didn't resolve: the reported
         // fraction is all that's left. CREngine and foliate paginate
