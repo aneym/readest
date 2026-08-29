@@ -271,11 +271,30 @@ export async function downloadBookCovers(
       return [lfp, book];
     }),
   );
-  const filePaths = books.map((book) => ({
+  // A Homebase-served book row already carries an absolute, signed cover URL;
+  // fetch those directly instead of asking Readest Cloud's storage API, which
+  // rejects a Homebase device token ("Not authenticated") and used to abort
+  // the whole library adoption batch.
+  const hasAbsoluteCover = (book: Book): boolean => /^https?:\/\//.test(book.coverImageUrl ?? '');
+  const directUrls = books.filter(hasAbsoluteCover).map((book) => ({
+    lfp: getCoverFilename(book),
+    cfp: `${CLOUD_BOOKS_SUBDIR}/${getCoverFilename(book)}`,
+    downloadUrl: book.coverImageUrl ?? undefined,
+  }));
+  const stockBooks = books.filter((book) => !hasAbsoluteCover(book));
+  const filePaths = stockBooks.map((book) => ({
     lfp: getCoverFilename(book),
     cfp: `${CLOUD_BOOKS_SUBDIR}/${getCoverFilename(book)}`,
   }));
-  const downloadUrls = await batchGetDownloadUrls(filePaths);
+  let downloadUrls: { lfp: string; cfp: string; downloadUrl?: string }[] = directUrls;
+  if (filePaths.length > 0) {
+    try {
+      downloadUrls = [...directUrls, ...(await batchGetDownloadUrls(filePaths))];
+    } catch (error) {
+      // Covers are a nicety; never let their URL resolution abort adoption.
+      console.log('Batch cover URL resolution failed; continuing without', error);
+    }
+  }
   await Promise.all(
     books.map(async (book) => {
       if (!(await fs.exists(getDir(book), 'Books'))) {
