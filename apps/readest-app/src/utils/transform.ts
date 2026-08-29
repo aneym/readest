@@ -52,11 +52,16 @@ export const transformBookConfigFromDB = (dbBookConfig: DBBookConfig): BookConfi
     view_settings,
     updated_at,
   } = dbBookConfig;
+  // A Homebase config carries `hbFraction` (the reading fraction) because this
+  // deployment has no page count to build `progress` from. It is rebuilt field
+  // by field here, so relay it explicitly or the reader loses its anchor.
+  const hbFraction = (dbBookConfig as DBBookConfig & { hbFraction?: number }).hbFraction;
   return {
     bookHash: book_hash,
     metaHash: meta_hash,
     location,
     xpointer,
+    ...(typeof hbFraction === 'number' ? { hbFraction } : {}),
     progress: progress && JSON.parse(progress),
     rsvpPosition: rsvp_position && JSON.parse(rsvp_position),
     searchConfig: search_config && JSON.parse(search_config),
