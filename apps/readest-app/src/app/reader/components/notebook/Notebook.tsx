@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RiQuillPenLine } from 'react-icons/ri';
 
 import { useSettingsStore } from '@/store/settingsStore';
@@ -60,6 +60,11 @@ const Notebook: React.FC = ({}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const isMobile = window.innerWidth < 640;
   const [isFullHeightInMobile, setIsFullHeightInMobile] = useState(isMobile);
+  // Partial-sheet state for the annotate/edit flow: where the sheet's top
+  // rests (0 = full height) and whether the current open belongs to that flow
+  // (so ending it returns to the page instead of a full-screen notes list).
+  const sheetAnchorRef = useRef(0);
+  const openedForEditorRef = useRef(false);
 
   const {
     panelRef: notebookRef,
@@ -72,6 +77,7 @@ const Notebook: React.FC = ({}) => {
       setIsFullHeightInMobile(isMobile);
     },
     (data) => setIsFullHeightInMobile(data.clientY < 44),
+    () => sheetAnchorRef.current,
   );
 
   const onNavigateEvent = async () => {
@@ -132,10 +138,16 @@ const Notebook: React.FC = ({}) => {
   // above the IME — the WebView layout itself does not reflow for the
   // keyboard. A plain notebook open (no editor active) stays full-screen.
   useEffect(() => {
-    if (!isMobile || !isNotebookVisible) return;
+    if (!isNotebookVisible) {
+      openedForEditorRef.current = false;
+      sheetAnchorRef.current = 0;
+      return;
+    }
+    if (!isMobile) return;
     const panel = notebookRef.current;
     if (!panel) return;
     if (notebookNewAnnotation || notebookEditAnnotation) {
+      openedForEditorRef.current = true;
       const vv = window.visualViewport;
       // Chromium's VirtualKeyboard API reports keyboard geometry even when the
       // window runs edge-to-edge and never resizes for the IME (the case where
@@ -164,6 +176,7 @@ const Notebook: React.FC = ({}) => {
         const vkInset = vk ? vk.boundingRect.height : 0;
         const kbInset = Math.max(vvInset, vkInset);
         const topFraction = Math.max(0.02, 0.45 - kbInset / layoutH);
+        sheetAnchorRef.current = topFraction;
         panel.style.transition = 'none';
         panel.style.transform = `translateY(${topFraction * 100}%)`;
         notebookHeight.current = topFraction;
@@ -181,9 +194,18 @@ const Notebook: React.FC = ({}) => {
         vv?.removeEventListener('scroll', apply);
         vk?.removeEventListener('geometrychange', apply);
       };
+    } else if (openedForEditorRef.current) {
+      // The annotate/edit flow ended without keeping the notebook relevant
+      // (Cancel, cleared selection): return straight to the page instead of
+      // promoting the partial sheet to a full-screen notes list.
+      openedForEditorRef.current = false;
+      sheetAnchorRef.current = 0;
+      setNotebookVisible(false);
+      return;
     } else {
       panel.style.transform = '';
       notebookHeight.current = 0;
+      sheetAnchorRef.current = 0;
       if (overlayRef.current) {
         overlayRef.current.style.opacity = '';
       }

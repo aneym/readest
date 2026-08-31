@@ -9,6 +9,11 @@ const VELOCITY_THRESHOLD = 0.5;
 export const useSwipeToDismiss = (
   onDismiss: () => void,
   onDragMove?: (data: { clientY: number }) => void,
+  // Where a below-threshold release should settle, as a 0-1 fraction of the
+  // screen the panel's top rests at. Defaults to 0 (full height) — the
+  // annotate bottom sheet passes its partial anchor so a small drag snaps
+  // back to the sheet instead of promoting it to full screen.
+  restingTop?: () => number,
 ) => {
   const { appService } = useEnv();
 
@@ -53,11 +58,12 @@ export const useSwipeToDismiss = (
         impactFeedback('medium');
       }
     } else {
+      const top = Math.max(0, Math.min(1, restingTop?.() ?? 0));
       panel.style.transition = 'transform 0.3s ease-out';
-      panel.style.transform = 'translateY(0%)';
+      panel.style.transform = `translateY(${top * 100}%)`;
       overlay.style.transition = 'opacity 0.3s ease-out';
-      overlay.style.opacity = '0.8';
-      onDragMove?.({ clientY: 0 });
+      overlay.style.opacity = top > 0 ? `${1 - top}` : '0.8';
+      onDragMove?.({ clientY: top * window.innerHeight });
       if (appService?.hasHaptics) {
         impactFeedback('medium');
       }
