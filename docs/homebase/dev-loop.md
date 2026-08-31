@@ -81,6 +81,25 @@ adb -s emulator-5554 forward tcp:9222 localabstract:webview_devtools_remote_$(ad
 then argent `list-devices` shows a chromium device whose `describe` walks the
 real DOM; tap through the Android device with those normalized coordinates.
 
+### Driving traps (measured by the QA seat, 2026-08-31)
+
+- Plain `describe` on the Android device shows one opaque WebView node. Set up
+  the CDP forward FIRST for any Readest UI work; don't burn a retry finding out.
+- Long-press text selection needs Down → intermediate Move → Up. A plain
+  Down/delay/Up is not recognized as a long-press by the reader.
+- The selection toolbar auto-dismisses after a few seconds. Discover
+  coordinates and tap back-to-back with no detour in between, or the tap lands
+  on the page underneath and navigates.
+- Gboard's "Try out your stylus" onboarding dialog steals keystrokes on the
+  first text-field focus of a fresh session. Expect it once; dismiss and retype.
+- Cancelled note drafts persist (draft-save-on-blur upstream feature): a redo
+  take can open with the previous text pre-filled.
+- The app ignores `am start -a VIEW` file intents; import via
+  Import Books → From Local File → SAF picker.
+- Soft keyboard: injected text does not raise the IME. To see real keyboard
+  behavior: `adb shell settings put secure show_ime_with_hard_keyboard 1`,
+  then focus the field by tap; verify with `dumpsys input_method | grep mInputShown`.
+
 ## Palma
 
 `adb connect 100.65.146.9:5555` (USB flaky; tailnet serial preferred). After
