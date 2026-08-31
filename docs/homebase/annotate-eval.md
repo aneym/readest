@@ -35,6 +35,30 @@ page via the `window.onNativeImeInset` bridge (logcat tag MainActivity
 "IME inset bottom=N" shows the native side firing); only the sheet translates.
 A viewport change means someone reintroduced a WebView resize → FAIL.
 
+## Fixture and targeting notes (learned 2026-08-31)
+
+- The Gutenberg Alice EPUB carries `a:hover { color: red }` in its own author
+  CSS, and its chapter anchor (`a#chap01`) wraps whole chapters — a touch can
+  leave that anchor stuck in `:hover` (classic mobile sticky-hover), turning
+  every paragraph in the chapter red. This is the BOOK's CSS, not an app or
+  device bug: log it when seen, do not fail the run on it, and clear it with
+  a restart if it obscures a screenshot. Chromium's matched-styles API
+  (debugger-inspect-element) is what identified it; hand-enumerating CSSOM
+  missed it twice.
+- Coordinate guard before EVERY reader tap/long-press: resolve the target via
+  elementFromPoint at the exact screen coordinates you are about to use and
+  confirm it returns the intended word's node. Foliate offsets section
+  iframes horizontally, so iframe-local coordinates are not screen
+  coordinates; a stale transform lands presses on the wrong element (the
+  "collapsed selection at some heading" signature). No guard pass, no press.
+- After any Cancel/dismiss, check `getSelection()` — the cancel path
+  currently leaves the browser selection alive (known app bug, on the fix
+  list); clear it with one plain tap on the page, never `removeAllRanges()`
+  via CDP.
+- Steps 1-2 note: the note textarea auto-focuses when the sheet opens, so the
+  keyboard rises as part of step 1's action; treat the step 1/2 split as one
+  observation window.
+
 ## Steps and expectations
 
 | # | Action | PASS condition |
