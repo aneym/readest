@@ -42,9 +42,10 @@ A viewport change means someone reintroduced a WebView resize → FAIL.
   leave that anchor stuck in `:hover` (classic mobile sticky-hover), turning
   every paragraph in the chapter red. This is the BOOK's CSS, not an app or
   device bug: log it when seen, do not fail the run on it, and clear it with
-  a restart if it obscures a screenshot. Chromium's matched-styles API
-  (debugger-inspect-element) is what identified it; hand-enumerating CSSOM
-  missed it twice.
+  a restart if it obscures a screenshot. Identified by a matched-rule trace
+  (walk ancestors, `el.matches(sel)` against every stylesheet selector) via
+  `debugger-evaluate`; note `debugger-inspect-element` is an RN/Metro-only
+  tool and errors on this Tauri WebView app — don't reach for it here.
 - Coordinate guard before EVERY reader tap/long-press: resolve the target via
   elementFromPoint at the exact screen coordinates you are about to use and
   confirm it returns the intended word's node. Foliate offsets section
