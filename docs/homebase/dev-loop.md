@@ -99,6 +99,13 @@ real DOM; tap through the Android device with those normalized coordinates.
 - Soft keyboard: injected text does not raise the IME. To see real keyboard
   behavior: `adb shell settings put secure show_ime_with_hard_keyboard 1`,
   then focus the field by tap; verify with `dumpsys input_method | grep mInputShown`.
+- Edge-to-edge blinds the page to the keyboard: `enableEdgeToEdge()` in
+  MainActivity means the window never resizes for the IME, so `visualViewport`
+  resize events never fire and any JS keyboard-inset handling silently no-ops.
+  Fixed in the fork by padding the WebView by the IME inset
+  (`setOnApplyWindowInsetsListener` in `onWebViewCreate`); without that, CDP
+  DOM frames are byte-identical with the keyboard up vs down — that identical
+  frame check is the fast way to prove the page never saw the keyboard.
 
 ## Palma
 
