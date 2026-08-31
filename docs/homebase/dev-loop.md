@@ -109,12 +109,16 @@ real DOM; tap through the Android device with those normalized coordinates.
 - Edge-to-edge blinds the page to the keyboard: `enableEdgeToEdge()` in
   MainActivity means the window never resizes for the IME, so `visualViewport`
   resize events never fire and any JS keyboard-inset handling silently no-ops.
-  Fix attempts in flight (NOT yet verified): IME-inset bottom margin on the
-  WebView (padding does nothing — a WebView ignores its own padding for
-  content layout) plus a JS VirtualKeyboard-API fallback in Notebook.tsx.
-  Fast checks: CDP DOM frames byte-identical keyboard-up vs down = the page
-  never saw the keyboard; `adb logcat -s MainActivity | grep "IME inset"`
-  shows whether the native inset listener fired at all.
+  FIXED and verified (2026-08-31, emulator, docked keyboard): IME inset applied
+  as a bottom MARGIN on the WebView (padding does nothing — a WebView ignores
+  its own padding for content layout). Evidence: logcat "IME inset bottom=883"
+  while up / 0 after dismiss, viewport 915→578→915 in lockstep. The JS
+  VirtualKeyboard-API fallback in Notebook.tsx remains unverified in isolation
+  (the native margin makes it unnecessary on Android). Fast checks:
+  `adb logcat -s MainActivity | grep "IME inset"` shows whether the listener
+  fired and with what height; CDP frames normalize against the WebView's own
+  (shrunk) viewport, so an unchanged sheet frame is NOT a fail signal under
+  the margin mechanism — use a native screenshot for the visual truth.
 
 ## Palma
 
