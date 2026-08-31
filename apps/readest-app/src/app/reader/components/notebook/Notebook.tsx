@@ -126,27 +126,43 @@ const Notebook: React.FC = ({}) => {
 
   // On mobile, the annotate/edit-note flow presents the notebook as a partial
   // bottom sheet (the page stays visible above it) instead of a full-screen
-  // takeover; the drag handle still promotes it to full height. A plain
-  // notebook open (no editor active) stays full-screen.
+  // takeover; the drag handle still promotes it to full height. When the soft
+  // keyboard raises, the sheet rides up by the keyboard inset (visualViewport,
+  // the same pattern as EmailPasswordAuth) so the note editor stays visible
+  // above the IME — the WebView layout itself does not reflow for the
+  // keyboard. A plain notebook open (no editor active) stays full-screen.
   useEffect(() => {
     if (!isMobile || !isNotebookVisible) return;
     const panel = notebookRef.current;
     if (!panel) return;
     if (notebookNewAnnotation || notebookEditAnnotation) {
-      const topFraction = 0.45;
-      panel.style.transition = 'none';
-      panel.style.transform = `translateY(${topFraction * 100}%)`;
-      notebookHeight.current = topFraction;
-      if (overlayRef.current) {
-        overlayRef.current.style.opacity = `${1 - topFraction}`;
-      }
+      const vv = window.visualViewport;
+      const apply = () => {
+        const layoutH = document.documentElement.clientHeight;
+        const kbInset = vv ? Math.max(0, layoutH - vv.height - vv.offsetTop) : 0;
+        const topFraction = Math.max(0.02, 0.45 - kbInset / layoutH);
+        panel.style.transition = 'none';
+        panel.style.transform = `translateY(${topFraction * 100}%)`;
+        notebookHeight.current = topFraction;
+        if (overlayRef.current) {
+          overlayRef.current.style.opacity = `${1 - topFraction}`;
+        }
+      };
+      apply();
       setIsFullHeightInMobile(false);
+      vv?.addEventListener('resize', apply);
+      vv?.addEventListener('scroll', apply);
+      return () => {
+        vv?.removeEventListener('resize', apply);
+        vv?.removeEventListener('scroll', apply);
+      };
     } else {
       panel.style.transform = '';
       notebookHeight.current = 0;
       if (overlayRef.current) {
         overlayRef.current.style.opacity = '';
       }
+      return;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile, isNotebookVisible, notebookNewAnnotation, notebookEditAnnotation]);
