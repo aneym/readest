@@ -61,23 +61,22 @@ class MainActivity : TauriActivity(), KeyDownInterceptor {
         // server can drive QA and pairing over ADB/CDP (chrome://inspect).
         WebView.setWebContentsDebuggingEnabled(true)
         // Edge-to-edge (enableEdgeToEdge in onCreate) means the window is never
-        // resized for the soft keyboard: the WebView keeps its full height, the
-        // IME draws over it, visualViewport never fires a resize, and in-page
-        // keyboard handling (auth screens, the annotate sheet) is blind to the
-        // keyboard. Shrink the WebView by the IME inset so the page viewport
-        // actually reflows above the keyboard. Margin, not padding: a WebView
-        // ignores its own padding for content layout, so the first attempt
-        // (setPadding) changed nothing. The Log.d line is the field check —
-        // `adb logcat -s MainActivity | grep "IME inset"` must show a large
-        // bottom value while the keyboard is up, else the listener never fired.
+        // resized for the soft keyboard: the IME draws over the WebView and no
+        // in-page mechanism (visualViewport, VirtualKeyboard API) ever sees it.
+        // Report the IME inset INTO the page instead of resizing the WebView —
+        // a resize (margin) works but reflows/repaginates the whole book view
+        // on every keyboard open/close, which reads as the page turning under
+        // the sheet. The page layer stays byte-stable; JS moves only what must
+        // clear the keyboard. Field check:
+        // `adb logcat -s MainActivity | grep "IME inset"` — expect the real
+        // keyboard height (~800+) while up, 0 after dismiss.
         ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
             Log.d("MainActivity", "IME inset bottom=${ime.bottom}")
-            val lp = v.layoutParams
-            if (lp is android.view.ViewGroup.MarginLayoutParams && lp.bottomMargin != ime.bottom) {
-                lp.bottomMargin = ime.bottom
-                v.layoutParams = lp
-            }
+            (v as? WebView)?.evaluateJavascript(
+                """try { window.onNativeImeInset && window.onNativeImeInset(${ime.bottom}); } catch (_) {}""",
+                null
+            )
             insets
         }
         ViewCompat.requestApplyInsets(webView)

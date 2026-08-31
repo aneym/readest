@@ -148,6 +148,7 @@ const Notebook: React.FC = ({}) => {
     if (!panel) return;
     if (notebookNewAnnotation || notebookEditAnnotation) {
       openedForEditorRef.current = true;
+      const nativeInset = { px: 0 };
       const vv = window.visualViewport;
       // Chromium's VirtualKeyboard API reports keyboard geometry even when the
       // window runs edge-to-edge and never resizes for the IME (the case where
@@ -174,7 +175,7 @@ const Notebook: React.FC = ({}) => {
         const layoutH = document.documentElement.clientHeight;
         const vvInset = vv ? Math.max(0, layoutH - vv.height - vv.offsetTop) : 0;
         const vkInset = vk ? vk.boundingRect.height : 0;
-        const kbInset = Math.max(vvInset, vkInset);
+        const kbInset = Math.max(vvInset, vkInset, nativeInset.px);
         const topFraction = Math.max(0.02, 0.45 - kbInset / layoutH);
         sheetAnchorRef.current = topFraction;
         panel.style.transition = 'none';
@@ -184,12 +185,24 @@ const Notebook: React.FC = ({}) => {
           overlayRef.current.style.opacity = `${1 - topFraction}`;
         }
       };
+      // The Android activity reports the IME inset into the page (in device
+      // pixels) instead of resizing the WebView — resizing repaginates the
+      // whole book view on every keyboard open/close, which reads as the page
+      // turning under the sheet.
+      const withNativeIme = window as unknown as {
+        onNativeImeInset?: (bottomDevicePx: number) => void;
+      };
+      withNativeIme.onNativeImeInset = (bottomDevicePx: number) => {
+        nativeInset.px = Math.max(0, bottomDevicePx) / (window.devicePixelRatio || 1);
+        apply();
+      };
       apply();
       setIsFullHeightInMobile(false);
       vv?.addEventListener('resize', apply);
       vv?.addEventListener('scroll', apply);
       vk?.addEventListener('geometrychange', apply);
       return () => {
+        delete withNativeIme.onNativeImeInset;
         vv?.removeEventListener('resize', apply);
         vv?.removeEventListener('scroll', apply);
         vk?.removeEventListener('geometrychange', apply);
