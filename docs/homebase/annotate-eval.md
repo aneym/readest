@@ -46,12 +46,19 @@ A viewport change means someone reintroduced a WebView resize → FAIL.
   (walk ancestors, `el.matches(sel)` against every stylesheet selector) via
   `debugger-evaluate`; note `debugger-inspect-element` is an RN/Metro-only
   tool and errors on this Tauri WebView app — don't reach for it here.
-- Coordinate guard before EVERY reader tap/long-press: resolve the target via
-  elementFromPoint at the exact screen coordinates you are about to use and
-  confirm it returns the intended word's node. Foliate offsets section
-  iframes horizontally, so iframe-local coordinates are not screen
-  coordinates; a stale transform lands presses on the wrong element (the
-  "collapsed selection at some heading" signature). No guard pass, no press.
+- Coordinate guard before EVERY reader tap/long-press: resolve the target at
+  the exact screen coordinates you are about to use and confirm it returns
+  the intended word's node. Top-level `document.elementFromPoint` STOPS at
+  the `<foliate-view>` custom element (shadow DOM does not auto-pierce) —
+  walk explicitly: `el.shadowRoot.elementFromPoint(x,y)` through
+  FOLIATE-VIEW → FOLIATE-PAGINATOR → IFRAME, then confirm via textContent.
+  Foliate also offsets section iframes horizontally (an off-screen
+  front-matter iframe can "overlap" naively), so never pick the iframe by
+  rect overlap alone. A stale transform lands presses on the wrong element
+  (the "collapsed selection at some heading" signature). No guard pass, no
+  press. And ONE DRIVER PER DEVICE: a second agent's taps interleaving with
+  a long-press collapses it the same way — check for foreign screen
+  recordings/forwards before blaming the app.
 - After any Cancel/dismiss, check `getSelection()` — the cancel path
   currently leaves the browser selection alive (known app bug, on the fix
   list); clear it with one plain tap on the page, never `removeAllRanges()`
