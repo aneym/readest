@@ -124,6 +124,33 @@ const Notebook: React.FC = ({}) => {
     }
   }, [isNotebookVisible, notebookNewAnnotation, notebookEditAnnotation]);
 
+  // On mobile, the annotate/edit-note flow presents the notebook as a partial
+  // bottom sheet (the page stays visible above it) instead of a full-screen
+  // takeover; the drag handle still promotes it to full height. A plain
+  // notebook open (no editor active) stays full-screen.
+  useEffect(() => {
+    if (!isMobile || !isNotebookVisible) return;
+    const panel = notebookRef.current;
+    if (!panel) return;
+    if (notebookNewAnnotation || notebookEditAnnotation) {
+      const topFraction = 0.45;
+      panel.style.transition = 'none';
+      panel.style.transform = `translateY(${topFraction * 100}%)`;
+      notebookHeight.current = topFraction;
+      if (overlayRef.current) {
+        overlayRef.current.style.opacity = `${1 - topFraction}`;
+      }
+      setIsFullHeightInMobile(false);
+    } else {
+      panel.style.transform = '';
+      notebookHeight.current = 0;
+      if (overlayRef.current) {
+        overlayRef.current.style.opacity = '';
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, isNotebookVisible, notebookNewAnnotation, notebookEditAnnotation]);
+
   const handleNotebookResize = (newWidth: string) => {
     setNotebookWidth(newWidth);
     settings.globalReadSettings.notebookWidth = newWidth;
@@ -261,6 +288,11 @@ const Notebook: React.FC = ({}) => {
     // The placeholder now carries a note (or a fresh unified record was created),
     // so it's a real annotation — drop the cancel-cleanup handles (#4791).
     setNotebookNewHighlightIds([]);
+    // Annotating on mobile interrupts reading: once the note is saved, return
+    // straight to the page instead of leaving the notebook covering it.
+    if (isMobile && !isNotebookPinned) {
+      setNotebookVisible(false);
+    }
   };
 
   const handleEditNote = (note: BookNote, isDelete: boolean) => {
