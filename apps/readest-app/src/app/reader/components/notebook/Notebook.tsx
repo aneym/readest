@@ -137,9 +137,32 @@ const Notebook: React.FC = ({}) => {
     if (!panel) return;
     if (notebookNewAnnotation || notebookEditAnnotation) {
       const vv = window.visualViewport;
+      // Chromium's VirtualKeyboard API reports keyboard geometry even when the
+      // window runs edge-to-edge and never resizes for the IME (the case where
+      // visualViewport stays silent). Use whichever source sees the keyboard.
+      const vk = (
+        navigator as unknown as {
+          virtualKeyboard?: {
+            overlaysContent: boolean;
+            boundingRect: { height: number };
+            addEventListener: (type: string, listener: () => void) => void;
+            removeEventListener: (type: string, listener: () => void) => void;
+          };
+        }
+      ).virtualKeyboard;
+      if (vk) {
+        try {
+          vk.overlaysContent = true;
+        } catch {
+          // Older WebViews expose the object but reject the setter; geometry
+          // events still fire.
+        }
+      }
       const apply = () => {
         const layoutH = document.documentElement.clientHeight;
-        const kbInset = vv ? Math.max(0, layoutH - vv.height - vv.offsetTop) : 0;
+        const vvInset = vv ? Math.max(0, layoutH - vv.height - vv.offsetTop) : 0;
+        const vkInset = vk ? vk.boundingRect.height : 0;
+        const kbInset = Math.max(vvInset, vkInset);
         const topFraction = Math.max(0.02, 0.45 - kbInset / layoutH);
         panel.style.transition = 'none';
         panel.style.transform = `translateY(${topFraction * 100}%)`;
@@ -152,9 +175,11 @@ const Notebook: React.FC = ({}) => {
       setIsFullHeightInMobile(false);
       vv?.addEventListener('resize', apply);
       vv?.addEventListener('scroll', apply);
+      vk?.addEventListener('geometrychange', apply);
       return () => {
         vv?.removeEventListener('resize', apply);
         vv?.removeEventListener('scroll', apply);
+        vk?.removeEventListener('geometrychange', apply);
       };
     } else {
       panel.style.transform = '';

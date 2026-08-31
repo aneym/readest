@@ -64,13 +64,23 @@ class MainActivity : TauriActivity(), KeyDownInterceptor {
         // resized for the soft keyboard: the WebView keeps its full height, the
         // IME draws over it, visualViewport never fires a resize, and in-page
         // keyboard handling (auth screens, the annotate sheet) is blind to the
-        // keyboard. Pad the WebView by the IME inset so the page viewport
-        // actually shrinks above the keyboard and reflows.
+        // keyboard. Shrink the WebView by the IME inset so the page viewport
+        // actually reflows above the keyboard. Margin, not padding: a WebView
+        // ignores its own padding for content layout, so the first attempt
+        // (setPadding) changed nothing. The Log.d line is the field check —
+        // `adb logcat -s MainActivity | grep "IME inset"` must show a large
+        // bottom value while the keyboard is up, else the listener never fired.
         ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-            v.setPadding(0, 0, 0, ime.bottom)
+            Log.d("MainActivity", "IME inset bottom=${ime.bottom}")
+            val lp = v.layoutParams
+            if (lp is android.view.ViewGroup.MarginLayoutParams && lp.bottomMargin != ime.bottom) {
+                lp.bottomMargin = ime.bottom
+                v.layoutParams = lp
+            }
             insets
         }
+        ViewCompat.requestApplyInsets(webView)
         ensureInitialPaint()
     }
 
