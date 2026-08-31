@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RiQuillPenLine } from 'react-icons/ri';
 
 import { useSettingsStore } from '@/store/settingsStore';
+import { useDeviceControlStore } from '@/store/deviceStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useSidebarStore } from '@/store/sidebarStore';
@@ -54,6 +55,7 @@ const Notebook: React.FC = ({}) => {
   const { setNotebookNewAnnotation, setNotebookNewHighlightIds } = useNotebookStore();
   const { setNotebookEditAnnotation, setNotebookActiveTab } = useNotebookStore();
   const { activeConversationId } = useAIChatStore();
+  const { acquireBackKeyInterception, releaseBackKeyInterception } = useDeviceControlStore();
 
   const [isSearchBarVisible, setIsSearchBarVisible] = useState(false);
   const [searchResults, setSearchResults] = useState<BookNote[] | null>(null);
@@ -129,6 +131,36 @@ const Notebook: React.FC = ({}) => {
       setSearchTerm('');
     }
   }, [isNotebookVisible, notebookNewAnnotation, notebookEditAnnotation]);
+
+  // Android back while the notebook is open must never reach the activity —
+  // un-intercepted it finishes the reader (or the whole app), stranding an
+  // orphan placeholder highlight because no cleanup runs. Same
+  // acquire/release pattern as Dialog: keyboard focus up → blur (closes the
+  // IME); otherwise close the notebook, which routes through the normal
+  // cancel cleanup.
+  useEffect(() => {
+    if (!isNotebookVisible || !appService?.isAndroidApp) return;
+    const handleBack = (event: CustomEvent) => {
+      if (event.detail?.keyName !== 'Back') return false;
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.isContentEditable)
+      ) {
+        active.blur();
+        return true;
+      }
+      setNotebookVisible(false);
+      return true;
+    };
+    acquireBackKeyInterception();
+    eventDispatcher.onSync('native-key-down', handleBack);
+    return () => {
+      releaseBackKeyInterception();
+      eventDispatcher.offSync('native-key-down', handleBack);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNotebookVisible, appService]);
 
   // On mobile, the annotate/edit-note flow presents the notebook as a partial
   // bottom sheet (the page stays visible above it) instead of a full-screen

@@ -106,6 +106,14 @@ real DOM; tap through the Android device with those normalized coordinates.
   silent, which looks exactly like a broken fix. Disable it before keyboard
   tests: `adb shell settings put secure stylus_handwriting_enabled 0`, then
   relaunch the app. Real e-ink devices have no stylus mode.
+- CDP frames vs gesture-tap space diverge if anything resizes the WebView:
+  CDP `describe` normalizes against the WebView's own (possibly shrunk)
+  viewport, while argent gesture-tap expects full-physical-screen fractions.
+  On a build that resizes the WebView for the keyboard, CDP-derived taps with
+  the keyboard up can land on the IME instead of the target. Retired by the
+  inset-bridge mechanism (WebView never resizes now), but if a resize ever
+  returns: back-press the keyboard away before trusting CDP numbers, or use a
+  native screenshot for physical-space estimation.
 - Edge-to-edge blinds the page to the keyboard: `enableEdgeToEdge()` in
   MainActivity means the window never resizes for the IME, so `visualViewport`
   resize events never fire and any JS keyboard-inset handling silently no-ops.
