@@ -99,6 +99,19 @@ real DOM; tap through the Android device with those normalized coordinates.
 - Soft keyboard: injected text does not raise the IME. To see real keyboard
   behavior: `adb shell settings put secure show_ime_with_hard_keyboard 1`,
   then focus the field by tap; verify with `dumpsys input_method | grep mInputShown`.
+- Wedged accessibility flag kills long-press selection (2026-08-31, 3h lost):
+  if the argent uiautomator instrumentation crashes (DeadObjectException in
+  logcat's crash buffer), it can leave `accessibility_enabled=1` with
+  `enabled_accessibility_services` null. Chromium/WebView then switches into
+  accessibility mode: long-press text selection dies on EVERY app and build,
+  CDP can end up watching a different live renderer than the screen (frames
+  that contradict a native screenshot), and computed styles can read
+  impossible values (the "all paragraphs red" ghost). Symptom check FIRST when
+  input behaves impossibly: `adb shell settings get secure accessibility_enabled`
+  — if 1 with no service listed, `settings put secure accessibility_enabled 0`.
+  If CDP and native screenshots still disagree afterwards, stop debugging and
+  rebuild the AVD (`avdmanager delete avd -n readest-qa` + create, ~3 min) —
+  a corrupted WebView/emulator is not worth archaeology.
 - Emulator Gboard stylus mode presents an UNDOCKED keyboard: on a stylus-capable
   AVD (Pixel 8), field focus raises a 63px stylus toolbar, and the QWERTY opened
   from "Show on-screen keyboard" registers NO ime inset — window resize,
