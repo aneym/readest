@@ -99,6 +99,13 @@ real DOM; tap through the Android device with those normalized coordinates.
 - Soft keyboard: injected text does not raise the IME. To see real keyboard
   behavior: `adb shell settings put secure show_ime_with_hard_keyboard 1`,
   then focus the field by tap; verify with `dumpsys input_method | grep mInputShown`.
+- Emulator Gboard stylus mode presents an UNDOCKED keyboard: on a stylus-capable
+  AVD (Pixel 8), field focus raises a 63px stylus toolbar, and the QWERTY opened
+  from "Show on-screen keyboard" registers NO ime inset — window resize,
+  visualViewport, VirtualKeyboard API, and native inset listeners all stay
+  silent, which looks exactly like a broken fix. Disable it before keyboard
+  tests: `adb shell settings put secure stylus_handwriting_enabled 0`, then
+  relaunch the app. Real e-ink devices have no stylus mode.
 - Edge-to-edge blinds the page to the keyboard: `enableEdgeToEdge()` in
   MainActivity means the window never resizes for the IME, so `visualViewport`
   resize events never fire and any JS keyboard-inset handling silently no-ops.
