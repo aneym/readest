@@ -16,6 +16,8 @@ import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.OnBackPressedCallback
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -58,6 +60,17 @@ class MainActivity : TauriActivity(), KeyDownInterceptor {
         // Homebase household build: keep the WebView inspectable so the home
         // server can drive QA and pairing over ADB/CDP (chrome://inspect).
         WebView.setWebContentsDebuggingEnabled(true)
+        // Edge-to-edge (enableEdgeToEdge in onCreate) means the window is never
+        // resized for the soft keyboard: the WebView keeps its full height, the
+        // IME draws over it, visualViewport never fires a resize, and in-page
+        // keyboard handling (auth screens, the annotate sheet) is blind to the
+        // keyboard. Pad the WebView by the IME inset so the page viewport
+        // actually shrinks above the keyboard and reflows.
+        ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            v.setPadding(0, 0, 0, ime.bottom)
+            insets
+        }
         ensureInitialPaint()
     }
 
