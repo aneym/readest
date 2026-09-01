@@ -112,6 +112,16 @@ real DOM; tap through the Android device with those normalized coordinates.
   If CDP and native screenshots still disagree afterwards, stop debugging and
   rebuild the AVD (`avdmanager delete avd -n readest-qa` + create, ~3 min) —
   a corrupted WebView/emulator is not worth archaeology.
+- Second variant of the instrumentation wedge: a host-side poller in the
+  argent transport session can keep invoking `uiautomator dump` every 10-30s;
+  each hit crash-loops on "UiAutomationService already registered" (logcat
+  `Calling main entry com.android.commands.uiautomator.Launcher` repeating
+  with no agent activity) and the contention stops Blink promoting touch
+  gestures into text selections — long-press AND double-tap yield a collapsed
+  caret while `accessibility_enabled` reads a clean 0. Fix: reboot the
+  emulator (clears the stuck registration), then argent
+  `stop-simulator-server {udid}` to kill the poller; verify with
+  `logcat -c; sleep 60; logcat -d | grep -c uiautomator.Launcher` → 0.
 - Emulator Gboard stylus mode presents an UNDOCKED keyboard: on a stylus-capable
   AVD (Pixel 8), field focus raises a 63px stylus toolbar, and the QWERTY opened
   from "Show on-screen keyboard" registers NO ime inset — window resize,
