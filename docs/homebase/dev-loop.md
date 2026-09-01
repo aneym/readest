@@ -122,6 +122,17 @@ real DOM; tap through the Android device with those normalized coordinates.
   emulator (clears the stuck registration), then argent
   `stop-simulator-server {udid}` to kill the poller; verify with
   `logcat -c; sleep 60; logcat -d | grep -c uiautomator.Launcher` → 0.
+- Emulator selection QA on this host is UNRELIABLE after extended
+  instrumentation (declared 2026-09-01 after a full evening): Blink stops
+  promoting touch gestures into text selections even on a freshly recreated
+  AVD once heavy CDP/uiautomator traffic has run — long-press AND double-tap
+  yield `{rangeCount:1, text:"", type:"Caret"}` while contextmenu fires on
+  time and CSS hover hit-testing works. Diagnostic signature:
+  `caretRangeFromPoint()` degenerate across the viewport (fixed offset for
+  the first ~9px of a line, then "beyond string end"). When this appears:
+  STOP. Verify selection-dependent UX on the physical Palma instead; bank
+  the selection-free checks (notebook toggler, position restore) which keep
+  working.
 - Emulator Gboard stylus mode presents an UNDOCKED keyboard: on a stylus-capable
   AVD (Pixel 8), field focus raises a 63px stylus toolbar, and the QWERTY opened
   from "Show on-screen keyboard" registers NO ime inset — window resize,
