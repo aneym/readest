@@ -132,7 +132,13 @@ real DOM; tap through the Android device with those normalized coordinates.
   the first ~9px of a line, then "beyond string end"). When this appears:
   STOP. Verify selection-dependent UX on the physical Palma instead; bank
   the selection-free checks (notebook toggler, position restore) which keep
-  working.
+  working. Caveat on the "fresh AVD reproduces it" claim: an `avdmanager
+  delete avd` + recreate performed while the old emulator PROCESS is still
+  running does not give you a fresh box — argent boot-device prefers the
+  already-running instance, so the "new" AVD is the old one with all its
+  state (the giveaway: prior progress/highlights present before any import).
+  Kill the running emulator (`adb -s <serial> emu kill`) BEFORE deleting the
+  AVD, and treat surviving state as proof the swap never happened.
 - Emulator Gboard stylus mode presents an UNDOCKED keyboard: on a stylus-capable
   AVD (Pixel 8), field focus raises a 63px stylus toolbar, and the QWERTY opened
   from "Show on-screen keyboard" registers NO ime inset — window resize,
