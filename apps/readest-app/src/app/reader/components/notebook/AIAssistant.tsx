@@ -16,6 +16,8 @@ import { useReaderStore } from '@/store/readerStore';
 import { useBookProgress } from '@/store/readerProgressStore';
 import { useAIChatStore } from '@/store/aiChatStore';
 import { aiLogger, createTauriAdapter } from '@/services/ai';
+import { PAGE_CONTEXT_MAX_CHARS, type PageContext } from '@/services/ai/prompts';
+import { getTextFromRange } from '@/utils/sel';
 import {
   LegacyIdbBackend,
   ReedyBackend,
@@ -81,6 +83,7 @@ const AIAssistantChat = ({
   bookTitle,
   authorName,
   currentPage,
+  pageContext,
   backend,
   sourceStore,
   currentTurnId,
@@ -93,6 +96,7 @@ const AIAssistantChat = ({
   bookTitle: string;
   authorName: string;
   currentPage: number;
+  pageContext?: PageContext;
   backend: RetrievalBackend;
   sourceStore: ReedySourceStore;
   currentTurnId: string | null;
@@ -114,6 +118,7 @@ const AIAssistantChat = ({
     bookTitle,
     authorName,
     currentPage,
+    pageContext,
     backend,
     sourceStore,
     onTurnStart: setCurrentTurnId,
@@ -127,6 +132,7 @@ const AIAssistantChat = ({
       bookTitle,
       authorName,
       currentPage,
+      pageContext,
       backend,
       sourceStore,
       onTurnStart: setCurrentTurnId,
@@ -326,6 +332,20 @@ const LegacyAIAssistant = ({ bookKey }: AIAssistantProps) => {
   const bookTitle = bookData?.book?.title || 'Unknown';
   const authorName = bookData?.book?.author || '';
   const currentPage = progress?.pageinfo?.current ?? 0;
+  // The visible page, so a question typed mid-read has the page in front of
+  // the model even when the book was never indexed. Re-read on every
+  // relocate; a torn-down range (book closed) just yields no context.
+  const pageContext = useMemo<PageContext | undefined>(() => {
+    const range = progress?.range;
+    if (!range) return undefined;
+    try {
+      const text = getTextFromRange(range).trim().slice(0, PAGE_CONTEXT_MAX_CHARS);
+      if (!text) return undefined;
+      return { chapterTitle: progress?.sectionLabel || null, text };
+    } catch {
+      return undefined;
+    }
+  }, [progress?.range, progress?.sectionLabel]);
   const aiSettings = settings?.aiSettings;
 
   // Per-instance source store, plus the active backend chosen via the same
@@ -457,6 +477,7 @@ const LegacyAIAssistant = ({ bookKey }: AIAssistantProps) => {
       bookTitle={bookTitle}
       authorName={authorName}
       currentPage={currentPage}
+      pageContext={pageContext}
       backend={backend}
       sourceStore={sourceStore}
       currentTurnId={currentTurnId}
