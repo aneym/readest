@@ -24,6 +24,30 @@ import { isMalformedLocationCfi } from '@/utils/cfi';
 // concurrency, captive portal, transient 5xx). Total window ≈ 15.5s.
 const PULL_RETRY_DELAYS_MS = [1500, 4000, 10000];
 
+// A remote fraction this close to 1 is the end of the book: KOReader reports
+// 1.0 for a finished book, and foliate maps any fraction >= 1 to the last
+// column of the last section. That is never a place to RESUME reading, so a
+// pull must not navigate there (BOOX "reopens on the last page" report).
+const END_OF_BOOK_FRACTION = 0.999;
+
+export const isEndOfBookFraction = (fraction: number | undefined): boolean =>
+  typeof fraction === 'number' && fraction >= END_OF_BOOK_FRACTION;
+
+// A synced row older than the local config is stale: this device saved a
+// position AFTER the row was written, so moving the reader to it (even when
+// it is further into the book) discards the newer local place. Both clocks
+// are epoch ms after transformBookConfigFromDB; a missing clock on either side
+// disables the check rather than guessing.
+export const isStaleRemoteConfig = (
+  remote: Pick<BookConfig, 'updatedAt'>,
+  local: Pick<BookConfig, 'updatedAt'>,
+): boolean =>
+  typeof remote.updatedAt === 'number' &&
+  typeof local.updatedAt === 'number' &&
+  Number.isFinite(remote.updatedAt) &&
+  Number.isFinite(local.updatedAt) &&
+  remote.updatedAt < local.updatedAt;
+
 // `[current, total]` 1-based page numbers -> a 0..1 reading fraction, or
 // `undefined` when the record carries no usable page count.
 const getConfigFraction = (config: BookConfig): number | undefined => {
@@ -259,6 +283,20 @@ export const useProgressSync = (bookKey: string) => {
       // foliate's pagination and whose xpointer was derived from that same
       // CFI — re-anchoring on it would only move the target off (#5109).
       const remoteFraction = syncedConfig.location ? undefined : getConfigFraction(syncedConfig);
+      // Two guards on NAVIGATION only (the proofread/view-settings merge below
+      // still runs): a row that sits at the end of the book, or a row older
+      // than what this device last saved, must never move the reader. Either
+      // one lands a BOOX reopen on the last page and the auto-push then makes
+      // that the position every other device sees.
+      const remoteAtEnd = isEndOfBookFraction(getConfigFraction(syncedConfig));
+      const remoteStale = isStaleRemoteConfig(syncedConfig, config);
+      const canNavigate = !remoteAtEnd && !remoteStale;
+      if (!canNavigate) {
+        console.info(
+          `[progress-sync] skip remote position for ${bookHash}: ` +
+            (remoteAtEnd ? 'end-of-book fraction' : 'row older than local config'),
+        );
+      }
       let xpointerUnresolved = false;
       if (xpointer && view && bookData && bookData.bookDoc) {
         const pContents = view.renderer.getContents();
@@ -294,7 +332,7 @@ export const useProgressSync = (bookKey: string) => {
           // annotation. The local config still gets updated above; the next
           // open will resolve to the synced position normally.
           const isPreview = useReaderStore.getState().getViewState(bookKey)?.previewMode;
-          if (view && !isPreview) {
+          if (view && !isPreview && canNavigate) {
             view.goTo(remoteCFILocation);
             setHoveredBookKey(null);
             eventDispatcher.dispatch('hint', {
@@ -310,7 +348,7 @@ export const useProgressSync = (bookKey: string) => {
         // synced book always opens at page 1 and silently discards the position
         // every other device agrees on.
         const isPreview = useReaderStore.getState().getViewState(bookKey)?.previewMode;
-        if (view && !isPreview) {
+        if (view && !isPreview && canNavigate) {
           view.goTo(remoteCFILocation);
           setHoveredBookKey(null);
           eventDispatcher.dispatch('hint', {
@@ -326,7 +364,7 @@ export const useProgressSync = (bookKey: string) => {
         // place.
         const localFraction = getBookProgress(bookKey)?.fraction;
         const isPreview = useReaderStore.getState().getViewState(bookKey)?.previewMode;
-        if (view && !isPreview && (localFraction ?? 0) < remoteFraction) {
+        if (view && !isPreview && canNavigate && (localFraction ?? 0) < remoteFraction) {
           view.goToFraction(remoteFraction);
           setHoveredBookKey(null);
           eventDispatcher.dispatch('hint', {

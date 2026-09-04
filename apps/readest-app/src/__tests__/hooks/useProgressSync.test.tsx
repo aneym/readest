@@ -591,3 +591,106 @@ describe('useProgressSync — KOReader-origin config (#5625)', () => {
     expect(h.view.goToFraction).not.toHaveBeenCalled();
   });
 });
+
+// BOOX report: reopening a book sometimes lands on the LAST page. Two remote
+// rows can do that through applyRemoteProgress. A finished row (fraction 1,
+// KOReader's value for a completed book, or [total, total] pages) reaches
+// `goToFraction(1)`, which foliate maps to the last column of the last
+// section. A row OLDER than the local config, but further into the book,
+// wins the CFI comparison because that branch never looked at clocks. Both
+// must be inert for navigation while the rest of the pull still applies.
+describe('useProgressSync — end-of-book and stale rows never move the reader', () => {
+  const koRow = (extra: Record<string, unknown> = {}) => ({
+    bookHash: 'h1',
+    metaHash: 'm1',
+    xpointer: '/body/DocFragment[14]/body/p[45]/text().0',
+    updatedAt: 3000,
+    ...extra,
+  });
+  // A Readest-origin row: CFI only. (The XPointer mock resolves to '' and
+  // would shadow the CFI, which is a harness artifact, not product behavior.)
+  const cfiRow = (extra: Record<string, unknown> = {}) => ({
+    bookHash: 'h1',
+    metaHash: 'm1',
+    updatedAt: 3000,
+    ...extra,
+  });
+
+  beforeEach(() => {
+    h.book.format = 'EPUB';
+    h.config.updatedAt = 1000;
+    h.state.progress = { location: 'cfi-loc', fraction: 0.3 };
+  });
+
+  test('a Homebase row at fraction 1 with an unresolvable XPointer stays put', async () => {
+    h.getCFIFromXPointerMock.mockRejectedValue(new Error('Failed to convert XPointer'));
+    h.state.syncedConfigs = [koRow({ hbFraction: 1 })];
+    renderHook(() => useProgressSync('h1-view1'));
+    await advance(0);
+
+    expect(h.view.goToFraction).not.toHaveBeenCalled();
+    expect(h.view.goTo).not.toHaveBeenCalled();
+  });
+
+  test('a fraction just under the end sentinel still applies', async () => {
+    h.getCFIFromXPointerMock.mockRejectedValue(new Error('Failed to convert XPointer'));
+    h.state.syncedConfigs = [koRow({ hbFraction: 0.95 })];
+    renderHook(() => useProgressSync('h1-view1'));
+    await advance(0);
+
+    expect(h.view.goToFraction).toHaveBeenCalledTimes(1);
+    expect(h.view.goToFraction.mock.calls[0]![0]).toBeCloseTo(0.95, 6);
+  });
+
+  test('a finished [total, total] row with a CFI does not navigate', async () => {
+    h.cfiCompareMock.mockReturnValue(-1);
+    h.state.syncedConfigs = [
+      cfiRow({ location: 'epubcfi(/6/60!/4/200/1:0)', progress: [411, 411] as [number, number] }),
+    ];
+    renderHook(() => useProgressSync('h1-view1'));
+    await advance(0);
+
+    expect(h.view.goTo).not.toHaveBeenCalled();
+    expect(h.view.goToFraction).not.toHaveBeenCalled();
+  });
+
+  test('a row older than the local config never moves the reader forward', async () => {
+    h.cfiCompareMock.mockReturnValue(-1);
+    h.state.syncedConfigs = [
+      cfiRow({ location: 'epubcfi(/6/30!/4/90/1:0)', progress: [200, 411], updatedAt: 500 }),
+    ];
+    renderHook(() => useProgressSync('h1-view1'));
+    await advance(0);
+
+    expect(h.view.goTo).not.toHaveBeenCalled();
+  });
+
+  test('a newer row further into the book still syncs forward', async () => {
+    h.cfiCompareMock.mockReturnValue(-1);
+    h.state.syncedConfigs = [
+      cfiRow({ location: 'epubcfi(/6/30!/4/90/1:0)', progress: [200, 411], updatedAt: 3000 }),
+    ];
+    renderHook(() => useProgressSync('h1-view1'));
+    await advance(0);
+
+    expect(h.view.goTo).toHaveBeenCalledWith('epubcfi(/6/30!/4/90/1:0)');
+  });
+
+  test('a skipped row still merges its proofread rules', async () => {
+    h.state.viewSettings = { proofreadRules: [] };
+    h.state.syncedConfigs = [
+      koRow({
+        hbFraction: 1,
+        viewSettings: {
+          proofreadRules: [{ id: 'remote', scope: 'book', pattern: 'b', updatedAt: 200 }],
+        },
+      }),
+    ];
+    h.getCFIFromXPointerMock.mockRejectedValue(new Error('Failed to convert XPointer'));
+    renderHook(() => useProgressSync('h1-view1'));
+    await advance(0);
+
+    expect(h.view.goToFraction).not.toHaveBeenCalled();
+    expect(h.setViewSettingsMock).toHaveBeenCalledTimes(1);
+  });
+});
