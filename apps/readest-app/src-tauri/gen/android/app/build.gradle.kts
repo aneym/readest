@@ -42,10 +42,7 @@ android {
                         ?.substringAfter("=")?.trim()?.trim('"', '\'')?.takeIf { it.isNotEmpty() }
                 }
             ?: ""
-        // DEV-flavor install: distinct id so this build sits NEXT TO the
-        // production Homebase fork on a device instead of replacing it.
-        // Drop this hunk (and the strings.xml label) before landing.
-        applicationId = "com.bilingify.readest.dev"
+        applicationId = "com.bilingify.readest"
         minSdk = 26
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
