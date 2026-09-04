@@ -115,7 +115,8 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       tab: 'AI',
       icon: PiRobot,
       label: _('AI Assistant'),
-      disabled: process.env.NODE_ENV === 'production',
+      // Upstream hides this tab in production builds. The Homebase fork ships
+      // bring-your-own-key AI to the Palma, so the panel stays reachable.
     },
     {
       tab: 'TTS',
