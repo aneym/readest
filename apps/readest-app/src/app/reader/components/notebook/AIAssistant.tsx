@@ -426,25 +426,21 @@ const LegacyAIAssistant = ({ bookKey }: AIAssistantProps) => {
       ? Math.round((indexProgress.current / indexProgress.total) * 100)
       : 0;
 
-  if (!indexed && !isIndexing) {
-    return (
-      <div className='flex h-full flex-col items-center justify-center gap-3 p-4 text-center'>
-        <div className='bg-primary/10 rounded-full p-3'>
-          <BookOpenIcon className='text-primary size-6' />
-        </div>
-        <div>
-          <h3 className='text-foreground mb-0.5 text-sm font-medium'>{_('Index This Book')}</h3>
-          <p className='text-muted-foreground text-xs'>
-            {_('Enable AI search and chat for this book')}
-          </p>
-        </div>
-        <Button onClick={handleIndex} size='sm' className='h-8 text-xs'>
-          <BookOpenIcon className='mr-1.5 size-3.5' />
-          {_('Start Indexing')}
+  // Not indexed is not a wall: the chat still works from the visible page
+  // and the model's own knowledge (see prompts.ts). Indexing is offered
+  // in a compact row above the chat so book-wide search stays one tap away.
+  const indexBanner =
+    !indexed && !isIndexing ? (
+      <div className='eink-bordered flex items-center justify-between gap-2 border-b px-3 py-2'>
+        <p className='text-muted-foreground text-xs'>
+          {_('Answers use the current page. Index the book to search all of it.')}
+        </p>
+        <Button onClick={handleIndex} size='sm' variant='outline' className='h-7 shrink-0 text-xs'>
+          <BookOpenIcon className='mr-1 size-3.5' />
+          {_('Index This Book')}
         </Button>
       </div>
-    );
-  }
+    ) : null;
 
   if (isIndexing) {
     return (
@@ -471,20 +467,25 @@ const LegacyAIAssistant = ({ bookKey }: AIAssistantProps) => {
   if (!backend) return null;
 
   return (
-    <AIAssistantChat
-      aiSettings={aiSettings}
-      bookHash={bookHash}
-      bookTitle={bookTitle}
-      authorName={authorName}
-      currentPage={currentPage}
-      pageContext={pageContext}
-      backend={backend}
-      sourceStore={sourceStore}
-      currentTurnId={currentTurnId}
-      setCurrentTurnId={setCurrentTurnId}
-      onSourceClick={handleSourceClick}
-      onResetIndex={handleResetIndex}
-    />
+    <div className='flex h-full min-h-0 flex-col'>
+      {indexBanner}
+      <div className='min-h-0 flex-1'>
+        <AIAssistantChat
+          aiSettings={aiSettings}
+          bookHash={bookHash}
+          bookTitle={bookTitle}
+          authorName={authorName}
+          currentPage={currentPage}
+          pageContext={pageContext}
+          backend={backend}
+          sourceStore={sourceStore}
+          currentTurnId={currentTurnId}
+          setCurrentTurnId={setCurrentTurnId}
+          onSourceClick={handleSourceClick}
+          onResetIndex={handleResetIndex}
+        />
+      </div>
+    </div>
   );
 };
 
