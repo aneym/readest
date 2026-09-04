@@ -48,6 +48,12 @@ const nextConfig = {
     // a build interrupted mid-compile leaves a partial cache that the next
     // build mishandles, fanning out workers until it exhausts RAM.
     turbopackFileSystemCacheForDev: true,
+    // The static export's page-data step forks (cores - 1) workers, 15 on
+    // the Mac Studio, and each one lands in swap on a loaded host. Let a
+    // build cap that from the environment; unset means Next's default.
+    ...(process.env.HOMEBASE_BUILD_CPUS
+      ? { cpus: Math.max(1, parseInt(process.env.HOMEBASE_BUILD_CPUS, 10) || 1) }
+      : {}),
   },
   // Configure assetPrefix or else the server won't properly resolve your assets.
   assetPrefix: '',
