@@ -173,3 +173,22 @@ real DOM; tap through the Android device with those normalized coordinates.
 `adb connect 100.65.146.9:5555` (USB flaky; tailnet serial preferred). After
 ANY install: check `pm list packages -d` — the BOOX optimizer freezes unused
 apps and the frozen state survives reinstall; `pm enable <pkg>` fixes it.
+
+## Host and device traps (2026-09-04)
+
+- `pnpm test -- <paths>` does NOT filter: the `--` reaches vitest and the whole
+  812-file jsdom suite runs with one worker per core. On this host that
+  pushed load past 350 with swap already full. Use
+  `pnpm exec dotenv -e .env -e .env.test.local -- vitest run <paths> --maxWorkers=2`.
+- The fork is a blob:none partial clone. `git log -S` (pickaxe) lazily fetches
+  every missing blob from GitHub, one process per object. Do not run it here.
+- Never point a repo-wide `rg --hidden --no-ignore` at the tree: `target/` is
+  4 GB and node_modules is not much smaller.
+- Injected volume keys page the book. Logcat on the Palma retained 630
+  `KEYCODE_VOLUME_DOWN` down/up pairs delivered to `com.bilingify.readest.dev`
+  in 129 s while a device audit was attached; that alone reaches the last
+  page of a short book. Before any resume test: nothing may be attached to the
+  device, and count injected key events first.
+- A synced Homebase row at fraction 1 or older than the local config no longer
+  moves the reader (commit 51c9af13). A skipped row logs
+  `[progress-sync] skip remote position` in logcat.
