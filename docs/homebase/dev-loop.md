@@ -192,3 +192,35 @@ apps and the frozen state survives reinstall; `pm enable <pkg>` fixes it.
 - A synced Homebase row at fraction 1 or older than the local config no longer
   moves the reader (commit 51c9af13). A skipped row logs
   `[progress-sync] skip remote position` in logcat.
+
+## Host and device notes (2026-09-12)
+
+- Unit tests need Node 24 on PATH: under the host default Node 26, jsdom's
+  `localStorage` is `undefined` and every localStorage-backed test fails
+  (`hlcStore`, `theme-schedule`, ...). Prepend
+  `~/.nvm/versions/node/v24.13.1/bin` (Volta shim) before `vitest run`.
+- The Readest DEV flavor (`com.bilingify.readest.dev`) was uninstalled from the
+  Palma on 2026-09-12; only the production fork app is installed. Its last
+  APK is archived as `builds/readest-homebase-dev-faf40e06.apk`.
+- Branch state: `main` on the fork is the single shipping branch (the old
+  `homebase/landing-v1`, `homebase/annotation-ux` and
+  `homebase/integration-20260904` are all folded in). The Homebase launcher
+  icons are committed (`442d1cd2`); `gen/` stays gitignored, so
+  `ic_launcher.xml` is tracked with `git add -f`.
+
+### Scheduled Mode (theme follows the device clock)
+
+Theme Mode has a fourth segment, Scheduled: dark from 21:00, light from
+05:00, device-local wall clock (DST/travel follow the OS clock, no location
+permission). It is the household default — a fresh install starts in it and an
+existing install is moved to it once (`themeScheduleDefaultApplied` in
+localStorage; later user choices persist). Settings → Theme shows Dark From /
+Light From native time pickers while Scheduled is selected. The store polls
+every 30 s and re-evaluates on `visibilitychange`, so a boundary crossed while
+the Palma slept applies on wake.
+
+Verify a transition on the device without touching the system clock: open
+Settings → Theme, set Dark From to one minute ahead, watch the page invert,
+then restore 21:00. Over CDP (`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`)
+the truth is `document.documentElement.dataset.theme` (`<color>-dark` /
+`<color>-light`) and `localStorage.themeMode === 'schedule'`.
