@@ -37,6 +37,10 @@ else
   git -C "$BUILD_ROOT" checkout --detach -q "$FULL"
   git -C "$BUILD_ROOT" reset -q --hard "$FULL"
 fi
+# Submodules (foliate-js, tauri forks, turso/webview-upgrade plugins) resolve
+# from the shared .git/modules store, so this needs no network once the main
+# worktree has them.
+git -C "$BUILD_ROOT" submodule update --init --recursive --quiet
 if [[ -n "$(git -C "$BUILD_ROOT" status --porcelain --untracked-files=no)" ]]; then
   echo "build worktree is dirty after checkout; refusing" >&2; exit 1
 fi
