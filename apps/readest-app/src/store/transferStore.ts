@@ -41,6 +41,13 @@ export interface TransferItem {
   cancelReason?: TransferCancelReason;
   retryCount: number;
   maxRetries: number;
+  /**
+   * Earliest wall-clock time (ms) the queue may start this pending row again.
+   * Set by the manager's retry backoff and its offline hold; a pending row
+   * without one is due immediately. Persisted with the queue so an app restart
+   * cannot shortcut the delay.
+   */
+  nextAttemptAt?: number;
   createdAt: number;
   startedAt?: number;
   completedAt?: number;
@@ -95,6 +102,7 @@ interface TransferState {
   ) => void;
   retryTransfer: (transferId: string) => void;
   incrementRetryCount: (transferId: string) => void;
+  setNextAttemptAt: (transferId: string, at: number | undefined) => void;
 
   // Queue control
   pauseQueue: () => void;
@@ -333,6 +341,11 @@ export const useTransferStore = create<TransferState>((set, get) => ({
             cancelReason: undefined,
             startedAt: undefined,
             completedAt: undefined,
+            nextAttemptAt: undefined,
+            // An explicit retry is a fresh budget: a row that exhausted its
+            // attempts while offline must be able to run its full backoff
+            // again once the network is back.
+            retryCount: 0,
           },
         },
       };
@@ -351,6 +364,20 @@ export const useTransferStore = create<TransferState>((set, get) => ({
             ...transfer,
             retryCount: transfer.retryCount + 1,
           },
+        },
+      };
+    });
+  },
+
+  setNextAttemptAt: (transferId, at) => {
+    set((state) => {
+      const transfer = state.transfers[transferId];
+      if (!transfer) return state;
+      if (transfer.nextAttemptAt === at) return state;
+      return {
+        transfers: {
+          ...state.transfers,
+          [transferId]: { ...transfer, nextAttemptAt: at },
         },
       };
     });

@@ -85,6 +85,45 @@ pub enum Error {
     HttpErrorCode(u16, String),
     #[error("permission denied: path not in filesystem scope: {0}")]
     Forbidden(String),
+    #[error("incomplete download: expected {expected} bytes, received {received}")]
+    Incomplete { expected: u64, received: u64 },
+    #[error("range part {part} failed: {reason}")]
+    PartFailed { part: u64, reason: String },
+}
+
+/// A completed transfer must hold exactly the byte count the server announced.
+/// An interrupted stream ends without an error on some stacks (the body simply
+/// stops), so the only proof of completeness is the count.
+fn check_complete(expected: Option<u64>, received: u64) -> Result<()> {
+    match expected {
+        Some(expected) if expected != received => Err(Error::Incomplete { expected, received }),
+        _ => Ok(()),
+    }
+}
+
+/// Sibling staging path for an in-flight download. The final path is only
+/// ever written by an atomic rename after the full body has been received and
+/// flushed, so a reader never sees a half-written book and an interruption can
+/// never leave partial bytes under the real name (which the JS layer would
+/// otherwise take as "already downloaded").
+fn staging_path(file_path: &str) -> String {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{file_path}.part-{nonce}")
+}
+
+async fn discard_staging(path: &str) {
+    let _ = tokio::fs::remove_file(path).await;
+}
+
+async fn commit_staging(staging: &str, file_path: &str) -> Result<()> {
+    if let Err(err) = tokio::fs::rename(staging, file_path).await {
+        discard_staging(staging).await;
+        return Err(err.into());
+    }
+    Ok(())
 }
 
 /// Reject paths the webview must not be allowed to target: relative paths and
@@ -207,21 +246,41 @@ pub async fn download_file(
             }
         }
 
-        let total = response.content_length().unwrap_or(0);
-        let mut file = BufWriter::new(File::create(file_path).await?);
-        let mut stream = response.bytes_stream();
+        let expected = response.content_length();
+        let total = expected.unwrap_or(0);
+        let staging = staging_path(file_path);
+        let result: Result<u64> = async {
+            let mut file = BufWriter::new(File::create(&staging).await?);
+            let mut stream = response.bytes_stream();
 
-        let mut stats = TransferStats::default();
-        while let Some(chunk) = stream.try_next().await? {
-            file.write_all(&chunk).await?;
-            stats.record_chunk_transfer(chunk.len());
-            let _ = on_progress.send(ProgressPayload {
-                progress: stats.total_transferred,
-                total,
-                transfer_speed: stats.transfer_speed,
-            });
+            let mut stats = TransferStats::default();
+            while let Some(chunk) = stream.try_next().await? {
+                file.write_all(&chunk).await?;
+                stats.record_chunk_transfer(chunk.len());
+                let _ = on_progress.send(ProgressPayload {
+                    progress: stats.total_transferred,
+                    total,
+                    transfer_speed: stats.transfer_speed,
+                });
+            }
+            file.flush().await?;
+            file.get_ref().sync_all().await?;
+            Ok(stats.total_transferred)
         }
-        file.flush().await?;
+        .await;
+
+        let received = match result {
+            Ok(received) => received,
+            Err(err) => {
+                discard_staging(&staging).await;
+                return Err(err);
+            }
+        };
+        if let Err(err) = check_complete(expected, received) {
+            discard_staging(&staging).await;
+            return Err(err);
+        }
+        commit_staging(&staging, file_path).await?;
 
         Ok(resp_headers)
     }
@@ -263,16 +322,22 @@ pub async fn download_file(
             .await;
     }
 
-    // Multi-part download with range access
+    // Multi-part download with range access. Every part reports its own
+    // outcome; one failed part fails the whole transfer (the old code returned
+    // Ok with holes in the file).
     let part_count = total.div_ceil(PART_SIZE);
-    let file = File::create(file_path).await?;
-    file.set_len(total).await?;
+    let staging = staging_path(file_path);
+    let file = File::create(&staging).await?;
+    if let Err(err) = file.set_len(total).await {
+        discard_staging(&staging).await;
+        return Err(err.into());
+    }
 
     let file = Arc::new(tokio::sync::Mutex::new(file));
     let progress = Arc::new(tokio::sync::Mutex::new(TransferStats::default()));
 
-    stream::iter(0..part_count)
-        .for_each_concurrent(8, |i| {
+    let part_results: Vec<Result<()>> = stream::iter(0..part_count)
+        .map(|i| {
             let client = client.clone();
             let file = Arc::clone(&file);
             let progress = Arc::clone(&progress);
@@ -283,6 +348,7 @@ pub async fn download_file(
             async move {
                 let start = i * PART_SIZE;
                 let end = min(start + PART_SIZE - 1, total - 1);
+                let expected_len = end - start + 1;
                 let range_header = format!("bytes={start}-{end}");
 
                 let mut req = client.get(&url).header("Range", range_header);
@@ -290,26 +356,29 @@ pub async fn download_file(
                     req = req.header(key, value);
                 }
 
-                let resp = match req.send().await {
-                    Ok(r) => r,
-                    Err(_) => return,
-                };
+                let fail = |reason: String| Error::PartFailed { part: i, reason };
 
-                if !resp.status().is_success()
-                    && resp.status() != reqwest::StatusCode::PARTIAL_CONTENT
-                {
-                    return;
+                let resp = req.send().await.map_err(|e| fail(e.to_string()))?;
+
+                // A server that answers a range request with 200 is sending
+                // the whole body, not this part; writing it at `start` would
+                // corrupt the file.
+                if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+                    return Err(fail(format!("status {}", resp.status().as_u16())));
                 }
 
-                let bytes = match resp.bytes().await {
-                    Ok(b) => b,
-                    Err(_) => return,
-                };
+                let bytes = resp.bytes().await.map_err(|e| fail(e.to_string()))?;
+                if bytes.len() as u64 != expected_len {
+                    return Err(fail(format!(
+                        "expected {expected_len} bytes, received {}",
+                        bytes.len()
+                    )));
+                }
 
                 {
                     let mut f = file.lock().await;
-                    f.seek(std::io::SeekFrom::Start(start)).await.unwrap();
-                    f.write_all(&bytes).await.unwrap();
+                    f.seek(std::io::SeekFrom::Start(start)).await?;
+                    f.write_all(&bytes).await?;
                 }
 
                 {
@@ -321,9 +390,30 @@ pub async fn download_file(
                         transfer_speed: stat.transfer_speed,
                     });
                 }
+                Ok(())
             }
         })
+        .buffer_unordered(8)
+        .collect()
         .await;
+
+    if let Some(err) = part_results.into_iter().find_map(|r| r.err()) {
+        discard_staging(&staging).await;
+        return Err(err);
+    }
+
+    let received = {
+        let mut f = file.lock().await;
+        f.flush().await?;
+        f.sync_all().await?;
+        f.metadata().await?.len()
+    };
+    drop(file);
+    if let Err(err) = check_complete(Some(total), received) {
+        discard_staging(&staging).await;
+        return Err(err);
+    }
+    commit_staging(&staging, file_path).await?;
 
     Ok(resp_headers)
 }
@@ -387,7 +477,42 @@ fn file_to_body(channel: Channel<ProgressPayload>, file: File, file_len: u64) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{has_disallowed_components, is_within_app_storage};
+    use super::{
+        check_complete, has_disallowed_components, is_within_app_storage, staging_path, Error,
+    };
+
+    #[test]
+    fn short_body_is_incomplete() {
+        assert!(matches!(
+            check_complete(Some(100), 40),
+            Err(Error::Incomplete {
+                expected: 100,
+                received: 40
+            })
+        ));
+        assert!(matches!(
+            check_complete(Some(100), 140),
+            Err(Error::Incomplete {
+                expected: 100,
+                received: 140
+            })
+        ));
+        assert!(check_complete(Some(100), 100).is_ok());
+        // No Content-Length: the stream end is the only signal we have.
+        assert!(check_complete(None, 40).is_ok());
+    }
+
+    #[test]
+    fn staging_path_is_a_sibling_of_the_target() {
+        let staging = staging_path("/data/user/0/com.bilingify.readest/Readest/Books/h/b.epub");
+        assert!(
+            staging.starts_with("/data/user/0/com.bilingify.readest/Readest/Books/h/b.epub.part-")
+        );
+        assert_ne!(
+            staging,
+            "/data/user/0/com.bilingify.readest/Readest/Books/h/b.epub"
+        );
+    }
 
     #[test]
     fn app_storage_fallback_accepts_app_paths() {

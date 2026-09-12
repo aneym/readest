@@ -88,7 +88,11 @@ const resetTransferStore = () => {
 function makeAppService() {
   return {
     uploadBook: vi.fn().mockResolvedValue(undefined),
-    downloadBook: vi.fn().mockResolvedValue(undefined),
+    // The real downloadBook stamps `downloadedAt` only after the file on disk
+    // passed verification; the manager treats a missing stamp as a failure.
+    downloadBook: vi.fn().mockImplementation(async (book: Book) => {
+      book.downloadedAt = Date.now();
+    }),
     deleteBook: vi.fn().mockResolvedValue(undefined),
     isMacOSApp: false,
   } as Record<string, unknown>;
@@ -788,7 +792,8 @@ describe('TransferManager', () => {
       );
 
       transferManager.queueUpload(book);
-      await vi.advanceTimersByTimeAsync(10000);
+      // Backoff is enforced (2s, 4s, 8s) before each of the three retries.
+      await vi.advanceTimersByTimeAsync(16000);
 
       // After all retries exhausted, error toast should be dispatched
       expect(eventDispatcher.dispatch).toHaveBeenCalledWith(

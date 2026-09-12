@@ -179,6 +179,7 @@ export const downloadFile = async ({
 }: DownloadFileParams) => {
   try {
     let downloadUrl = url;
+    let forceSingleStream = singleThreaded;
     // Homebase deployment: book bytes are served by the household server via
     // signed URLs keyed on `<hash>.<ext>`; Readest Cloud's storage API would
     // reject the Homebase device token.
@@ -201,6 +202,10 @@ export const downloadFile = async ({
         if (!response.ok) throw new Error(`Homebase download URL failed: ${response.status}`);
         const payload = (await response.json()) as { downloadUrl?: string };
         downloadUrl = payload.downloadUrl;
+        // The household server streams whole files (no Accept-Ranges); the
+        // native range probe would only cost an extra request, and the
+        // single-stream path is the one that verifies Content-Length.
+        forceSingleStream = true;
       }
     }
     if (!downloadUrl) {
@@ -239,7 +244,7 @@ export const downloadFile = async ({
         onProgress,
         headers,
         undefined,
-        singleThreaded,
+        forceSingleStream,
         skipSslVerification,
       );
     }

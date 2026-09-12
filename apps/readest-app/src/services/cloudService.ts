@@ -19,6 +19,13 @@ import { ProgressHandler } from '@/utils/transfer';
 import { CLOUD_BOOKS_SUBDIR, CLOUD_REPLICAS_SUBDIR } from './constants';
 import { isHomebaseSyncEnabled, resolveHomebaseCoverUrl } from './sync/homebase/config';
 import { isBookFileContentSource, resolveBookContentSource } from './bookContent';
+import { BookIntegrityError } from './bookIntegrity';
+
+export {
+  BookIntegrityError,
+  isBookIntegrityError,
+  BOOK_INTEGRITY_ERROR_PREFIX,
+} from './bookIntegrity';
 
 export async function deleteBook(
   fs: FileSystem,
@@ -334,6 +341,54 @@ export async function downloadBookCovers(
   );
 }
 
+const ZIP_LOCAL_HEADER = [0x50, 0x4b, 0x03, 0x04];
+const ZIP_EOCD = [0x50, 0x4b, 0x05, 0x06];
+// EOCD record is 22 bytes plus an optional comment of at most 65535 bytes.
+const ZIP_EOCD_SEARCH_WINDOW = 22 + 65535;
+const ZIP_BASED_FORMATS = new Set<Book['format']>(['EPUB', 'CBZ', 'FBZ']);
+
+const bytesAt = (view: Uint8Array, offset: number, expected: number[]): boolean =>
+  expected.every((byte, i) => view[offset + i] === byte);
+
+const findBackwards = (view: Uint8Array, expected: number[]): boolean => {
+  for (let i = view.length - expected.length; i >= 0; i--) {
+    if (bytesAt(view, i, expected)) return true;
+  }
+  return false;
+};
+
+/**
+ * Prove that the managed book file on disk is a complete document, not a
+ * truncated or foreign byte string. Only `null` means the file is trustworthy;
+ * otherwise the string names what is wrong.
+ *
+ * A ZIP container (EPUB, CBZ, FBZ) must start with a local file header and end
+ * with an end-of-central-directory record; a stream cut short keeps the header
+ * but never receives the EOCD, so this catches every partial download the old
+ * native writer left at the final path. Other formats are only checked for
+ * being non-empty — there is no cheap structural proof for them.
+ */
+export async function verifyLocalBookFile(fs: FileSystem, book: Book): Promise<string | null> {
+  const lfp = getLocalBookFilename(book);
+  if (!(await fs.exists(lfp, 'Books'))) return 'file missing';
+  const file = await fs.openFile(lfp, 'Books');
+  try {
+    const size = file.size;
+    if (!size) return 'empty file';
+    if (!ZIP_BASED_FORMATS.has(book.format)) return null;
+    if (size < 22) return 'too small to be a zip container';
+    const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    if (!bytesAt(head, 0, ZIP_LOCAL_HEADER)) return 'missing zip local file header';
+    const tailStart = Math.max(0, size - ZIP_EOCD_SEARCH_WINDOW);
+    const tail = new Uint8Array(await file.slice(tailStart, size).arrayBuffer());
+    if (!findBackwards(tail, ZIP_EOCD)) return 'missing zip end-of-central-directory (truncated)';
+    return null;
+  } finally {
+    const closable = file as ClosableFile;
+    if (closable.close) await closable.close();
+  }
+}
+
 export async function downloadBook(
   appService: AppService,
   fs: FileSystem,
@@ -348,8 +403,22 @@ export async function downloadBook(
   const completedFiles = { count: 0 };
   let toDownloadFpCount = 0;
   const needDownCover = !(await fs.exists(getCoverFilename(book), 'Books')) || redownload;
-  const needDownBook =
-    (!onlyCover && !(await fs.exists(getLocalBookFilename(book), 'Books'))) || redownload;
+  // A file sitting at the final path is not proof of a complete download: the
+  // pre-atomic native writer created the target before streaming, so an
+  // interrupted transfer left partial bytes there and the next attempt would
+  // skip the fetch and stamp `downloadedAt`. Verify before trusting it, and
+  // re-fetch when it does not hold up.
+  let localBookVerified = false;
+  if (!onlyCover && !redownload && (await fs.exists(getLocalBookFilename(book), 'Books'))) {
+    const problem = await verifyLocalBookFile(fs, book);
+    if (problem) {
+      console.warn(`Discarding unusable local book file for '${book.title}': ${problem}`);
+      await fs.removeFile(getLocalBookFilename(book), 'Books');
+    } else {
+      localBookVerified = true;
+    }
+  }
+  const needDownBook = (!onlyCover && !localBookVerified) || redownload;
   if (needDownCover) {
     toDownloadFpCount++;
   }
@@ -383,9 +452,15 @@ export async function downloadBook(
     const lfp = getLocalBookFilename(book);
     const cfp = `${CLOUD_BOOKS_SUBDIR}/${getRemoteBookFilename(book)}`;
     await downloadCloudFile(appService, localBooksDir, lfp, cfp, handleProgress);
-    const localFullpath = `${localBooksDir}/${lfp}`;
-    bookDownloaded = await fs.exists(localFullpath, 'None');
     completedFiles.count++;
+    // The native transfer resolves only after the full announced body landed
+    // and was renamed into place; this proves the bytes are also a document.
+    const problem = await verifyLocalBookFile(fs, book);
+    if (problem) {
+      if (await fs.exists(lfp, 'Books')) await fs.removeFile(lfp, 'Books');
+      throw new BookIntegrityError(book, problem);
+    }
+    bookDownloaded = true;
   }
   // some books may not have cover image, so we need to check if the book is downloaded
   if (bookDownloaded || (!onlyCover && !needDownBook)) {
