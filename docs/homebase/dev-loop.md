@@ -21,6 +21,14 @@ Next dev server with HMR. Cut one APK at the end.
 
 ## The build
 
+Preferred: `scripts/household-build.sh [ref]` from the repo root. It builds the
+signed aarch64 APK from a CLEAN worktree of the ref (so another agent's dirty
+edits in this worktree never ship), stamps `NEXT_PUBLIC_HOMEBASE_BUILD_ID`
+(`<version>+<sha>`, reported by the diagnostics endpoint), shares the warm
+`target/`, prints per-phase timings and archives the APK by sha. Measured
+2026-09-12: 5m53s with a cold app crate. The manual recipe below still works
+for one-off experiments.
+
 ```bash
 cd apps/readest-app
 export JAVA_HOME=$(/usr/libexec/java_home)
