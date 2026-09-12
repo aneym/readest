@@ -26,6 +26,7 @@ import { formatTitle, getMetadataHash, getPrimaryLanguage } from '@/utils/book';
 import { getBaseFilename } from '@/utils/path';
 import { SUPPORTED_LANGNAMES } from '@/services/constants';
 import { useSettingsStore } from './settingsStore';
+import { deriveReadingStatus } from '@/utils/readingStatus';
 import { BookData, useBookDataStore } from './bookDataStore';
 import { useLibraryStore } from './libraryStore';
 import { clearBookProgress, getBookProgress, setBookProgress } from './readerProgressStore';
@@ -419,14 +420,11 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
     const { getBookByHash, updateBookProgress } = useLibraryStore.getState();
     const existingBook = getBookByHash(id);
     if (existingBook) {
-      let newReadingStatus = existingBook.readingStatus;
-      if (existingBook.readingStatus === 'unread') {
-        newReadingStatus = undefined;
-      }
-      if (progressPercentage >= 100 && existingBook.readingStatus !== 'finished') {
-        newReadingStatus = 'finished';
-      }
-      updateBookProgress(id, progress, newReadingStatus);
+      updateBookProgress(
+        id,
+        progress,
+        deriveReadingStatus(existingBook.readingStatus, progressPercentage, fraction),
+      );
     }
 
     // Only the primary view persists progress into the shared bookData

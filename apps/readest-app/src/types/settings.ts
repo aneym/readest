@@ -450,6 +450,11 @@ export interface SystemSettings {
   /** Show the recently-read carousel at the top of the library (issue #3797). */
   libraryRecentShelfEnabled: boolean;
   /**
+   * Household shelf chip last chosen (Reading / Fiction / Nonfiction / Volumes /
+   * All / Finished). Device-local; the shelf opens on it next launch.
+   */
+  libraryShelfFilter?: string;
+  /**
    * Library page background texture, configured independently from the reader
    * background (issue #4743). When any of these is undefined the library
    * inherits the corresponding `globalViewSettings.background*` value, so an

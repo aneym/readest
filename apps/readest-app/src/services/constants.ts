@@ -210,6 +210,7 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   librarySkeuomorphicCovers: false,
   libraryHideCovers: false,
   libraryRecentShelfEnabled: false,
+  libraryShelfFilter: 'reading',
 
   metadataSeriesCollapsed: false,
   metadataOthersCollapsed: false,

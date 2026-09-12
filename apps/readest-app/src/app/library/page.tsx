@@ -3,7 +3,7 @@
 import clsx from 'clsx';
 import * as React from 'react';
 import { MdChevronRight, MdClose } from 'react-icons/md';
-import { useState, useRef, useEffect, Suspense, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo, Suspense, useCallback } from 'react';
 import { ReadonlyURLSearchParams, useSearchParams } from 'next/navigation';
 
 import { Book, BooksGroup, type LibrarySearchConfig } from '@/types/book';
@@ -53,6 +53,14 @@ import { useUICSS } from '@/hooks/useUICSS';
 import { useDemoBooks } from './hooks/useDemoBooks';
 import { useBooksSync } from './hooks/useBooksSync';
 import { useHomebaseBookDownloads } from './hooks/useHomebaseBookDownloads';
+import ShelfFilterBar from './components/ShelfFilterBar';
+import {
+  applyShelfFilter,
+  ensureShelfFilterId,
+  hasShelfCategories,
+  shelfFilterCounts,
+  type ShelfFilterId,
+} from './shelf/shelfFilters';
 import { useLibraryFileSync } from './hooks/useLibraryFileSync';
 import { useBookTransferActions } from './hooks/useBookTransferActions';
 import { useAutoImportFolders } from './hooks/useAutoImportFolders';
@@ -1913,6 +1921,25 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
 
   const showBookshelf = libraryLoaded || libraryBooks.length > 0;
 
+  // Household shelf chips: only once the server has tagged the library, so a
+  // stock Readest install (no Homebase) keeps the upstream shelf untouched.
+  const shelfFilterEnabled = useMemo(() => hasShelfCategories(libraryBooks), [libraryBooks]);
+  const shelfFilter = ensureShelfFilterId(settings.libraryShelfFilter);
+  const shelfCounts = useMemo(() => shelfFilterCounts(libraryBooks), [libraryBooks]);
+  const shelfBooks = useMemo(
+    () => (shelfFilterEnabled ? applyShelfFilter(libraryBooks, shelfFilter) : libraryBooks),
+    [libraryBooks, shelfFilter, shelfFilterEnabled],
+  );
+  const handleShelfFilterChange = useCallback(
+    (next: ShelfFilterId) => {
+      if (next === shelfFilter) return;
+      const nextSettings = { ...settings, libraryShelfFilter: next };
+      setSettings(nextSettings);
+      saveSettings(envConfig, nextSettings);
+    },
+    [shelfFilter, settings, setSettings, saveSettings, envConfig],
+  );
+
   return (
     <div
       ref={pageRef}
@@ -1974,6 +2001,13 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           max='100'
         />
       </div>
+      {shelfFilterEnabled && !isSelectMode && !librarySearchQuery && (
+        <ShelfFilterBar
+          value={shelfFilter}
+          counts={shelfCounts}
+          onChange={handleShelfFilterChange}
+        />
+      )}
       {(loading || isSyncing) && (
         <div className='fixed inset-0 z-50 flex items-center justify-center'>
           <Spinner loading />
@@ -2065,7 +2099,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
             >
               <DropIndicator />
               <Bookshelf
-                libraryBooks={libraryBooks}
+                libraryBooks={shelfFilterEnabled && !librarySearchQuery ? shelfBooks : libraryBooks}
                 isSelectMode={isSelectMode}
                 isSelectAll={isSelectAll}
                 isSelectNone={isSelectNone}
