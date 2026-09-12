@@ -55,6 +55,10 @@ rsync -a --delete \
 # The tracked gen files (build.gradle.kts, strings.xml, ic_launcher.xml) must
 # come from the ref, not from whatever the main worktree currently has.
 git -C "$BUILD_ROOT" checkout -q -- "$APP/src-tauri/gen/android"
+# public/vendor (pdf.js, simplecc, ...) is generated from node_modules by the
+# copy-* package scripts; mirror the main worktree's copy instead of re-running
+# them (identical output, seconds instead of a minute).
+rsync -a --delete "$ROOT/$APP/public/vendor/" "$BUILD_ROOT/$APP/public/vendor/"
 cp "$ROOT/$APP/.env.local" "$BUILD_ROOT/$APP/.env.local"
 cp "$ROOT/$APP/.env.tauri" "$BUILD_ROOT/$APP/.env.tauri"
 phase "generated android project + env synced"
