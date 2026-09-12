@@ -48,32 +48,39 @@ describe('resolveAmbientIsDarkMode', () => {
 
 describe('resolveThemeIsDarkMode', () => {
   it('respects fixed light and dark modes', () => {
-    expect(resolveThemeIsDarkMode('light', true, true)).toBe(false);
-    expect(resolveThemeIsDarkMode('dark', false, false)).toBe(true);
+    expect(resolveThemeIsDarkMode('light', true, true, true)).toBe(false);
+    expect(resolveThemeIsDarkMode('dark', false, false, false)).toBe(true);
   });
 
   it('uses system appearance in auto mode', () => {
-    expect(resolveThemeIsDarkMode('auto', true, false)).toBe(true);
-    expect(resolveThemeIsDarkMode('auto', false, true)).toBe(false);
+    expect(resolveThemeIsDarkMode('auto', true, false, false)).toBe(true);
+    expect(resolveThemeIsDarkMode('auto', false, true, true)).toBe(false);
   });
 
   it('uses ambient flag in ambient mode', () => {
-    expect(resolveThemeIsDarkMode('ambient', false, true)).toBe(true);
-    expect(resolveThemeIsDarkMode('ambient', true, false)).toBe(false);
+    expect(resolveThemeIsDarkMode('ambient', false, true, false)).toBe(true);
+    expect(resolveThemeIsDarkMode('ambient', true, false, true)).toBe(false);
+  });
+
+  it('uses the clock flag in scheduled mode', () => {
+    expect(resolveThemeIsDarkMode('schedule', false, false, true)).toBe(true);
+    expect(resolveThemeIsDarkMode('schedule', true, true, false)).toBe(false);
   });
 });
 
 describe('nextThemeMode', () => {
-  it('cycles Auto → Light → Dark → Auto without ambient', () => {
+  it('cycles Auto → Light → Dark → Scheduled → Auto without ambient', () => {
     expect(nextThemeMode('auto', false)).toBe('light');
     expect(nextThemeMode('light', false)).toBe('dark');
-    expect(nextThemeMode('dark', false)).toBe('auto');
+    expect(nextThemeMode('dark', false)).toBe('schedule');
+    expect(nextThemeMode('schedule', false)).toBe('auto');
   });
 
   it('includes Ambient Mode when the sensor is available', () => {
     expect(nextThemeMode('auto', true)).toBe('light');
     expect(nextThemeMode('light', true)).toBe('dark');
-    expect(nextThemeMode('dark', true)).toBe('ambient');
+    expect(nextThemeMode('dark', true)).toBe('schedule');
+    expect(nextThemeMode('schedule', true)).toBe('ambient');
     expect(nextThemeMode('ambient', true)).toBe('auto');
   });
 
@@ -88,6 +95,7 @@ describe('isValidThemeMode', () => {
     expect(isValidThemeMode('light')).toBe(true);
     expect(isValidThemeMode('dark')).toBe(true);
     expect(isValidThemeMode('ambient')).toBe(true);
+    expect(isValidThemeMode('schedule')).toBe(true);
     expect(isValidThemeMode('night')).toBe(false);
     expect(isValidThemeMode(null)).toBe(false);
   });

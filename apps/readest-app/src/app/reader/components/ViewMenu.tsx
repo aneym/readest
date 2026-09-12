@@ -6,7 +6,7 @@ import { BiMoon, BiSun } from 'react-icons/bi';
 import { PiGear } from 'react-icons/pi';
 import { TbSunMoon } from 'react-icons/tb';
 import { MdZoomOut, MdZoomIn, MdCheck, MdInfoOutline, MdOutlineSensors } from 'react-icons/md';
-import { MdRemove, MdAdd, MdContrast } from 'react-icons/md';
+import { MdRemove, MdAdd, MdContrast, MdOutlineSchedule } from 'react-icons/md';
 import { MdSync, MdSyncProblem } from 'react-icons/md';
 import { IoMdExpand } from 'react-icons/io';
 import { IoShareOutline } from 'react-icons/io5';
@@ -529,7 +529,9 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
               ? _('Light Mode')
               : themeMode === 'ambient'
                 ? _('Ambient Mode')
-                : _('Auto Mode')
+                : themeMode === 'schedule'
+                  ? _('Scheduled Mode')
+                  : _('Auto Mode')
         }
         Icon={
           themeMode === 'dark'
@@ -538,7 +540,9 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
               ? BiSun
               : themeMode === 'ambient'
                 ? MdOutlineSensors
-                : TbSunMoon
+                : themeMode === 'schedule'
+                  ? MdOutlineSchedule
+                  : TbSunMoon
         }
         onClick={cycleThemeMode}
       />

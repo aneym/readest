@@ -16,6 +16,7 @@ import {
 } from '@/styles/themes';
 import { createFontCSS, CustomFont } from '@/styles/fonts';
 import { readStoredAmbientIsDarkMode } from './ambientLight';
+import { readScheduleIsDarkMode } from './themeSchedule';
 import { INLINE_FORMATTING_SELECTOR } from './inlineTags';
 import { getOSPlatform } from './misc';
 import { SCROLL_WRAPPER_CLASS, SCROLL_WRAPPER_FIT_CLASS } from './scrollable';
@@ -846,10 +847,12 @@ export const getThemeCode = () => {
   let themeColor = 'default';
   let systemIsDarkMode = false;
   let ambientIsDarkMode = false;
+  let scheduleIsDarkMode = false;
   let customThemes: CustomTheme[] = [];
   if (typeof window !== 'undefined') {
     themeColor = localStorage.getItem('themeColor') || 'default';
-    themeMode = localStorage.getItem('themeMode') || 'auto';
+    themeMode = localStorage.getItem('themeMode') || 'schedule';
+    scheduleIsDarkMode = readScheduleIsDarkMode();
     systemIsDarkMode = localStorage.getItem('systemIsDarkMode') === 'true';
     ambientIsDarkMode = readStoredAmbientIsDarkMode(
       localStorage.getItem('ambientIsDarkMode'),
@@ -860,7 +863,8 @@ export const getThemeCode = () => {
   const isDarkMode =
     themeMode === 'dark' ||
     (themeMode === 'auto' && systemIsDarkMode) ||
-    (themeMode === 'ambient' && ambientIsDarkMode);
+    (themeMode === 'ambient' && ambientIsDarkMode) ||
+    (themeMode === 'schedule' && scheduleIsDarkMode);
   let currentTheme = themes.find((theme) => theme.name === themeColor);
   if (!currentTheme) {
     const customTheme = customThemes.find((theme) => theme.name === themeColor);

@@ -4,7 +4,13 @@ import { useRouter } from 'next/navigation';
 import { PiUserCircle, PiUserCircleCheck, PiGear } from 'react-icons/pi';
 import { PiSun, PiMoon } from 'react-icons/pi';
 import { TbSunMoon } from 'react-icons/tb';
-import { MdCloudSync, MdSync, MdSyncProblem, MdOutlineSensors } from 'react-icons/md';
+import {
+  MdCloudSync,
+  MdSync,
+  MdSyncProblem,
+  MdOutlineSensors,
+  MdOutlineSchedule,
+} from 'react-icons/md';
 
 import { isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
 import { DOWNLOAD_READEST_URL } from '@/services/constants';
@@ -266,7 +272,9 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
         ? _('Light Mode')
         : themeMode === 'ambient'
           ? _('Ambient Mode')
-          : _('Auto Mode');
+          : themeMode === 'schedule'
+            ? _('Scheduled Mode')
+            : _('Auto Mode');
 
   const savedBookCoverPath = settings.savedBookCoverForLockScreenPath;
   const coverDir = savedBookCoverPath ? savedBookCoverPath.split('/').pop() : 'Images';
@@ -427,7 +435,9 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
               ? PiSun
               : themeMode === 'ambient'
                 ? MdOutlineSensors
-                : TbSunMoon
+                : themeMode === 'schedule'
+                  ? MdOutlineSchedule
+                  : TbSunMoon
         }
         onClick={cycleThemeMode}
       />

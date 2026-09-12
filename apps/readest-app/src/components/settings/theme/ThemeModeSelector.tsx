@@ -1,6 +1,11 @@
 import clsx from 'clsx';
 import React from 'react';
-import { MdOutlineLightMode, MdOutlineDarkMode, MdOutlineSensors } from 'react-icons/md';
+import {
+  MdOutlineLightMode,
+  MdOutlineDarkMode,
+  MdOutlineSensors,
+  MdOutlineSchedule,
+} from 'react-icons/md';
 import { TbSunMoon } from 'react-icons/tb';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAtmosphereStore } from '@/store/atmosphereStore';
@@ -45,6 +50,11 @@ const ThemeModeSelector: React.FC<ThemeModeSelectorProps> = ({
     }
   };
 
+  const handleScheduleClick = () => {
+    deactivate();
+    onThemeModeChange('schedule');
+  };
+
   const handleAmbientClick = () => {
     deactivate();
     onThemeModeChange('ambient');
@@ -84,6 +94,12 @@ const ThemeModeSelector: React.FC<ThemeModeSelectorProps> = ({
           <MdOutlineDarkMode />
         </span>
       ),
+    },
+    {
+      mode: 'schedule',
+      title: _('Scheduled Mode'),
+      onClick: handleScheduleClick,
+      icon: <MdOutlineSchedule />,
     },
   ];
 

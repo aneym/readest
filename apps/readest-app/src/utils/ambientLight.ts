@@ -28,12 +28,13 @@ export function resolveAmbientIsDarkMode(lux: number, previousIsDark: boolean | 
 }
 
 /**
- * Resolve effective dark mode from theme mode and system/ambient flags.
+ * Resolve effective dark mode from theme mode and system/ambient/schedule flags.
  *
  * Receives:
- * - mode: ThemeMode including ambient.
+ * - mode: ThemeMode including schedule and ambient.
  * - systemIsDarkMode: OS appearance when mode is auto.
  * - ambientIsDarkMode: lux-derived flag when mode is ambient.
+ * - scheduleIsDarkMode: clock-derived flag when mode is schedule.
  *
  * Returns:
  * - whether the UI and reader should render as dark.
@@ -42,18 +43,20 @@ export function resolveThemeIsDarkMode(
   mode: ThemeMode,
   systemIsDarkMode: boolean,
   ambientIsDarkMode: boolean,
+  scheduleIsDarkMode: boolean,
 ): boolean {
   if (mode === 'dark') return true;
   if (mode === 'light') return false;
   if (mode === 'ambient') return ambientIsDarkMode;
+  if (mode === 'schedule') return scheduleIsDarkMode;
   return systemIsDarkMode;
 }
 
-const THEME_MODES_BASE: ThemeMode[] = ['auto', 'light', 'dark'];
-const THEME_MODES_WITH_AMBIENT: ThemeMode[] = ['auto', 'light', 'dark', 'ambient'];
+const THEME_MODES_BASE: ThemeMode[] = ['auto', 'light', 'dark', 'schedule'];
+const THEME_MODES_WITH_AMBIENT: ThemeMode[] = ['auto', 'light', 'dark', 'schedule', 'ambient'];
 
 /**
- * Cycle Auto → Light → Dark → (Ambient Mode) → Auto.
+ * Cycle Auto → Light → Dark → Scheduled → (Ambient Mode) → Auto.
  *
  * Receives:
  * - current: active ThemeMode.
@@ -85,5 +88,11 @@ export function readStoredAmbientIsDarkMode(
 }
 
 export function isValidThemeMode(value: string | null): value is ThemeMode {
-  return value === 'auto' || value === 'light' || value === 'dark' || value === 'ambient';
+  return (
+    value === 'auto' ||
+    value === 'light' ||
+    value === 'dark' ||
+    value === 'schedule' ||
+    value === 'ambient'
+  );
 }

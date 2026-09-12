@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { PiSun, PiMoon } from 'react-icons/pi';
 import { TbSunMoon } from 'react-icons/tb';
-import { MdOutlineSensors } from 'react-icons/md';
+import { MdOutlineSensors, MdOutlineSchedule } from 'react-icons/md';
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -179,6 +179,8 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
               <PiMoon size={20} />
             ) : themeMode === 'ambient' ? (
               <MdOutlineSensors size={20} />
+            ) : themeMode === 'schedule' ? (
+              <MdOutlineSchedule size={20} />
             ) : (
               <TbSunMoon size={20} />
             )}

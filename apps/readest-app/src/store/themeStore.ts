@@ -14,6 +14,16 @@ import {
   resolveAmbientIsDarkMode,
   resolveThemeIsDarkMode,
 } from '@/utils/ambientLight';
+import {
+  THEME_SCHEDULE_TICK_MS,
+  normalizeThemeSchedule,
+  persistThemeSchedule,
+  readScheduleIsDarkMode,
+  readStoredThemeSchedule,
+  readThemeModeWithScheduleDefault,
+  resolveScheduleIsDarkMode,
+  type ThemeSchedule,
+} from '@/utils/themeSchedule';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { CustomTheme, Palette, ThemeMode } from '@/styles/themes';
 import { EnvConfigType, isWebAppPlatform } from '@/services/environment';
@@ -32,6 +42,8 @@ interface ThemeState {
   themeColor: string;
   systemIsDarkMode: boolean;
   ambientIsDarkMode: boolean;
+  scheduleIsDarkMode: boolean;
+  themeSchedule: ThemeSchedule;
   themeCode: ThemeCode;
   isDarkMode: boolean;
   systemUIVisible: boolean;
@@ -45,6 +57,9 @@ interface ThemeState {
   dismissSystemUI: () => void;
   getIsDarkMode: () => boolean;
   setThemeMode: (mode: ThemeMode) => void;
+  setThemeSchedule: (schedule: ThemeSchedule) => void;
+  /** Re-evaluate Scheduled Mode against the device clock. */
+  handleScheduleTick: (now?: Date) => void;
   setThemeColor: (color: string) => void;
   updateAppTheme: (color: keyof Palette) => void;
   saveCustomTheme: (
@@ -58,13 +73,7 @@ interface ThemeState {
   updateSafeAreaInsets: (insets: Insets) => void;
 }
 
-const getInitialThemeMode = (): ThemeMode => {
-  if (typeof window !== 'undefined' && localStorage) {
-    const stored = localStorage.getItem('themeMode');
-    if (isValidThemeMode(stored)) return stored;
-  }
-  return 'auto';
-};
+const getInitialThemeMode = (): ThemeMode => readThemeModeWithScheduleDefault(isValidThemeMode);
 
 const getInitialThemeColor = (): string => {
   if (typeof window !== 'undefined' && localStorage) {
@@ -159,7 +168,14 @@ export const useThemeStore = create<ThemeState>((set, get) => {
   const systemIsDarkMode =
     typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
   const ambientIsDarkMode = getInitialAmbientIsDarkMode(systemIsDarkMode);
-  const isDarkMode = resolveThemeIsDarkMode(initialThemeMode, systemIsDarkMode, ambientIsDarkMode);
+  const themeSchedule = readStoredThemeSchedule();
+  const scheduleIsDarkMode = resolveScheduleIsDarkMode(new Date(), themeSchedule);
+  const isDarkMode = resolveThemeIsDarkMode(
+    initialThemeMode,
+    systemIsDarkMode,
+    ambientIsDarkMode,
+    scheduleIsDarkMode,
+  );
   const themeCode = getThemeCode();
 
   return {
@@ -167,6 +183,8 @@ export const useThemeStore = create<ThemeState>((set, get) => {
     themeColor: initialThemeColor,
     systemIsDarkMode,
     ambientIsDarkMode,
+    scheduleIsDarkMode,
+    themeSchedule,
     isDarkMode,
     themeCode,
     systemUIVisible: false,
@@ -183,15 +201,41 @@ export const useThemeStore = create<ThemeState>((set, get) => {
       if (typeof window !== 'undefined' && localStorage) {
         localStorage.setItem('themeMode', mode);
       }
+      // Re-read the clock so switching into Scheduled Mode lands on the
+      // current window even if no tick has run since the app woke.
+      const scheduleIsDarkMode = resolveScheduleIsDarkMode(new Date(), get().themeSchedule);
       const isDarkMode = resolveThemeIsDarkMode(
         mode,
         get().systemIsDarkMode,
         get().ambientIsDarkMode,
+        scheduleIsDarkMode,
       );
       applyDataTheme(get().themeColor, isDarkMode);
-      set({ themeMode: mode, isDarkMode });
+      set({ themeMode: mode, isDarkMode, scheduleIsDarkMode });
       set({ themeCode: getThemeCode() });
       syncAmbientLightSubscription(mode);
+    },
+    setThemeSchedule: (schedule) => {
+      const themeSchedule = normalizeThemeSchedule(schedule);
+      persistThemeSchedule(themeSchedule);
+      set({ themeSchedule });
+      get().handleScheduleTick();
+    },
+    handleScheduleTick: (now = new Date()) => {
+      const scheduleIsDarkMode = resolveScheduleIsDarkMode(now, get().themeSchedule);
+      const mode = get().themeMode;
+      const isDarkMode = resolveThemeIsDarkMode(
+        mode,
+        get().systemIsDarkMode,
+        get().ambientIsDarkMode,
+        scheduleIsDarkMode,
+      );
+      if (scheduleIsDarkMode === get().scheduleIsDarkMode && isDarkMode === get().isDarkMode) {
+        return;
+      }
+      if (mode === 'schedule') applyDataTheme(get().themeColor, isDarkMode);
+      set({ scheduleIsDarkMode, isDarkMode });
+      set({ themeCode: getThemeCode() });
     },
     setThemeColor: (color) => {
       if (typeof window !== 'undefined' && localStorage) {
@@ -228,7 +272,12 @@ export const useThemeStore = create<ThemeState>((set, get) => {
     },
     handleSystemThemeChange: (systemIsDarkMode) => {
       const mode = get().themeMode;
-      const isDarkMode = resolveThemeIsDarkMode(mode, systemIsDarkMode, get().ambientIsDarkMode);
+      const isDarkMode = resolveThemeIsDarkMode(
+        mode,
+        systemIsDarkMode,
+        get().ambientIsDarkMode,
+        get().scheduleIsDarkMode,
+      );
       applyDataTheme(get().themeColor, isDarkMode);
       set({ systemIsDarkMode, isDarkMode });
       set({ themeCode: getThemeCode() });
@@ -255,13 +304,17 @@ export const useThemeStore = create<ThemeState>((set, get) => {
 export const loadDataTheme = () => {
   if (typeof localStorage === 'undefined' || typeof document === 'undefined') return;
 
-  const themeMode = localStorage.getItem('themeMode');
+  const mode = readThemeModeWithScheduleDefault(isValidThemeMode);
   const themeColor = localStorage.getItem('themeColor');
-  if (themeMode && themeColor) {
+  if (themeColor) {
     const systemIsDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const ambientIsDarkMode = getInitialAmbientIsDarkMode(systemIsDarkMode);
-    const mode = isValidThemeMode(themeMode) ? themeMode : 'auto';
-    const isDarkMode = resolveThemeIsDarkMode(mode, systemIsDarkMode, ambientIsDarkMode);
+    const isDarkMode = resolveThemeIsDarkMode(
+      mode,
+      systemIsDarkMode,
+      ambientIsDarkMode,
+      readScheduleIsDarkMode(),
+    );
     applyDataTheme(themeColor, isDarkMode);
   }
 };
@@ -308,7 +361,11 @@ export const initSystemThemeListener = (appService: AppService) => {
   document.addEventListener('visibilitychange', () => {
     void updateColorTheme();
     syncAmbientForVisibility();
+    // Timers stall while the WebView is backgrounded or the device sleeps,
+    // so a boundary crossed overnight is applied the moment the app wakes.
+    useThemeStore.getState().handleScheduleTick();
   });
+  window.setInterval(() => useThemeStore.getState().handleScheduleTick(), THEME_SCHEDULE_TICK_MS);
   window.addEventListener('resize', updateWindowTheme);
 
   // iOS WKWebView never fires the `prefers-color-scheme` media query

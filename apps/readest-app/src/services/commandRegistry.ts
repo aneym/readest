@@ -6,7 +6,7 @@ import { LiaHandPointerSolid } from 'react-icons/lia';
 import { IoAccessibilityOutline } from 'react-icons/io5';
 import { PiRobot, PiSpeakerHigh, PiSun, PiMoon } from 'react-icons/pi';
 import { TbSunMoon } from 'react-icons/tb';
-import { MdRefresh } from 'react-icons/md';
+import { MdRefresh, MdOutlineSchedule } from 'react-icons/md';
 import { IconType } from 'react-icons';
 import { stubTranslation as _ } from '@/utils/misc';
 
@@ -339,7 +339,7 @@ const colorPanelItems = [
   {
     id: 'settings.color.themeMode',
     labelKey: _('Theme Mode'),
-    keywords: ['theme', 'mode', 'dark', 'light', 'auto', 'system'],
+    keywords: ['theme', 'mode', 'dark', 'light', 'auto', 'system', 'schedule'],
     section: 'Theme',
   },
   {
@@ -751,7 +751,13 @@ export const buildCommandRegistry = (options: CommandRegistryOptions): CommandIt
   const getThemeIcon = (): IconType => {
     const themeMode =
       typeof localStorage !== 'undefined' ? localStorage.getItem('themeMode') : 'auto';
-    return themeMode === 'dark' ? PiMoon : themeMode === 'light' ? PiSun : TbSunMoon;
+    return themeMode === 'dark'
+      ? PiMoon
+      : themeMode === 'light'
+        ? PiSun
+        : themeMode === 'schedule'
+          ? MdOutlineSchedule
+          : TbSunMoon;
   };
 
   const createActionItem = (def: {

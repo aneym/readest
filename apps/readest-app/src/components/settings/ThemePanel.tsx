@@ -34,6 +34,7 @@ import { SettingLabel } from './primitives';
 import { HIGHLIGHT_COLOR_HEX } from '@/services/constants';
 import ThemeEditor from './theme/ThemeEditor';
 import ThemeModeSelector from './theme/ThemeModeSelector';
+import ThemeScheduleSettings from './theme/ThemeScheduleSettings';
 import ThemeColorSelector from './theme/ThemeColorSelector';
 import BackgroundTextureSelector from './theme/BackgroundTextureSelector';
 import HighlightColorsEditor from './theme/HighlightColorsEditor';
@@ -44,8 +45,17 @@ import LibrarySettings from './theme/LibrarySettings';
 
 const ThemePanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset }) => {
   const _ = useTranslation();
-  const { themeMode, themeColor, isDarkMode, setThemeMode, setThemeColor, saveCustomTheme } =
-    useThemeStore();
+  const {
+    themeMode,
+    themeColor,
+    isDarkMode,
+    themeSchedule,
+    scheduleIsDarkMode,
+    setThemeMode,
+    setThemeSchedule,
+    setThemeColor,
+    saveCustomTheme,
+  } = useThemeStore();
   const { envConfig, appService } = useEnv();
   const { settings, setSettings, saveSettings } = useSettingsStore();
   const { getView, getViewSettings } = useReaderStore();
@@ -399,6 +409,15 @@ const ThemePanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset
             hasAmbientLightSensor={!!appService?.hasAmbientLightSensor}
             data-setting-id='settings.color.themeMode'
           />
+
+          {themeMode === 'schedule' && (
+            <ThemeScheduleSettings
+              schedule={themeSchedule}
+              isDarkNow={scheduleIsDarkMode}
+              onScheduleChange={setThemeSchedule}
+              data-setting-id='settings.color.themeSchedule'
+            />
+          )}
 
           <label
             data-setting-id='settings.color.invertImageInDarkMode'
