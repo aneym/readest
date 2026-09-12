@@ -35,6 +35,7 @@ vi.mock('@/services/environment', () => ({
 import { addPluginListener } from '@tauri-apps/api/core';
 import { startAmbientLightUpdates, stopAmbientLightUpdates } from '@/utils/bridge';
 import { useThemeStore, loadDataTheme, initSystemThemeListener } from '@/store/themeStore';
+import { readScheduleIsDarkMode } from '@/utils/themeSchedule';
 import type { AppService } from '@/types/system';
 
 describe('themeStore', () => {
@@ -377,10 +378,21 @@ describe('themeStore', () => {
 
   describe('loadDataTheme', () => {
     test('sets data-theme attribute when localStorage has themeMode and themeColor', () => {
+      localStorage.setItem('themeScheduleDefaultApplied', 'true');
       localStorage.setItem('themeMode', 'dark');
       localStorage.setItem('themeColor', 'sepia');
       loadDataTheme();
       expect(document.documentElement.getAttribute('data-theme')).toBe('sepia-dark');
+    });
+
+    test('moves a pre-schedule install to scheduled mode once', () => {
+      localStorage.setItem('themeMode', 'dark');
+      localStorage.setItem('themeColor', 'sepia');
+      loadDataTheme();
+      expect(localStorage.getItem('themeMode')).toBe('schedule');
+      expect(localStorage.getItem('themeScheduleDefaultApplied')).toBe('true');
+      const expected = readScheduleIsDarkMode() ? 'sepia-dark' : 'sepia-light';
+      expect(document.documentElement.getAttribute('data-theme')).toBe(expected);
     });
 
     test('sets light theme in auto mode when system prefers light', () => {
@@ -391,11 +403,13 @@ describe('themeStore', () => {
       expect(document.documentElement.getAttribute('data-theme')).toBe('default-light');
     });
 
-    test('does nothing when themeMode is not in localStorage', () => {
+    test('defaults to scheduled mode when themeMode is not in localStorage', () => {
       localStorage.setItem('themeColor', 'default');
       document.documentElement.removeAttribute('data-theme');
       loadDataTheme();
-      expect(document.documentElement.getAttribute('data-theme')).toBeNull();
+      expect(localStorage.getItem('themeMode')).toBe('schedule');
+      const expected = readScheduleIsDarkMode() ? 'default-dark' : 'default-light';
+      expect(document.documentElement.getAttribute('data-theme')).toBe(expected);
     });
 
     test('does nothing when themeColor is not in localStorage', () => {

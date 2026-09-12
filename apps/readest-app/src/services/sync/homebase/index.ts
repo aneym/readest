@@ -24,6 +24,7 @@ export * from './outbox';
 export * from './persistence';
 export * from './storage';
 export * from './recordSyncClient';
+export * from './diagnostics';
 
 import { SyncClient } from '@/libs/sync';
 import { isHomebaseSyncEnabled, resolveHomebaseConfig } from './config';
@@ -35,6 +36,7 @@ import {
   getOrCreateHomebaseClientId,
 } from './persistence';
 import { HomebaseSyncClient, type RecordSyncClient } from './recordSyncClient';
+import { recordDiagnostic } from './diagnostics';
 
 export interface ResolveRecordSyncClientOptions {
   /** Persistent outbox store. Defaults to in-memory, which loses on restart. */
@@ -61,5 +63,14 @@ export const resolveRecordSyncClient = (
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
   const outbox = createSyncOutbox({ store: options.outboxStore ?? createPersistentOutboxStore() });
-  return new HomebaseSyncClient({ adapter, outbox });
+  return new HomebaseSyncClient({
+    adapter,
+    outbox,
+    onQueued: (count, error) =>
+      recordDiagnostic('sync.queued', 'warn', `push queued: ${error.message}`, {
+        count,
+        code: error.code,
+        status: error.status ?? null,
+      }),
+  });
 };

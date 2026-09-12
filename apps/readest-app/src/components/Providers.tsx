@@ -9,7 +9,14 @@ import { AuthProvider } from '@/context/AuthContext';
 import { useEnv } from '@/context/EnvContext';
 import { CSPostHogProvider } from '@/context/PHContext';
 import { SyncProvider } from '@/context/SyncContext';
-import { initSystemThemeListener, loadDataTheme } from '@/store/themeStore';
+import { initSystemThemeListener, loadDataTheme, useThemeStore } from '@/store/themeStore';
+import {
+  getHomebaseToken,
+  getOrCreateHomebaseClientId,
+  isHomebaseSyncEnabled,
+  recordDiagnostic,
+  startDiagnosticsReporter,
+} from '@/services/sync/homebase';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useCustomTextureStore } from '@/store/customTextureStore';
 import { useSafeAreaInsets } from '@/hooks/useSafeAreaInsets';
@@ -140,6 +147,20 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
     loadDataTheme();
     if (appService) {
       initSystemThemeListener(appService);
+      if (isHomebaseSyncEnabled()) {
+        const { themeMode, themeSchedule, isDarkMode } = useThemeStore.getState();
+        recordDiagnostic('app.start', 'info', 'app started', {
+          themeMode,
+          isDarkMode,
+          ...themeSchedule,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          tzOffsetMin: new Date().getTimezoneOffset(),
+        });
+        startDiagnosticsReporter({
+          clientId: getOrCreateHomebaseClientId(),
+          getToken: getHomebaseToken,
+        });
+      }
       const hadSettingsFilePromise = appService.exists(SETTINGS_FILENAME, 'Settings');
       appService.loadSettings().then(async (settings) => {
         const globalViewSettings = settings.globalViewSettings;

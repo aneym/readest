@@ -14,6 +14,7 @@ import {
   resolveAmbientIsDarkMode,
   resolveThemeIsDarkMode,
 } from '@/utils/ambientLight';
+import { recordDiagnostic } from '@/services/sync/homebase/diagnostics';
 import {
   THEME_SCHEDULE_TICK_MS,
   normalizeThemeSchedule,
@@ -211,6 +212,13 @@ export const useThemeStore = create<ThemeState>((set, get) => {
         scheduleIsDarkMode,
       );
       applyDataTheme(get().themeColor, isDarkMode);
+      if (mode !== get().themeMode) {
+        recordDiagnostic('theme.mode', 'info', `theme mode ${get().themeMode} → ${mode}`, {
+          from: get().themeMode,
+          to: mode,
+          isDarkMode,
+        });
+      }
       set({ themeMode: mode, isDarkMode, scheduleIsDarkMode });
       set({ themeCode: getThemeCode() });
       syncAmbientLightSubscription(mode);
@@ -218,6 +226,7 @@ export const useThemeStore = create<ThemeState>((set, get) => {
     setThemeSchedule: (schedule) => {
       const themeSchedule = normalizeThemeSchedule(schedule);
       persistThemeSchedule(themeSchedule);
+      recordDiagnostic('theme.schedule', 'info', 'schedule changed', { ...themeSchedule });
       set({ themeSchedule });
       get().handleScheduleTick();
     },
@@ -233,7 +242,15 @@ export const useThemeStore = create<ThemeState>((set, get) => {
       if (scheduleIsDarkMode === get().scheduleIsDarkMode && isDarkMode === get().isDarkMode) {
         return;
       }
-      if (mode === 'schedule') applyDataTheme(get().themeColor, isDarkMode);
+      if (mode === 'schedule') {
+        applyDataTheme(get().themeColor, isDarkMode);
+        recordDiagnostic(
+          'theme.transition',
+          'info',
+          `scheduled theme → ${isDarkMode ? 'dark' : 'light'}`,
+          { isDarkMode, ...get().themeSchedule },
+        );
+      }
       set({ scheduleIsDarkMode, isDarkMode });
       set({ themeCode: getThemeCode() });
     },
