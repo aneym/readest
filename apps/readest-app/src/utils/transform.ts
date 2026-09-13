@@ -206,7 +206,11 @@ export const transformBookFromDB = (dbBook: DBBook): Book => {
           metadata: decodedMetadata as Book['metadata'],
           metadataUpdatedAt: metadata_updated_at ? new Date(metadata_updated_at).getTime() : null,
         }
-      : {}),
+      : metadata == null
+        ? {
+            metadataUpdatedAt: metadata_updated_at ? new Date(metadata_updated_at).getTime() : null,
+          }
+        : {}),
     createdAt: new Date(created_at!).getTime(),
     updatedAt: new Date(updated_at!).getTime(),
     deletedAt: deleted_at ? new Date(deleted_at).getTime() : null,

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ViewMenu from '@/app/reader/components/ViewMenu';
+vi.mock('@/components/HomebaseSyncMenu', () => ({ default: () => null }));
 
 const mockView = {
   book: { dir: undefined as string | undefined },
