@@ -17,14 +17,14 @@ export const createPersistentOutboxStore = (
   async read() {
     const raw = storage?.getItem(HOMEBASE_OUTBOX_STORAGE_KEY);
     if (!raw) return [];
-    try {
-      return JSON.parse(raw) as OutboxEntry[];
-    } catch {
-      return [];
-    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed))
+      throw new Error('Stored sync queue is invalid; original data retained');
+    return parsed as OutboxEntry[];
   },
   async write(entries) {
-    storage?.setItem(HOMEBASE_OUTBOX_STORAGE_KEY, JSON.stringify(entries));
+    if (!storage) throw new Error('Sync queue storage unavailable');
+    storage.setItem(HOMEBASE_OUTBOX_STORAGE_KEY, JSON.stringify(entries));
   },
 });
 

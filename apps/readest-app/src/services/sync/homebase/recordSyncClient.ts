@@ -31,6 +31,13 @@ import type { SyncClient, SyncData, SyncResult, SyncType } from '@/libs/sync';
 import { HomebaseSyncError, type HomebaseSyncAdapter } from './adapter';
 import { decodeEnvelope, encodeSyncData } from './wire';
 import type { SyncOutbox } from './outbox';
+import {
+  beginSyncRequest,
+  endSyncRequest,
+  reportSyncError,
+  reportSyncSuccess,
+  useHomebaseSyncStatus,
+} from './syncStatus';
 
 /**
  * The two methods the app actually calls on a record-sync backend. Written to
@@ -46,6 +53,7 @@ export interface RecordSyncClient {
     limit?: number,
   ): Promise<SyncResult>;
   pushChanges(payload: SyncData): Promise<SyncResult>;
+  flushOutbox?(): Promise<import('./outbox').FlushResult | null>;
 }
 
 /** Compile-time proof that the stock client already satisfies the seam. */
@@ -75,6 +83,20 @@ const countRecords = (payload: SyncData): number =>
 
 export class HomebaseSyncClient implements RecordSyncClient {
   private readonly adapter: HomebaseSyncAdapter;
+
+  private async request<T>(run: () => Promise<T>): Promise<T> {
+    beginSyncRequest();
+    try {
+      const result = await run();
+      reportSyncSuccess();
+      return result;
+    } catch (error) {
+      reportSyncError(error);
+      throw error;
+    } finally {
+      endSyncRequest();
+    }
+  }
   private readonly outbox?: SyncOutbox;
   private readonly onQueued?: HomebaseSyncClientOptions['onQueued'];
 
@@ -91,22 +113,24 @@ export class HomebaseSyncClient implements RecordSyncClient {
     metaHash?: string,
     limit?: number,
   ): Promise<SyncResult> {
-    const envelope = await this.adapter.pull({
-      since,
-      // `SyncType` has no 'statBooks'/'statPages' members — 'stats' selects both
-      // and the adapter expands it, matching how `statsSync.pullStats` calls in.
-      ...(type ? { channel: type } : {}),
-      ...(book ? { bookHash: book } : {}),
-      ...(metaHash ? { metaHash } : {}),
-      ...(limit ? { limit } : {}),
-    });
+    const envelope = await this.request(() =>
+      this.adapter.pull({
+        since,
+        // `SyncType` has no 'statBooks'/'statPages' members — 'stats' selects both
+        // and the adapter expands it, matching how `statsSync.pullStats` calls in.
+        ...(type ? { channel: type } : {}),
+        ...(book ? { bookHash: book } : {}),
+        ...(metaHash ? { metaHash } : {}),
+        ...(limit ? { limit } : {}),
+      }),
+    );
     return decodeEnvelope(envelope);
   }
 
   async pushChanges(payload: SyncData): Promise<SyncResult> {
     const envelope = encodeSyncData(payload);
     try {
-      return decodeEnvelope(await this.adapter.push(envelope));
+      return decodeEnvelope(await this.request(() => this.adapter.push(envelope)));
     } catch (err) {
       const error =
         err instanceof HomebaseSyncError
@@ -126,6 +150,10 @@ export class HomebaseSyncClient implements RecordSyncClient {
   /** Drain the outbox. Called by whatever the app already uses as a sync tick. */
   async flushOutbox() {
     if (!this.outbox) return null;
-    return await this.outbox.flush((envelope) => this.adapter.push(envelope));
+    const result = await this.outbox.flush((envelope) =>
+      this.request(() => this.adapter.push(envelope)),
+    );
+    useHomebaseSyncStatus.setState({ pending: result.remaining, blocked: result.poisoned.length });
+    return result;
   }
 }

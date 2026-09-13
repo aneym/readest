@@ -1,13 +1,13 @@
 'use client';
 
 import React, { createContext, useContext, useMemo } from 'react';
-import type { SyncClient } from '@/libs/sync';
+import type { RecordSyncClient } from '@/services/sync/homebase/recordSyncClient';
 import { resolveRecordSyncClient } from '@/services/sync/homebase';
 
 const syncClient = resolveRecordSyncClient();
 
 interface SyncContextType {
-  syncClient: SyncClient;
+  syncClient: RecordSyncClient;
 }
 
 const SyncContext = createContext<SyncContextType>({ syncClient });

@@ -1915,10 +1915,6 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     handleLibraryNavigation(group);
   };
 
-  if (!appService || !insets || checkOpenWithBooks || checkLastOpenBooks) {
-    return <div className='full-height bg-base-200' />;
-  }
-
   const showBookshelf = libraryLoaded || libraryBooks.length > 0;
 
   // Household shelf chips: only once the server has tagged the library, so a
@@ -1939,6 +1935,11 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     },
     [shelfFilter, settings, setSettings, saveSettings, envConfig],
   );
+
+  // Shelf hooks must also run during startup/loading renders.
+  if (!appService || !insets || checkOpenWithBooks || checkLastOpenBooks) {
+    return <div className='full-height bg-base-200' />;
+  }
 
   return (
     <div

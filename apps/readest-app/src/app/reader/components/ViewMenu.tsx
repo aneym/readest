@@ -41,6 +41,7 @@ import { clampSyncTimeForDisplay } from '@/utils/time';
 import { saveViewSettings } from '@/helpers/settings';
 import { tauriHandleToggleFullScreen } from '@/utils/window';
 import MenuItem from '@/components/MenuItem';
+import HomebaseSyncMenu from '@/components/HomebaseSyncMenu';
 import Menu from '@/components/Menu';
 
 interface ViewMenuProps {
@@ -490,6 +491,7 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
 
       <hr aria-hidden='true' className='border-base-300 my-1' />
 
+      <HomebaseSyncMenu onSync={handleSync} />
       <MenuItem
         label={
           !user

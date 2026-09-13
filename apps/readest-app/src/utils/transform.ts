@@ -13,6 +13,35 @@ import { sanitizeString } from './sanitize';
 import { buildFeedBookUrl } from '@/services/rss/feedBookUrl';
 import { restoreAbsBookFields } from './audiobook';
 
+// Homebase sends decoded JSON; the native cloud sends JSON strings. Never
+// coerce objects through JSON.parse, or let a malformed optional field erase
+// the local copy during the caller's merge.
+const decodeJson = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+};
+const decodeObject = (value: unknown): Record<string, unknown> | undefined => {
+  const parsed = decodeJson(value);
+  return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : undefined;
+};
+const decodeProgress = (value: unknown): [number, number] | undefined => {
+  const parsed = decodeJson(value);
+  return Array.isArray(parsed) &&
+    parsed.length === 2 &&
+    parsed.every((n: unknown) => typeof n === 'number' && Number.isFinite(n)) &&
+    parsed[0] >= 0 &&
+    parsed[1] > 0 &&
+    parsed[0] <= parsed[1]
+    ? (parsed as [number, number])
+    : undefined;
+};
+
 export const transformBookConfigToDB = (bookConfig: unknown, userId: string): DBBookConfig => {
   const {
     bookHash,
@@ -56,16 +85,25 @@ export const transformBookConfigFromDB = (dbBookConfig: DBBookConfig): BookConfi
   // deployment has no page count to build `progress` from. It is rebuilt field
   // by field here, so relay it explicitly or the reader loses its anchor.
   const hbFraction = (dbBookConfig as DBBookConfig & { hbFraction?: number }).hbFraction;
+  const decodedProgress = decodeProgress(progress);
+  const rsvpPosition = decodeObject(rsvp_position);
+  const searchConfig = decodeObject(search_config);
+  const viewSettings = decodeObject(view_settings);
   return {
     bookHash: book_hash,
     metaHash: meta_hash,
     location,
     xpointer,
-    ...(typeof hbFraction === 'number' ? { hbFraction } : {}),
-    progress: progress && JSON.parse(progress),
-    rsvpPosition: rsvp_position && JSON.parse(rsvp_position),
-    searchConfig: search_config && JSON.parse(search_config),
-    viewSettings: view_settings && JSON.parse(view_settings),
+    ...(typeof hbFraction === 'number' &&
+    Number.isFinite(hbFraction) &&
+    hbFraction >= 0 &&
+    hbFraction <= 1
+      ? { hbFraction }
+      : {}),
+    ...(decodedProgress ? { progress: decodedProgress } : {}),
+    ...(rsvpPosition ? { rsvpPosition } : {}),
+    ...(searchConfig ? { searchConfig } : {}),
+    ...(viewSettings ? { viewSettings } : {}),
     updatedAt: new Date(updated_at!).getTime(),
   } as BookConfig;
 };
@@ -145,6 +183,7 @@ export const transformBookFromDB = (dbBook: DBBook): Book => {
     uploaded_at,
   } = dbBook;
 
+  const decodedMetadata = decodeObject(metadata);
   const book: Book = {
     hash: book_hash,
     metaHash: meta_hash,
@@ -162,8 +201,12 @@ export const transformBookFromDB = (dbBook: DBBook): Book => {
     coverHash: cover_hash ?? null,
     coverUpdatedAt: cover_updated_at ? new Date(cover_updated_at).getTime() : null,
     sourceTitle: source_title,
-    metadata: metadata ? JSON.parse(metadata) : null,
-    metadataUpdatedAt: metadata_updated_at ? new Date(metadata_updated_at).getTime() : null,
+    ...(decodedMetadata
+      ? {
+          metadata: decodedMetadata as Book['metadata'],
+          metadataUpdatedAt: metadata_updated_at ? new Date(metadata_updated_at).getTime() : null,
+        }
+      : {}),
     createdAt: new Date(created_at!).getTime(),
     updatedAt: new Date(updated_at!).getTime(),
     deletedAt: deleted_at ? new Date(deleted_at).getTime() : null,

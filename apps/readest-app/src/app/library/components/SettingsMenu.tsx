@@ -50,6 +50,7 @@ import dayjs from 'dayjs';
 import { clampSyncTimeForDisplay } from '@/utils/time';
 import UserAvatar from '@/components/UserAvatar';
 import MenuItem from '@/components/MenuItem';
+import HomebaseSyncMenu from '@/components/HomebaseSyncMenu';
 import Quota from '@/components/Quota';
 import Menu from '@/components/Menu';
 import { type AppLockDialogMode, useAppLockStore } from '@/store/appLockStore';
@@ -324,6 +325,7 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
       )}
       onCancel={() => setIsDropdownOpen?.(false)}
     >
+      <HomebaseSyncMenu onSync={() => onPullLibrary(true, false)} />
       {user ? (
         <MenuItem
           label={

@@ -15,6 +15,7 @@ import {
   getActiveFileSyncBackends,
 } from '@/services/sync/cloudSyncProvider';
 import { isDemoBook } from '@/services/demoBooks';
+import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { ensureFeedBookCover } from '@/services/rss/feedBook';
 import { runFileLibrarySyncPass } from '@/services/sync/file/runLibrarySync';
@@ -112,7 +113,9 @@ export const useBooksSync = () => {
         if (runNativePull) {
           const library = useLibraryStore.getState().library;
           const since = (libraryLoaded && library.length === 0) || fullRefresh ? 0 : undefined;
-          nativeSynced = (await syncBooks([], 'pull', since)) ?? 0;
+          const manualHomebase = fullRefresh && isHomebaseSyncEnabled();
+          const books = manualHomebase ? getNewBooks().books : [];
+          nativeSynced = (await syncBooks(books, manualHomebase ? 'both' : 'pull', since)) ?? 0;
         }
 
         if (verbose) {
@@ -132,7 +135,7 @@ export const useBooksSync = () => {
         isPullingRef.current = false;
       }
     },
-    [_, user, libraryLoaded, syncBooks, envConfig],
+    [_, user, libraryLoaded, syncBooks, envConfig, getNewBooks],
   );
 
   // eslint-disable-next-line react-hooks/exhaustive-deps

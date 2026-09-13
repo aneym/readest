@@ -37,6 +37,7 @@ import {
 } from './persistence';
 import { HomebaseSyncClient, type RecordSyncClient } from './recordSyncClient';
 import { recordDiagnostic } from './diagnostics';
+import { reportSyncError, useHomebaseSyncStatus } from './syncStatus';
 
 export interface ResolveRecordSyncClientOptions {
   /** Persistent outbox store. Defaults to in-memory, which loses on restart. */
@@ -62,7 +63,23 @@ export const resolveRecordSyncClient = (
     getToken: options.getToken ?? getHomebaseToken,
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
-  const outbox = createSyncOutbox({ store: options.outboxStore ?? createPersistentOutboxStore() });
+  const storage = options.outboxStore ?? createPersistentOutboxStore();
+  const updateQueue = (entries: Awaited<ReturnType<OutboxStore['read']>>) => {
+    useHomebaseSyncStatus.setState({
+      pending: entries.filter((e) => !e.poisoned).length,
+      blocked: entries.filter((e) => e.poisoned).length,
+    });
+    return entries;
+  };
+  const store: OutboxStore = {
+    read: async () => updateQueue(await storage.read()),
+    write: async (entries) => {
+      await storage.write(entries);
+      updateQueue(entries);
+    },
+  };
+  void store.read().catch(reportSyncError);
+  const outbox = createSyncOutbox({ store });
   return new HomebaseSyncClient({
     adapter,
     outbox,

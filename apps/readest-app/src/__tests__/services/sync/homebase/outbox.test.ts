@@ -167,7 +167,7 @@ describe('flush', () => {
     expect(await outbox.clearPoisoned()).toHaveLength(1);
   });
 
-  test('a retryable failure poisons only after maxAttempts', async () => {
+  test('offline retries never expire the durable queue', async () => {
     const outbox = makeOutbox({ maxAttempts: 3 });
     await outbox.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);
     const fail = async () => {
@@ -176,18 +176,18 @@ describe('flush', () => {
     expect((await outbox.flush(fail)).poisoned).toHaveLength(0);
     expect((await outbox.flush(fail)).poisoned).toHaveLength(0);
     const third = await outbox.flush(fail);
-    expect(third.poisoned).toHaveLength(1);
-    // One malformed record must not wedge the queue forever.
-    expect(await outbox.pending()).toEqual([]);
+    expect(third.poisoned).toHaveLength(0);
+    expect(await outbox.pending()).toHaveLength(1);
   });
 
-  test('a non-HomebaseSyncError is treated as permanent', async () => {
+  test('an unexpected transport failure stays recoverable', async () => {
     const outbox = makeOutbox();
     await outbox.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);
     const result = await outbox.flush(async () => {
-      throw new TypeError('undefined is not a function');
+      throw new TypeError('Failed to fetch');
     });
-    expect(result.poisoned).toHaveLength(1);
+    expect(result.poisoned).toHaveLength(0);
+    expect(result.remaining).toBe(1);
   });
 
   test('flushing an empty outbox is a no-op', async () => {
