@@ -10,8 +10,9 @@ import {
   type StockClientConformsToSeam,
 } from '@/services/sync/homebase/recordSyncClient';
 import { resolveRecordSyncClient } from '@/services/sync/homebase';
-import { useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
+import { reportOutboxQueue, useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
 import { readDiagnosticEvents } from '@/services/sync/homebase/diagnostics';
+import { createFileOutboxStore, type OutboxFs } from '@/services/sync/homebase/persistence';
 
 /**
  * The seam. Everything else in the spike is machinery; this file is the claim:
@@ -182,18 +183,36 @@ describe('offline behaviour at the seam', () => {
       blocked: 0,
     };
     useHomebaseSyncStatus.setState(reset);
-    const store = createMemoryOutboxStore();
+    const files = new Map<string, string>();
+    const fs: OutboxFs = {
+      readText: async (path) => files.get(path) ?? null,
+      writeText: async (path, text) => {
+        files.set(path, text);
+      },
+      rename: async (from, to) => {
+        files.set(to, files.get(from)!);
+        files.delete(from);
+      },
+      remove: async (path) => {
+        files.delete(path);
+      },
+    };
+    const store = () => createFileOutboxStore({ fs, legacy: null });
     const sent: string[][] = [];
     let online = false;
+    let reject = true;
     const adapter = {
       ...createMemoryHomebaseAdapter(),
       push: async (envelope: { notes?: { id?: string }[] | null }) => {
         if (!online) throw new HomebaseSyncError('offline', 'NETWORK');
         sent.push((envelope.notes ?? []).map((note) => note.id ?? ''));
-        return { rejected: [{ family: 'note', id: 'bad', reason: 'invalid row' }] };
+        return reject ? { rejected: [{ family: 'note', id: 'bad', reason: 'invalid row' }] } : {};
       },
     };
-    const client = new HomebaseSyncClient({ adapter, outbox: createSyncOutbox({ store }) });
+    const client = new HomebaseSyncClient({
+      adapter,
+      outbox: createSyncOutbox({ store: store() }),
+    });
     await client.pushChanges({
       notes: [
         { bookHash: 'a', id: 'ok', updatedAt: AUG('01') },
@@ -203,17 +222,38 @@ describe('offline behaviour at the seam', () => {
     online = true;
     const flushed = await client.flushOutbox();
     expect(flushed).toMatchObject({ pushed: 1, remaining: 0 });
-    expect(await store.read()).toMatchObject([
+    expect(await store().read()).toMatchObject([
       { key: 'notes:a:bad', poisoned: true, lastError: 'invalid row', lastErrorCode: 'REJECTED' },
     ]);
     expect(useHomebaseSyncStatus.getState()).toMatchObject({ blocked: 1, rejectedCount: 1 });
 
-    // Restart: in-memory rejection state is gone, the durable queue is not.
+    // Restart: rebuild the store over the same file, then lose the in-memory rejection state.
     useHomebaseSyncStatus.setState(reset);
-    const restarted = new HomebaseSyncClient({ adapter, outbox: createSyncOutbox({ store }) });
+    const restartedStore = store();
+    reportOutboxQueue(await restartedStore.read());
+    const restarted = new HomebaseSyncClient({
+      adapter,
+      outbox: createSyncOutbox({ store: restartedStore }),
+    });
     await restarted.flushOutbox();
     expect(sent).toEqual([['ok', 'bad']]);
     expect(useHomebaseSyncStatus.getState()).toMatchObject({ blocked: 1, pending: 0 });
+
+    online = false;
+    await restarted.pushChanges({ notes: [{ bookHash: 'a', id: 'next', updatedAt: AUG('02') }] });
+    const queuedAndPoisoned = await store().read();
+    expect(queuedAndPoisoned).toHaveLength(2);
+    reportOutboxQueue(queuedAndPoisoned);
+    expect(useHomebaseSyncStatus.getState()).toMatchObject({ blocked: 1, pending: 1 });
+
+    online = true;
+    reject = false;
+    await restarted.pushChanges({ notes: [{ bookHash: 'a', id: 'bad', updatedAt: AUG('02') }] });
+    const remaining = await store().read();
+    expect(remaining.map(({ key }) => key)).toEqual(['notes:a:next']);
+    expect(remaining[0]?.poisoned).not.toBe(true);
+    reportOutboxQueue(remaining);
+    expect(useHomebaseSyncStatus.getState()).toMatchObject({ blocked: 0, pending: 1 });
     useHomebaseSyncStatus.setState(reset);
   });
 
