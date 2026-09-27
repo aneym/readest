@@ -12,6 +12,10 @@ import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { isDemoBook } from '@/services/demoBooks';
 import { isAudiobook } from '@/utils/audiobook';
 import { Book } from '@/types/book';
+import { createImmersionClient } from '@/services/homebase/immersion/client';
+import { useImmersionStore } from '@/store/immersionStore';
+import { DocumentLoader } from '@/libs/document';
+import { hasMediaOverlays } from '@/services/tts/mediaOverlay';
 
 // Library changes arrive in bursts (adoption batches of 10, cover rewrites);
 // one reconciliation per burst is enough.
@@ -51,10 +55,21 @@ export const isDesiredHomebaseDownload = (book: Book): boolean =>
  */
 export const useHomebaseBookDownloads = () => {
   const { user } = useAuth();
-  const { appService } = useEnv();
+  const { appService, envConfig } = useEnv();
   const library = useLibraryStore((s) => s.library);
   const libraryLoaded = useLibraryStore((s) => s.libraryLoaded);
+  // A primitive selector only changes on book download completion, not on progress ticks.
+  const completedBookHashes = useTransferStore((s) =>
+    Object.values(s.transfers)
+      .filter((t) => t.kind === 'book' && t.type === 'download' && t.status === 'completed')
+      .map((t) => t.bookHash)
+      .sort()
+      .join('|'),
+  );
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const checkedNarration = useRef(new Set<string>());
+  const narrationQueue = useRef<Book[]>([]);
+  const narrationRunning = useRef(false);
 
   const enabled = !!user && !!appService && isHomebaseSyncEnabled();
 
@@ -118,6 +133,87 @@ export const useHomebaseBookDownloads = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [enabled, scheduleReconcile]);
+
+  // The shelf status endpoint is independent of book transfer scheduling.
+  useEffect(() => {
+    if (!enabled) return;
+    const api = createImmersionClient();
+    if (!api) return;
+    let mounted = true;
+    let controller: AbortController | null = null;
+    const poll = () => {
+      if (document.visibilityState === 'hidden') return;
+      controller?.abort();
+      controller = new AbortController();
+      void api
+        .status(controller.signal)
+        .then((pairs) => {
+          if (mounted) useImmersionStore.getState().setPairs(pairs);
+        })
+        .catch(() => {
+          /* Retain the last known shelf status while offline. */
+        });
+    };
+    poll();
+    const timer = setInterval(poll, 60_000);
+    document.addEventListener('visibilitychange', poll);
+    window.addEventListener('online', poll);
+    return () => {
+      mounted = false;
+      controller?.abort();
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', poll);
+      window.removeEventListener('online', poll);
+    };
+  }, [enabled]);
+
+  // Transfer completion stamps downloadedAt only after integrity verification.
+  // Process completed EPUBs serially, including outstanding completed rows on mount.
+  // A successful negative result is persisted as false to avoid re-parsing on remount.
+  useEffect(() => {
+    if (!enabled || !appService || !envConfig || !libraryLoaded) return;
+    const completed = new Set(completedBookHashes ? completedBookHashes.split('|') : []);
+    for (const book of library) {
+      if (
+        book.format !== 'EPUB' ||
+        !book.downloadedAt ||
+        book.hasNarration !== undefined ||
+        !completed.has(book.hash) ||
+        checkedNarration.current.has(book.hash)
+      )
+        continue;
+      checkedNarration.current.add(book.hash);
+      narrationQueue.current.push(book);
+    }
+    if (narrationRunning.current || narrationQueue.current.length === 0) return;
+    narrationRunning.current = true;
+    void (async () => {
+      try {
+        while (narrationQueue.current.length) {
+          const book = narrationQueue.current.shift()!;
+          let loaded: Awaited<ReturnType<DocumentLoader['open']>>['book'] | undefined;
+          try {
+            const { file } = await appService.loadBookContent(book);
+            ({ book: loaded } = await new DocumentLoader(file).open());
+            const hasNarration = hasMediaOverlays(loaded);
+            const current = useLibraryStore.getState().getBookByHash(book.hash);
+            if (current && current.hasNarration === undefined)
+              await useLibraryStore.getState().updateBook(envConfig, { ...current, hasNarration });
+          } catch {
+            /* A failed detection leaves the flag undefined, skipped this session. */
+          } finally {
+            try {
+              await loaded?.destroy?.();
+            } catch {
+              /* Best effort cleanup. */
+            }
+          }
+        }
+      } finally {
+        narrationRunning.current = false;
+      }
+    })();
+  }, [enabled, appService, envConfig, libraryLoaded, library, completedBookHashes]);
 
   return { reconcile };
 };

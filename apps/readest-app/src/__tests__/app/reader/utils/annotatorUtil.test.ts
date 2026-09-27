@@ -5,6 +5,7 @@ import {
   filterExportGroups,
   findAnnotationAtCfi,
   getAnnotationOverlayColor,
+  getEffectiveTTSHighlight,
   mergeRestyledAnnotation,
   summarizeAnnotations,
 } from '@/app/reader/utils/annotatorUtil';
@@ -19,6 +20,52 @@ const makeNote = (over: Partial<BookNote>): BookNote => ({
   createdAt: 1,
   updatedAt: 1,
   ...over,
+});
+
+describe('getEffectiveTTSHighlight — e-ink defaults without color-screen regressions', () => {
+  const settings = {
+    ttsHighlightOptions: { style: 'highlight' as const, color: '#808080' },
+  };
+
+  it.each([
+    ['light', true, false, undefined, { style: 'underline', color: '#000000' }],
+    ['dark', true, true, undefined, { style: 'underline', color: '#ffffff' }],
+    [
+      'custom underline',
+      true,
+      false,
+      { style: 'squiggly' as const, color: '#ff00aa' },
+      { style: 'squiggly', color: '#000000' },
+    ],
+    [
+      'custom invert',
+      true,
+      true,
+      { style: 'highlight' as const, color: '#ff00aa' },
+      { style: 'highlight', color: '#ffffff' },
+    ],
+    ['color e-ink', false, true, undefined, { style: 'highlight', color: '#808080' }],
+    ['non-e-ink', false, false, undefined, { style: 'highlight', color: '#808080' }],
+  ] as const)('%s resolves the active style and ink', (_name, isBwEink, isDarkMode, einkOptions, expected) => {
+    expect(
+      getEffectiveTTSHighlight(
+        { ...settings, ttsHighlightOptionsEink: einkOptions },
+        { isBwEink, isDarkMode },
+      ),
+    ).toEqual(expected);
+  });
+
+  it('ignores a stored e-ink preference on color displays', () => {
+    expect(
+      getEffectiveTTSHighlight(
+        {
+          ...settings,
+          ttsHighlightOptionsEink: { style: 'underline', color: '#000000' },
+        },
+        { isBwEink: false, isDarkMode: false },
+      ),
+    ).toEqual(settings.ttsHighlightOptions);
+  });
 });
 
 describe('decideAnnotationDraw', () => {

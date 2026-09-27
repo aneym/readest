@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useReaderStore } from '@/store/readerStore';
+import { useThemeStore } from '@/store/themeStore';
+import { getEffectiveTTSHighlight } from '@/app/reader/utils/annotatorUtil';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useResetViewSettings } from '@/hooks/useResetSettings';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -21,6 +23,10 @@ const TTSPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset }
   const { getViewSettings } = useReaderStore();
   const { settings, setSettings, saveSettings } = useSettingsStore();
   const viewSettings = getViewSettings(bookKey) || settings.globalViewSettings;
+  const { isDarkMode } = useThemeStore();
+  const isBwEink = viewSettings.isEink && !viewSettings.isColorEink;
+  const highlightKey = isBwEink ? 'ttsHighlightOptionsEink' : 'ttsHighlightOptions';
+  const highlightOptions = getEffectiveTTSHighlight(viewSettings, { isBwEink, isDarkMode });
 
   const [ttsMediaMetadata, setTtsMediaMetadata] = useState<TTSMediaMetadataMode>(
     viewSettings.ttsMediaMetadata ?? 'sentence',
@@ -31,12 +37,21 @@ const TTSPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset }
   const [ttsHighlightGranularity, setTtsHighlightGranularity] = useState<TTSHighlightGranularity>(
     viewSettings.ttsHighlightGranularity ?? 'word',
   );
-  const [ttsHighlightStyle, setTtsHighlightStyle] = useState(
-    viewSettings.ttsHighlightOptions.style,
-  );
-  const [ttsHighlightColor, setTtsHighlightColor] = useState(
-    viewSettings.ttsHighlightOptions.color,
-  );
+  const [ttsHighlightStyle, setTtsHighlightStyle] = useState(highlightOptions.style);
+  const [ttsHighlightColor, setTtsHighlightColor] = useState(highlightOptions.color);
+
+  useEffect(() => {
+    setTtsHighlightStyle(highlightOptions.style);
+    setTtsHighlightColor(highlightOptions.color);
+    // Only switch editor state when the active preference or ink changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    bookKey,
+    highlightKey,
+    viewSettings.ttsHighlightOptions,
+    viewSettings.ttsHighlightOptionsEink,
+    isDarkMode,
+  ]);
   const [customTtsHighlightColors, setCustomTtsHighlightColors] = useState(
     settings.globalReadSettings.customTtsHighlightColors || [],
   );
@@ -92,7 +107,7 @@ const TTSPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset }
 
   const handleTTSStyleChange = (style: TTSHighlightStyle) => {
     setTtsHighlightStyle(style);
-    saveViewSettings(envConfig, bookKey, 'ttsHighlightOptions', {
+    saveViewSettings(envConfig, bookKey, highlightKey, {
       style,
       color: ttsHighlightColor,
     });
@@ -100,7 +115,7 @@ const TTSPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset }
 
   const handleTTSColorChange = (color: string) => {
     setTtsHighlightColor(color);
-    saveViewSettings(envConfig, bookKey, 'ttsHighlightOptions', {
+    saveViewSettings(envConfig, bookKey, highlightKey, {
       style: ttsHighlightStyle,
       color,
     });
@@ -130,6 +145,7 @@ const TTSPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset }
       <TTSHighlightStyleEditor
         granularity={ttsHighlightGranularity}
         style={ttsHighlightStyle}
+        isBwEink={isBwEink}
         color={ttsHighlightColor}
         customColors={customTtsHighlightColors}
         onGranularityChange={handleTTSGranularityChange}

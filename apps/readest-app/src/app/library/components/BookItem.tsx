@@ -26,6 +26,8 @@ import { formatCompactTime } from '@/utils/time';
 import { INDETERMINATE_PROGRESS } from '@/utils/transfer';
 import ReadingProgress from './ReadingProgress';
 import BookCover from '@/components/BookCover';
+import { useImmersionStore } from '@/store/immersionStore';
+import { chipFor, listLine } from './request/requestModel';
 
 interface BookItemProps {
   book: Book;
@@ -58,6 +60,11 @@ const BookItem: React.FC<BookItemProps> = ({
   const { appService } = useEnv();
   const { settings } = useSettingsStore();
   const iconSize15 = useResponsiveSize(15);
+  const pair = useImmersionStore((state) => state.pairByHash[book.hash]);
+  const openSheet = useImmersionStore((state) => state.openSheet);
+  const isBwEink =
+    !!settings.globalViewSettings?.isEink && !settings.globalViewSettings?.isColorEink;
+  const chip = chipFor(pair, { isBwEink });
 
   const [coverAspect, setCoverAspect] = useState<number | null>(null);
   useEffect(() => {
@@ -132,6 +139,25 @@ const BookItem: React.FC<BookItemProps> = ({
           )}
           onAspectRatioChange={setCoverAspect}
         />
+        {mode === 'grid' && chip && (
+          <button
+            type='button'
+            disabled={!chip.needsAction}
+            aria-label={_(chip.text)}
+            className={clsx(
+              'absolute start-1 bottom-1 z-10 max-w-[calc(100%-0.5rem)] truncate rounded px-1.5 py-0.5 text-[10px] font-semibold',
+              chip.needsAction
+                ? 'bg-base-content text-base-100 eink-inverted'
+                : 'border border-base-content bg-base-100 text-base-content',
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              openSheet('requests');
+            }}
+          >
+            {_(chip.text)}
+          </button>
+        )}
         {isTransferring && (
           // E-ink cannot render a translucent wash — it dithers over the cover
           // art — and has no shadows, so the scrim becomes a solid base-100
@@ -189,6 +215,22 @@ const BookItem: React.FC<BookItemProps> = ({
             </p>
           )}
         </div>
+        {mode === 'list' && chip && (
+          <button
+            type='button'
+            disabled={!chip.needsAction}
+            className={clsx(
+              'w-fit text-start text-sm',
+              chip.needsAction ? 'font-semibold text-base-content' : 'text-base-content/70',
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              openSheet('requests');
+            }}
+          >
+            {_(listLine(pair!, { isBwEink }))}
+          </button>
+        )}
         {mode === 'list' && seriesText && (
           <p className='text-neutral-content line-clamp-1 text-sm'>{seriesText}</p>
         )}

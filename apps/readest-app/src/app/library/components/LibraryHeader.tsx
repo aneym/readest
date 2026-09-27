@@ -206,6 +206,7 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
                   toggleButton={<PiPlus role='none' className='m-0.5 h-5 w-5' />}
                 >
                   <ImportMenu
+                    searchQuery={searchQuery}
                     onImportBooksFromFiles={onImportBooksFromFiles}
                     onImportBooksFromDirectory={onImportBooksFromDirectory}
                     onImportBookFromUrl={onImportBookFromUrl}

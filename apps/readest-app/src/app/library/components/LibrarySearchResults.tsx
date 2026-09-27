@@ -2,6 +2,8 @@ import clsx from 'clsx';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTranslation } from '@/hooks/useTranslation';
+import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
+import { useImmersionStore } from '@/store/immersionStore';
 import {
   createLibrarySearchSession,
   resolveSearchResultCfi,
@@ -156,6 +158,7 @@ const LibrarySearchResults = ({
   onProgress,
 }: LibrarySearchResultsProps) => {
   const _ = useTranslation();
+  const openRequestSheet = useImmersionStore((state) => state.openSheet);
   const controllerRef = useRef<AbortController | null>(null);
   const [session] = useState(() => createLibrarySearchSession(appService));
   const lastQueryRef = useRef<string | null>(null);
@@ -511,6 +514,15 @@ const LibrarySearchResults = ({
               <p className='text-base-content/50 text-xs'>
                 {_('Try a different term or search mode')}
               </p>
+              {isHomebaseSyncEnabled() && query.trim() && (
+                <button
+                  type='button'
+                  className='btn btn-sm btn-outline mt-3'
+                  onClick={() => openRequestSheet('find', query)}
+                >
+                  {_('Not in your library. Get "{{q}}"', { q: query })}
+                </button>
+              )}
             </div>
           )}
       </div>

@@ -120,6 +120,7 @@ import {
 } from './utils/libraryUtils';
 import Spinner from '@/components/Spinner';
 import LibraryHeader from './components/LibraryHeader';
+import RequestBookSheet from './components/RequestBookSheet';
 import Bookshelf from './components/Bookshelf';
 import LibraryEmptyState from './components/LibraryEmptyState';
 import ImportMenuPopup from './components/ImportMenuPopup';
@@ -2174,6 +2175,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           <TransferQueuePanel />
         </ModalPortal>
       )}
+      <RequestBookSheet />
       <AboutWindow />
       <KeyboardShortcutsHelp />
       <LocalSendManager />

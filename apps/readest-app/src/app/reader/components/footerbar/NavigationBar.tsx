@@ -5,6 +5,8 @@ import { RxSlider as SliderIcon } from 'react-icons/rx';
 import { RiFontFamily as FontIcon } from 'react-icons/ri';
 import { PiSun as ColorIcon } from 'react-icons/pi';
 import { MdOutlineHeadphones as TTSIcon } from 'react-icons/md';
+import { LiaHeadphonesSolid } from 'react-icons/lia';
+import { useBookDataStore } from '@/store/bookDataStore';
 import { useEnv } from '@/context/EnvContext';
 import { useReaderStore } from '@/store/readerStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -31,10 +33,14 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
   const isMobile = forceMobileLayout || window.innerWidth < 640 || window.innerHeight < 640;
   const _ = useTranslation();
   const { appService } = useEnv();
-  const { getViewState } = useReaderStore();
+  const { getViewState, getViewSettings } = useReaderStore();
+  const { getBookData } = useBookDataStore();
   const { isSideBarVisible, isSideBarPinned } = useSidebarStore();
 
   const viewState = getViewState(bookKey);
+  const hasNarration = !!getBookData(bookKey)?.book?.hasNarration;
+  const viewSettings = getViewSettings(bookKey);
+  const isBwEink = viewSettings?.isEink && !viewSettings.isColorEink;
   const tocIconSize = useResponsiveSize(23);
   const fontIconSize = useResponsiveSize(18);
   const navPadding = isMobile ? `${gridInsets.bottom * 0.33 + 16}px` : '0px';
@@ -77,8 +83,20 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
         onClick={() => onSetActionTab('font')}
       />
       <Button
-        label={_('Speak')}
-        icon={<TTSIcon className={viewState?.ttsEnabled ? 'text-blue-500' : ''} />}
+        label={hasNarration ? _('Listen') : _('Speak')}
+        icon={
+          hasNarration ? (
+            <span
+              className={clsx(
+                isBwEink && viewState?.ttsEnabled && 'eink-inverted rounded-full p-1',
+              )}
+            >
+              <LiaHeadphonesSolid />
+            </span>
+          ) : (
+            <TTSIcon className={viewState?.ttsEnabled ? 'text-blue-500' : ''} />
+          )
+        }
         onClick={() => onSetActionTab('tts')}
       />
     </div>

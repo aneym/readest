@@ -11,12 +11,7 @@ import { TransformContext } from '@/services/transformers/types';
 import { proofreadTransformer } from '@/services/transformers/proofread';
 import { useTranslation } from '@/hooks/useTranslation';
 import { isHouseholdBuild } from '@/services/household';
-import {
-  ensureSharedAudioContext,
-  TTSController,
-  TTSHighlightOptions,
-  TTSVoicesGroup,
-} from '@/services/tts';
+import { ensureSharedAudioContext, TTSController, TTSVoicesGroup } from '@/services/tts';
 import { DEFAULT_SENTENCE_GAP_SEC } from '@/services/tts/EdgeTTSClient';
 import { DEFAULT_PARAGRAPH_GAP_SEC } from '@/services/tts/TTSController';
 import { scaleGapForRate } from '@/services/tts/gap';
@@ -35,7 +30,7 @@ import {
   ttsSessionManager,
   TTS_STOP_AT_CHAPTER_END,
 } from '@/services/tts/TTSSessionManager';
-import { getAnnotationOverlayColor } from '../utils/annotatorUtil';
+import { getEffectiveTTSHighlight } from '../utils/annotatorUtil';
 
 interface UseTTSControlProps {
   bookKey: string;
@@ -747,33 +742,21 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
   );
 
   // TTS highlight options
-  const getTTSHighlightOptions = useCallback(
-    (ttsHighlightOptions: TTSHighlightOptions, isBwEink: boolean) => ({
-      ...ttsHighlightOptions,
-      color: getAnnotationOverlayColor(ttsHighlightOptions.style, ttsHighlightOptions.color, {
-        isBwEink,
-        isDarkMode,
-      }),
-    }),
-    [isDarkMode],
-  );
-
   useEffect(() => {
-    const ttsHighlightOptions = viewSettings?.ttsHighlightOptions;
-    if (ttsControllerRef.current && ttsHighlightOptions) {
+    if (ttsControllerRef.current && viewSettings) {
+      const isBwEink = viewSettings.isEink && !viewSettings.isColorEink;
       ttsControllerRef.current.updateHighlightOptions(
-        getTTSHighlightOptions(
-          ttsHighlightOptions,
-          viewSettings!.isEink && !viewSettings!.isColorEink,
-        ),
+        getEffectiveTTSHighlight(viewSettings, { isBwEink, isDarkMode }),
+        isBwEink,
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     viewSettings?.ttsHighlightOptions,
+    viewSettings?.ttsHighlightOptionsEink,
     viewSettings?.isEink,
     viewSettings?.isColorEink,
-    getTTSHighlightOptions,
+    isDarkMode,
   ]);
 
   useEffect(() => {
@@ -934,11 +917,10 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
         ttsController.useNarration = viewSettings.ttsUseNarration ?? true;
         await ttsController.init();
         await ttsController.initViewTTS(ttsFromIndex);
+        const isBwEink = viewSettings.isEink && !viewSettings.isColorEink;
         ttsController.updateHighlightOptions(
-          getTTSHighlightOptions(
-            viewSettings.ttsHighlightOptions,
-            viewSettings.isEink && !viewSettings.isColorEink,
-          ),
+          getEffectiveTTSHighlight(viewSettings, { isBwEink, isDarkMode }),
+          isBwEink,
         );
         ttsController.setHighlightGranularity(viewSettings.ttsHighlightGranularity ?? 'word');
         // A recording has no audio for arbitrary text: it only exists as the
