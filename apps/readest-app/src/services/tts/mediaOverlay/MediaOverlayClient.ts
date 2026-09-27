@@ -550,6 +550,17 @@ export class MediaOverlayClient implements TTSClient {
     return this.#native && isNarrationHidden();
   }
 
+  // Whether a section change the controller makes now must leave the page
+  // alone. With the native page hidden (a headset skip, or the controller
+  // moving on while locked) there is nothing to draw on and an e-ink panel
+  // must not repaint. During a resync the sections the controller walks
+  // through are behind the recording, and turning to one first would be a
+  // second navigation before the one to the sentence sounding. Either way the
+  // first mark that lands afterwards navigates straight to its sentence.
+  holdsPageMoves(): boolean {
+    return this.#resync !== null || this.#hiddenNative();
+  }
+
   // Resolve once the clock reaches `until`, or once playback ends, fails, or is
   // aborted, or (native only) the page goes hidden. Listeners are registered
   // synchronously so no tick can be missed.

@@ -124,6 +124,10 @@ export class TTSController extends EventTarget {
   #currentSpeakPromise: Promise<void> | null = null;
 
   #ttsSectionIndex: number = -1;
+  // Set when a section change left the page alone (see #initTTSForSection),
+  // so highlights in the outgoing section's view were not cleared. They are
+  // removed with the next highlight drawn, once the view has moved.
+  #staleHighlights = false;
 
   // Virtual section timeline for position/duration/seek (Edge client only).
   // Built lazily OFF the playback critical path: enumerating a 2000-sentence
@@ -559,6 +563,7 @@ export class TTSController extends EventTarget {
         const { style } = this.options;
         overlayer?.remove(HIGHLIGHT_KEY);
         overlayer?.add(HIGHLIGHT_KEY, visibleRange, Overlayer[style], this.#highlightDrawOptions());
+        if (this.#staleHighlights) this.#clearAllHighlights(index);
       } catch (e) {
         console.error('Failed to highlight range', e);
       }
@@ -569,10 +574,16 @@ export class TTSController extends EventTarget {
   // Preloaded adjacent sections keep their documents (and overlays) alive, so
   // a section change or stop that only clears the primary leaves the last
   // spoken word highlighted in the neighboring view forever.
-  #clearAllHighlights() {
+  // `except` spares the view of that section (the one just drawn into).
+  #clearAllHighlights(except?: number) {
     if (!this.#attached) return;
-    const contents = this.view.renderer.getContents() as { overlayer?: Overlayer }[];
-    for (const { overlayer } of contents) {
+    this.#staleHighlights = false;
+    const contents = this.view.renderer.getContents() as {
+      overlayer?: Overlayer;
+      index?: number;
+    }[];
+    for (const { overlayer, index } of contents) {
+      if (except !== undefined && index === except) continue;
       overlayer?.remove(HIGHLIGHT_KEY);
       overlayer?.remove(SEEK_PREVIEW_KEY);
     }
@@ -635,14 +646,25 @@ export class TTSController extends EventTarget {
       return false;
     }
 
+    // Recorded narration running on behind a hidden page (a headset skip while
+    // locked), or catching up to it on unlock, moves only the audio and the
+    // text source here. Clearing highlights or turning to the section start
+    // would repaint an e-ink panel nobody is looking at, and on unlock put a
+    // navigation to the section start ahead of the one to the sentence
+    // sounding. The first mark that lands afterwards navigates straight to its
+    // sentence (the view follows a highlight cfi in another section itself),
+    // and its highlight clears the old section's.
+    const holdPage = this.narrationActive && this.ttsMediaOverlayClient.holdsPageMoves();
+
     // Entering a section: drop any highlight left behind in the views that
     // are still rendering the outgoing section.
-    this.#clearAllHighlights();
+    if (holdPage) this.#staleHighlights = true;
+    else this.#clearAllHighlights();
 
     this.#ttsSectionIndex = sectionIndex;
 
     const currentSection = this.#getPrimaryContent();
-    if (currentSection?.index !== sectionIndex) {
+    if (!holdPage && currentSection?.index !== sectionIndex) {
       await this.onSectionChange?.(sectionIndex);
     }
 
@@ -1165,7 +1187,13 @@ export class TTSController extends EventTarget {
       if (isPlaying) {
         this.#speak(this.#getTts()?.start());
       } else {
-        this.#getTts()?.start();
+        const holdPage = this.narrationActive && this.ttsMediaOverlayClient.holdsPageMoves();
+        const ssml = this.#getTts()?.start();
+        // Paused behind a hidden page, the section entered above left the view
+        // where it was. Dispatch its first mark: the narration client holds it
+        // (drawing nothing) and replays it once on unlock, which is the one
+        // navigation to it.
+        if (holdPage) await this.#handleNavigationWithSSML(ssml, false);
       }
     } else {
       // No adjacent section in this direction: the session has run out of
