@@ -43,6 +43,7 @@ import android.os.IBinder
 import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -686,7 +687,14 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private fun ensurePlayoutPlayer(): ExoPlayer {
-        return playoutPlayer ?: ExoPlayer.Builder(activity).build().also { player ->
+        // WAKE_MODE_LOCAL holds a partial wake lock only while narration is
+        // playing, so decoding keeps going with the screen off (BOOX lock).
+        // Local files only, so no Wi-Fi lock. Becoming-noisy stays with
+        // MediaPlaybackService, which already pauses on it and tells the
+        // reader; handling it here too would give the event two owners.
+        return playoutPlayer ?: ExoPlayer.Builder(activity)
+            .setWakeMode(C.WAKE_MODE_LOCAL)
+            .build().also { player ->
             player.addListener(playoutListener)
             player.setPlaybackSpeed(playoutRate)
             playoutPlayer = player

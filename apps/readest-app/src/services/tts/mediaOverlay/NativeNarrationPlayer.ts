@@ -10,6 +10,7 @@
 import { addPluginListener, invoke, PluginListener } from '@tauri-apps/api/core';
 import { join, tempDir } from '@tauri-apps/api/path';
 import { BaseDirectory, remove, writeFile } from '@tauri-apps/plugin-fs';
+import { isNarrationHidden } from './narrationVisibility';
 
 interface PlayoutPosition {
   session: number;
@@ -270,8 +271,10 @@ export class NativeNarrationPlayer {
   #onNativeEvent(event: PlayoutEvent): void {
     if (this.#resolvedSession !== null && event.session !== this.#resolvedSession) return;
     if (event.type === 'ended') {
+      // Freeze the clock where playback stopped. Polls are skipped while the
+      // page is hidden, so the last polled position can be minutes old.
+      this.#cache = { mediaSec: this.currentTime, playing: false, at: performance.now() };
       this.#ended = true;
-      this.#cache.playing = false;
       for (const fn of [...this.#endedListeners]) fn();
     } else if (event.type === 'error') {
       // The item failed to load or play. Nothing will ever move the clock, so
@@ -286,9 +289,22 @@ export class NativeNarrationPlayer {
     }
   }
 
+  // Read the native position now instead of trusting the extrapolated clock.
+  // Used when the page comes back on screen: while hidden the drift polls are
+  // skipped, so the extrapolation has run unchecked since the lock.
+  async refreshPosition(): Promise<number> {
+    if (this.#resolvedSession !== null && !this.#ended) {
+      await this.#readPosition();
+    }
+    return this.currentTime;
+  }
+
   #startPolling(): void {
     this.#stopPolling();
     this.#pollTimer = setInterval(() => {
+      // Hidden-page timers fire late and only wake the WebView to correct a
+      // clock nobody reads until the page is visible again.
+      if (isNarrationHidden()) return;
       void this.#poll();
     }, POLL_INTERVAL_MS);
   }
@@ -302,6 +318,10 @@ export class NativeNarrationPlayer {
 
   async #poll(): Promise<void> {
     if (this.#resolvedSession === null || this.#ended || this.#userPaused) return;
+    await this.#readPosition();
+  }
+
+  async #readPosition(): Promise<void> {
     try {
       const pos = await invoke<PlayoutPosition>('plugin:native-tts|playout_position');
       if (pos.session !== this.#resolvedSession) return;
