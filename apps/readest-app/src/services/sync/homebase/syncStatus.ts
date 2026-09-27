@@ -27,10 +27,54 @@ const readSuccess = (): number | null => {
 export const useHomebaseSyncStatus = create<{
   active: number;
   pending: number;
+  retrying: number;
+  authPaused: number;
   blocked: number;
+  rejectedCount: number;
+  rejectedRows: Record<string, string>;
+  rejectedReasons: string[];
   lastSuccessAt: number | null;
   error: string | null;
-}>(() => ({ active: 0, pending: 0, blocked: 0, lastSuccessAt: readSuccess(), error: null }));
+}>(() => ({
+  active: 0,
+  pending: 0,
+  retrying: 0,
+  authPaused: 0,
+  blocked: 0,
+  rejectedCount: 0,
+  rejectedRows: {},
+  rejectedReasons: [],
+  lastSuccessAt: readSuccess(),
+  error: null,
+}));
+
+const rejectionKey = (family: string, id: string): string => {
+  const canonical = { books: 'book', configs: 'config', notes: 'note' }[family] ?? family;
+  return `${canonical}/${id}`;
+};
+
+export const reportPushAck = (
+  sent: { family: string; id: string }[],
+  rejected: { family: string; id: string; reason: string }[] = [],
+) =>
+  useHomebaseSyncStatus.setState((s) => {
+    const rejectedRows = { ...s.rejectedRows };
+    const rejectedKeys = new Set(rejected.map((row) => rejectionKey(row.family, row.id)));
+    for (const row of sent) {
+      const key = rejectionKey(row.family, row.id);
+      if (!rejectedKeys.has(key)) delete rejectedRows[key];
+    }
+    for (const row of rejected) rejectedRows[rejectionKey(row.family, row.id)] = row.reason;
+    const rejectedCount = Object.keys(rejectedRows).length;
+    return {
+      rejectedRows,
+      rejectedCount,
+      blocked: s.blocked - s.rejectedCount + rejectedCount,
+      rejectedReasons: Object.entries(rejectedRows)
+        .slice(-5)
+        .map(([key, reason]) => `${key}: ${reason}`),
+    };
+  });
 
 export const beginSyncRequest = () =>
   useHomebaseSyncStatus.setState((s) => ({ active: s.active + 1 }));

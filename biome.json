@@ -35,6 +35,7 @@
       "!**/fastlane/**",
       "!apps/readest-app/public/*.js",
       "!apps/readest-app/public/vendor/**",
+      "!apps/readest-app/src/__tests__/services/sync/homebase/fixtures/homebase-wire-golden.json",
       "!apps/readest-app/src-tauri/plugins/tauri-plugin-turso/**",
       "!apps/readest-app/src-tauri/plugins/tauri-plugin-webview-upgrade/**",
       "!**/*.mjs",

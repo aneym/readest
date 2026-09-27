@@ -67,7 +67,12 @@ export const resolveRecordSyncClient = (
   const updateQueue = (entries: Awaited<ReturnType<OutboxStore['read']>>) => {
     useHomebaseSyncStatus.setState({
       pending: entries.filter((e) => !e.poisoned).length,
-      blocked: entries.filter((e) => e.poisoned).length,
+      retrying: entries.filter(
+        (e) => !e.poisoned && e.attempts > 0 && e.lastErrorCode !== 'AUTH_FAILED',
+      ).length,
+      authPaused: entries.filter((e) => !e.poisoned && e.lastErrorCode === 'AUTH_FAILED').length,
+      blocked:
+        entries.filter((e) => e.poisoned).length + useHomebaseSyncStatus.getState().rejectedCount,
     });
     return entries;
   };

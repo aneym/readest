@@ -6,6 +6,16 @@ const iso = (ms: number) => new Date(ms).toISOString();
 const row = (hash: string, syncedMs: number) =>
   ({ book_hash: hash, synced_at: iso(syncedMs) }) as unknown as BookDataRecord;
 
+// Mirrors Homebase: receipt order, strict > since and a tie-complete last page.
+const server = (rows: BookDataRecord[]) => async (since: number, limit: number) => {
+  const sorted = rows
+    .filter((r) => Date.parse(r.synced_at!) > since)
+    .sort((a, b) => Date.parse(a.synced_at!) - Date.parse(b.synced_at!));
+  if (sorted.length <= limit) return sorted;
+  const trailing = Date.parse(sorted[limit - 1]!.synced_at!);
+  return sorted.filter((r) => Date.parse(r.synced_at!) <= trailing);
+};
+
 // The books delta is pulled in bounded pages: a delta grown to a 10k-book
 // library in one response exceeded Cloudflare Worker limits (error 1102) and
 // wedged the device — the pull failed forever and the cursor never advanced.
@@ -13,6 +23,19 @@ const row = (hash: string, syncedMs: number) =>
 // client advances its cursor to the newest row seen and persists it per page
 // so an interrupted initial sync resumes instead of restarting.
 describe('pullBooksPaged', () => {
+  it.each([
+    [
+      'unsorted receipts',
+      Array.from({ length: 2307 }, (_, i) => row(String(i), 1000 + 2306 - i)),
+      1000,
+    ],
+    ['all tied receipts', Array.from({ length: 2307 }, (_, i) => row(String(i), 1000)), 1000],
+    ['fractional-millisecond receipts', [row('a', 1000.1), row('b', 1000.5), row('c', 1000.9)], 1],
+  ])('collects every row with server-faithful %s', async (_, rows, pageSize) => {
+    const records = await pullBooksPaged(server(rows), 0, undefined, pageSize);
+    expect(new Set(records.map((r) => r.book_hash))).toEqual(new Set(rows.map((r) => r.book_hash)));
+  });
+
   it('walks pages until a short page, advancing the since cursor', async () => {
     const calls: Array<{ since: number; limit: number }> = [];
     const pages = [
@@ -62,8 +85,9 @@ describe('pullBooksPaged', () => {
     expect(cursors).toEqual([2000, 3000]);
   });
 
-  it('terminates when a full page cannot advance the cursor (boundary ties)', async () => {
+  it('terminates and reports partial when an old server cuts tied timestamps', async () => {
     let calls = 0;
+    const partial: string[] = [];
     const records = await pullBooksPaged(
       async () => {
         calls++;
@@ -72,16 +96,19 @@ describe('pullBooksPaged', () => {
       500,
       undefined,
       2,
+      (reason) => partial.push(reason),
     );
 
     expect(calls).toBe(1);
     expect(records).toHaveLength(2);
+    expect(partial).toEqual(['full page did not advance cursor']);
   });
 
   it('keeps the pages already pulled when a later page fails, matching the persisted cursor', async () => {
     // The cursor is persisted per page; discarding pulled pages on a later
     // failure would advance the cursor past rows that were never delivered.
     const cursors: number[] = [];
+    const partial: string[] = [];
     const pages = [[row('a', 1000), row('b', 2000)]];
     const records = await pullBooksPaged(
       async () => {
@@ -92,9 +119,11 @@ describe('pullBooksPaged', () => {
       0,
       (cursor) => cursors.push(cursor),
       2,
+      (reason) => partial.push(reason),
     );
 
     expect(records.map((r) => r.book_hash)).toEqual(['a', 'b']);
+    expect(partial).toEqual(['later page failed']);
     expect(cursors).toEqual([2000]);
   });
 

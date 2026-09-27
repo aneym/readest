@@ -1,5 +1,6 @@
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/utils/supabase';
+import { signalHomebasePaired } from '@/services/sync/homebase/pairingSignal';
 
 interface UseAuthCallbackOptions {
   accessToken?: string | null;
@@ -71,6 +72,7 @@ export function handleHomebaseCallback({
       created_at: now,
     } as User;
     login(accessToken, user);
+    signalHomebasePaired();
     navigate('/library');
   } catch (err) {
     console.error('Homebase pairing token rejected:', err);

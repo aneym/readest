@@ -5,6 +5,7 @@ import { useReaderStore } from '@/store/readerStore';
 import { useBookProgress } from '@/store/readerProgressStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { debounce } from '@/utils/debounce';
+import { useWindowActiveChanged } from './useWindowActiveChanged';
 
 export const useProgressAutoSave = (bookKey: string) => {
   const { envConfig } = useEnv();
@@ -22,30 +23,67 @@ export const useProgressAutoSave = (bookKey: string) => {
   // overwrites the server's progress with the stale local one (issue #4222).
   const lastSavedLocationRef = useRef<string | null>(null);
   const initializedRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushRef = useRef<Promise<void> | null>(null);
+  const saveRef = useRef<Promise<void> | null>(null);
+
+  const persistNow = useCallback(async () => {
+    // If a timer's save has already started, wait for it before reading the
+    // latest location. Otherwise a hide racing that save can write an older
+    // position last, or save the same position twice.
+    if (saveRef.current) await saveRef.current;
+    if (useReaderStore.getState().getViewState(bookKey)?.previewMode) return;
+    const config = getConfig(bookKey);
+    if (!config) return;
+    const currentLocation = config.location ?? null;
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      lastSavedLocationRef.current = currentLocation;
+      return;
+    }
+    if (currentLocation === lastSavedLocationRef.current) return;
+    const save = Promise.resolve().then(() =>
+      saveConfig(envConfig, bookKey, config, useSettingsStore.getState().settings),
+    );
+    saveRef.current = save;
+    try {
+      await save;
+      lastSavedLocationRef.current = currentLocation;
+    } finally {
+      if (saveRef.current === save) saveRef.current = null;
+    }
+  }, [bookKey, envConfig, getConfig, saveConfig]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const saveBookConfig = useCallback(
     debounce(() => {
-      setTimeout(async () => {
-        // Skip while previewing a deep-link target — the user's actual
-        // last-read position should not be overwritten by a transient view.
-        if (useReaderStore.getState().getViewState(bookKey)?.previewMode) return;
-        const config = getConfig(bookKey);
-        if (!config) return;
-        const currentLocation = config.location ?? null;
-        if (!initializedRef.current) {
-          initializedRef.current = true;
-          lastSavedLocationRef.current = currentLocation;
-          return;
-        }
-        if (currentLocation === lastSavedLocationRef.current) return;
-        const settings = useSettingsStore.getState().settings;
-        await saveConfig(envConfig, bookKey, config, settings);
-        lastSavedLocationRef.current = currentLocation;
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        void persistNow();
       }, 500);
     }, 1000),
-    [],
+    [persistNow],
   );
+
+  const flushNow = useCallback((): Promise<void> => {
+    if (flushRef.current) return flushRef.current;
+    saveBookConfig.cancel();
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const flush = (async () => {
+      await persistNow();
+      await flushPendingLibrarySave();
+    })();
+    flushRef.current = flush;
+    void flush
+      .finally(() => {
+        if (flushRef.current === flush) flushRef.current = null;
+      })
+      .catch(() => {});
+    return flush;
+  }, [persistNow, saveBookConfig]);
 
   useEffect(() => {
     // Snapshot the loaded-from-disk location before any progress events fire,
@@ -65,17 +103,25 @@ export const useProgressAutoSave = (bookKey: string) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress, bookKey]);
 
-  // On unmount (book closed / navigated away), flush any pending throttled
-  // library.json write so the shelf reflects this session's last read
-  // position next time it loads. The per-book config.json is already on
-  // disk from the eager save in `saveConfig`, so this only catches the
-  // library-level rollup.
+  // Desktop Tauri windows use focus rather than visibility to signal a pause.
+  // On web/mobile this shares the hidden signal with visibilitychange; the
+  // in-flight guard makes the two notifications one flush.
+  useWindowActiveChanged((isActive) => {
+    if (!isActive) void flushNow().catch(() => {});
+  });
+
   useEffect(() => {
-    return () => {
-      flushPendingLibrarySave().catch(() => {
-        // Best-effort on teardown — failures fall through to next launch's
-        // reconstruction from per-book config.json files.
-      });
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') void flushNow().catch(() => {});
     };
-  }, []);
+    const onPageHide = () => void flushNow().catch(() => {});
+    document.addEventListener('visibilitychange', onHidden);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHidden);
+      window.removeEventListener('pagehide', onPageHide);
+      // Book closed: persist config.json first, then flush library.json.
+      void flushNow().catch(() => {});
+    };
+  }, [flushNow]);
 };

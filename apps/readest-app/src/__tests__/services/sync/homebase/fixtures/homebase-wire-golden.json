@@ -1,0 +1,97 @@
+{
+  "books": [
+    {
+      "id": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "user_id": "alex",
+      "created_at": 1699999940000,
+      "updated_at": 1700000000000,
+      "deleted_at": null,
+      "synced_at": "2023-11-14T22:13:30.000Z",
+      "uploaded_at": "2023-11-14T22:12:20.000Z",
+      "hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "format": "EPUB",
+      "title": "The Left Hand of Darkness",
+      "author": "Ursula K. Le Guin",
+      "createdAt": 1699999940000,
+      "updatedAt": 1700000000000,
+      "deletedAt": null,
+      "coverImageUrl": "https://reader.example.test/api/readest/reader/books/dd76b92e7c1a4f0b93e5a1c8d2f60b37/cover",
+      "tags": [
+        "Fiction",
+        "Volumes"
+      ],
+      "metadata": "{\"series\":\"Hainish Cycle\",\"subjects\":[\"Fiction\",\"Volumes\"],\"seriesIndex\":4}"
+    }
+  ],
+  "configs": [
+    {
+      "id": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "user_id": "alex",
+      "updated_at": 1700000000000,
+      "deleted_at": null,
+      "synced_at": "2023-11-14T22:13:30.000Z",
+      "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "updatedAt": 1700000000000,
+      "hbFraction": 0.5,
+      "progress": "[50,100]"
+    }
+  ],
+  "notes": [
+    {
+      "id": "text-note",
+      "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "user_id": "alex",
+      "created_at": 1699999970000,
+      "updated_at": 1699999980000,
+      "deleted_at": null,
+      "synced_at": "2023-11-14T22:13:31.000Z",
+      "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "type": "annotation",
+      "cfi": "epubcfi(/6/4!/4/2:5)",
+      "note": "Remember this passage",
+      "createdAt": 1699999970000,
+      "updatedAt": 1699999980000,
+      "deletedAt": null
+    },
+    {
+      "id": "voice-note",
+      "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "user_id": "alex",
+      "created_at": 1699999970000,
+      "updated_at": 1699999980000,
+      "deleted_at": null,
+      "synced_at": "2023-11-14T22:13:32.000Z",
+      "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "type": "annotation",
+      "cfi": "epubcfi(/6/4!/4/2:5)",
+      "note": "A spoken thought",
+      "createdAt": 1699999970000,
+      "updatedAt": 1699999980000,
+      "deletedAt": null,
+      "hbKind": "voice",
+      "hbAudioSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "hbAudioDurationMs": 8420,
+      "hbTranscriptSource": "asr"
+    },
+    {
+      "id": "deleted-note",
+      "book_hash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "user_id": "alex",
+      "created_at": 1699999970000,
+      "updated_at": 1700000005000,
+      "deleted_at": 1700000005000,
+      "synced_at": "2023-11-14T22:13:33.000Z",
+      "bookHash": "dd76b92e7c1a4f0b93e5a1c8d2f60b37",
+      "type": "bookmark",
+      "cfi": "epubcfi(/6/4!/4/2:5)",
+      "note": "",
+      "createdAt": 1699999970000,
+      "updatedAt": 1700000005000,
+      "deletedAt": 1700000005000
+    }
+  ],
+  "statBooks": [],
+  "statPages": []
+}

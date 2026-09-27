@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeMaxTimestamp } from '@/hooks/useSync';
+import { computeMaxTimestamp, pullBooksPaged } from '@/hooks/useSync';
 import type { BookDataRecord } from '@/types/book';
 
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -9,6 +9,19 @@ const iso = (ms: number) => new Date(ms).toISOString();
 // keys on synced_at and ignores updated_at (the client event time / sort key)
 // and deleted_at (a delete bumps synced_at too).
 describe('computeMaxTimestamp (synced_at pull cursor)', () => {
+  it('fetches a receipt exactly 1 ms after the stored watermark with strict >', async () => {
+    const watermark = 1000;
+    const pulled = await pullBooksPaged(
+      async (since) =>
+        [{ book_hash: 'next', synced_at: iso(1001) } as BookDataRecord].filter(
+          (r) => Date.parse(r.synced_at!) > since,
+        ),
+      watermark,
+      undefined,
+      1,
+    );
+    expect(pulled.map((r) => r.book_hash)).toEqual(['next']);
+  });
   it('keys on synced_at, ignoring updated_at and deleted_at', () => {
     const max = computeMaxTimestamp([
       { synced_at: iso(5000), updated_at: iso(1000), deleted_at: null },

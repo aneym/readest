@@ -125,6 +125,8 @@ export interface HomebaseEnvelope {
   /** Server clock, for skew diagnostics. Never used as a merge input. */
   server_time?: string;
   schema_version?: number;
+  /** Rows the server declined despite accepting the rest of the batch. */
+  rejected?: { family: string; id: string; reason: string }[];
 }
 
 export type HomebaseRecord =

@@ -19,6 +19,7 @@ export interface OutboxEntry {
   /** Set only for a permanent record failure; transient retries never expire. */
   poisoned?: boolean;
   lastError?: string;
+  lastErrorCode?: string;
 }
 
 export interface OutboxStore {
@@ -35,6 +36,9 @@ export const createMemoryOutboxStore = (initial: OutboxEntry[] = []): OutboxStor
     },
   };
 };
+
+export const isDefiniteRejection = (error: HomebaseSyncError): boolean =>
+  error.status !== undefined && [400, 404, 409, 422].includes(error.status);
 
 export interface FlushResult {
   pushed: number;
@@ -67,7 +71,7 @@ export const outboxKey = (channel: HomebaseChannel, rec: HomebaseRecord): string
 export interface SyncOutbox {
   enqueue(channel: HomebaseChannel, records: HomebaseRecord[]): Promise<void>;
   /** Enqueue a whole push payload — the shape `pushChanges` receives. */
-  enqueueEnvelope(envelope: HomebaseEnvelope): Promise<void>;
+  enqueueEnvelope(envelope: HomebaseEnvelope, failedWith?: HomebaseSyncError): Promise<void>;
   flush(push: (envelope: HomebaseEnvelope) => Promise<unknown>): Promise<FlushResult>;
   pending(): Promise<OutboxEntry[]>;
   /** Drop poisoned entries once the caller has reported them. */
@@ -116,10 +120,34 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
         await store.write([...byKey.values()].sort((a, b) => a.queuedAt - b.queuedAt));
       });
     },
-    async enqueueEnvelope(envelope) {
+    async enqueueEnvelope(envelope, failedWith) {
       for (const channel of HOMEBASE_CHANNELS) {
         const records = envelope[channel] as HomebaseRecord[] | null | undefined;
         if (records?.length) await box.enqueue(channel, records);
+      }
+      if (failedWith) {
+        const keys = new Set(
+          HOMEBASE_CHANNELS.flatMap((channel) =>
+            ((envelope[channel] ?? []) as HomebaseRecord[]).map((record) =>
+              outboxKey(channel, record),
+            ),
+          ),
+        );
+        await transaction(async () => {
+          const entries = await store.read();
+          await store.write(
+            entries.map((entry) =>
+              keys.has(entry.key)
+                ? {
+                    ...entry,
+                    attempts: entry.attempts + 1,
+                    lastError: failedWith.message,
+                    lastErrorCode: failedWith.code,
+                  }
+                : entry,
+            ),
+          );
+        });
       }
     },
     pending: () => transaction(async () => (await store.read()).filter((entry) => !entry.poisoned)),
@@ -172,9 +200,10 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
                         ...entry,
                         attempts: entry.attempts + 1,
                         lastError: error.message,
-                        // Offline/auth failures must survive indefinitely. Permanent
-                        // row rejection stays in storage for explicit user recovery.
-                        poisoned: !error.retryable && error.code !== 'AUTH_FAILED',
+                        lastErrorCode: error.code,
+                        // Only an explicit client rejection is terminal. Unknown
+                        // failures and auth pauses retain the durable row.
+                        poisoned: isDefiniteRejection(error),
                       }
                     : entry,
                 ),

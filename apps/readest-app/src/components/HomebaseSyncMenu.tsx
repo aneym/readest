@@ -54,8 +54,21 @@ export default function HomebaseSyncMenu({ onSync }: { onSync: () => void | Prom
                 : _('Sync idle')}
         </p>
         <p>{_('{{count}} pending changes', { count: status.pending })}</p>
-        {status.blocked > 0 && (
-          <p>{_('{{count}} blocked changes retained on this device', { count: status.blocked })}</p>
+        {status.retrying > 0 && (
+          <p>{_('{{count}} changes retrying', { count: status.retrying })}</p>
+        )}
+        {status.authPaused > 0 && (
+          <p>{_('{{count}} changes paused until sign-in', { count: status.authPaused })}</p>
+        )}
+        {status.blocked > status.rejectedCount && (
+          <p>
+            {_('{{count}} blocked changes retained on this device', {
+              count: status.blocked - status.rejectedCount,
+            })}
+          </p>
+        )}
+        {status.rejectedCount > 0 && (
+          <p>{_('{{count}} changes rejected by Homebase', { count: status.rejectedCount })}</p>
         )}
         <p>
           {status.lastSuccessAt
@@ -65,9 +78,12 @@ export default function HomebaseSyncMenu({ onSync }: { onSync: () => void | Prom
             : _('Last successful server sync: not yet recorded')}
         </p>
         {status.error && <p role='alert'>{_(status.error)}</p>}
-        {status.blocked > 0 && (
-          <p>{_('Some changes were rejected. Contact support before clearing any data.')}</p>
+        {status.blocked > status.rejectedCount && (
+          <p>{_('Some queued changes are blocked. Contact support before clearing any data.')}</p>
         )}
+        {status.rejectedReasons.map((reason, index) => (
+          <p key={`${index}:${reason}`}>{reason}</p>
+        ))}
       </div>
     </div>
   );
