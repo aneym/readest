@@ -13,6 +13,7 @@ import {
 import { md5Fingerprint } from '@/utils/md5';
 import { SIZE_PER_LOC, SIZE_PER_TIME_UNIT } from '@/services/constants';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
+import { isHouseholdBuild } from '@/services/household';
 
 /** Valid sort types for the library */
 const VALID_SORT_TYPES: LibrarySortByType[] = Object.values(LibrarySortByType);
@@ -982,9 +983,9 @@ export const getBookContextMenuItemIds = (
   if (!isFeedBook(book)) {
     if (book.uploadedAt && !book.downloadedAt) ids.push('download');
     if (!book.uploadedAt && book.downloadedAt) ids.push('upload');
-    // Share is offered for any local-or-uploaded book; the dialog uploads first
-    // if the book hasn't been pushed yet.
-    if (book.downloadedAt || book.uploadedAt) ids.push('share');
+    // Share is offered for any local-or-uploaded book outside household builds;
+    // the dialog uploads first if the book hasn't been pushed yet.
+    if (!isHouseholdBuild() && (book.downloadedAt || book.uploadedAt)) ids.push('share');
     // LocalSend needs the file on this device; cloud-only books are excluded.
     if (opts?.localSend && (book.downloadedAt || book.filePath)) ids.push('sendNearby');
   }
