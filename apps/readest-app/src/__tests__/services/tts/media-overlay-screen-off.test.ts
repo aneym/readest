@@ -142,6 +142,7 @@ vi.mock('@/utils/misc', async (importOriginal) => ({
 import type { BookDoc } from '@/libs/document';
 import type { TTSMessageEvent } from '@/services/tts/TTSClient';
 import { TTSController } from '@/services/tts/TTSController';
+import { TTSFollowNavigation } from '@/app/reader/utils/ttsFollowNavigation';
 import type { FoliateView } from '@/types/view';
 import { MediaOverlayClient } from '@/services/tts/mediaOverlay/MediaOverlayClient';
 import {
@@ -157,7 +158,7 @@ const smil = (body: string) =>
   `<smil xmlns="http://www.w3.org/ns/SMIL"><body>${body}</body></smil>`;
 
 // Section 0: four blocks in a.mp3 (a word-timed first paragraph, then three
-// whole paragraphs), then two blocks in b.mp3. Section 1: two blocks in c.mp3.
+// whole paragraphs), then two blocks in b.mp3. Section 1: three blocks in c.mp3.
 // Mark names are section-global ordinals: w1..w3 = 0..2, p2..p6 = 3..7.
 const SMIL_0 = smil(
   par('w1', 'a.mp3', 0, 1) +
@@ -173,8 +174,10 @@ const HTML_0 =
   '<p id="p1"><span id="w1">Alpha</span> <span id="w2">beta</span> <span id="w3">gamma</span></p>' +
   '<p id="p2">Second paragraph.</p><p id="p3">Third paragraph.</p><p id="p4">Fourth paragraph.</p>' +
   '<p id="p5">Fifth paragraph.</p><p id="p6">Sixth paragraph.</p>';
-const SMIL_1 = smil(par('p7', 'c.mp3', 0, 3) + par('p8', 'c.mp3', 3, 6));
-const HTML_1 = '<p id="p7">Seventh paragraph.</p><p id="p8">Eighth paragraph.</p>';
+const SMIL_1 = smil(par('p7', 'c.mp3', 0, 3) + par('p8', 'c.mp3', 3, 6) + par('p9', 'c.mp3', 6, 9));
+const HTML_1 =
+  '<p id="p7">Seventh paragraph.</p><p id="p8">Eighth paragraph.</p>' +
+  '<p id="p9">Ninth paragraph.</p>';
 
 const docOf = (html: string) =>
   new DOMParser().parseFromString(
@@ -488,13 +491,17 @@ describe('TTSController with the screen off (Android)', () => {
   // stand-in for useTTSControl's two navigation handlers: handleSectionChange
   // (the controller's onSectionChange) turns to a section start with
   // renderer.goTo, logged 'section:<index>'; handleHighlightMark follows a
-  // highlight cfi, with view.goTo(cfi) when it is in another section than the
-  // primary view ('goTo:<cfi>') and renderer.scrollToAnchor when it is not
-  // ('scroll:<cfi>'). A navigation relocates the view, and the relocate
-  // re-applies the controller's highlight, as useTTSControl's progress effect
-  // does. Overlay writes log 'draw:<section>:<text>', and 'clear:<section>'
-  // when a drawn highlight is removed.
-  const realController = () => {
+  // highlight cfi through the hook's own TTSFollowNavigation, with
+  // view.goTo(cfi) when it is in another section than the primary view
+  // ('goTo:<cfi>') and renderer.scrollToAnchor when it is not ('scroll:<cfi>').
+  // A navigation relocates the view, and the relocate re-applies the
+  // controller's highlight, as useTTSControl's progress effect does. Overlay
+  // writes log 'draw:<section>:<text>', and 'clear:<section>' when a drawn
+  // highlight is removed.
+  //
+  // With `slowGoTo`, a view.goTo stays pending (the section loading) until the
+  // test calls landGoTo(); the view relocates only then.
+  const realController = ({ slowGoTo = false } = {}) => {
     const docs = [docOf(HTML_0), docOf(HTML_1)];
     const renderLog: string[] = [];
     const ranges = new Map<string, Range>();
@@ -554,18 +561,32 @@ describe('TTSController with the screen off (Android)', () => {
       const name = (event as CustomEvent<{ name?: string }>).detail.name;
       if (name) marks.push(name);
     });
+    const goTos: (() => void)[] = [];
+    const markFollow = new TTSFollowNavigation(({ cfi }) => {
+      const index = Number(cfi.split(':')[0]);
+      if (index === renderer.primaryIndex) {
+        renderLog.push(`scroll:${cfi}`);
+        return;
+      }
+      renderLog.push(`goTo:${cfi}`);
+      if (!slowGoTo) {
+        relocate(index);
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        goTos.push(() => {
+          relocate(index);
+          resolve();
+        });
+      });
+    });
     tts.addEventListener('tts-highlight-mark', (event) => {
       const { cfi } = (event as CustomEvent<{ cfi: string }>).detail;
       follows.push(cfi);
-      const index = Number(cfi.split(':')[0]);
-      if (index !== renderer.primaryIndex) {
-        renderLog.push(`goTo:${cfi}`);
-        relocate(index);
-      } else {
-        renderLog.push(`scroll:${cfi}`);
-      }
+      markFollow.push({ cfi });
     });
-    return { tts, renderLog, sectionLoads, marks, follows };
+    const landGoTo = () => goTos.shift()?.();
+    return { tts, renderLog, sectionLoads, marks, follows, landGoTo };
   };
 
   // Its own speak path dispatches each utterance's first mark before the
@@ -653,6 +674,60 @@ describe('TTSController with the screen off (Android)', () => {
 
       expect(follows).toEqual(['0:Third paragraph.']);
       expect(native.calls).not.toContain('pause');
+    } finally {
+      await tts.stop();
+      await tts.ttsMediaOverlayClient.shutdown();
+    }
+  });
+
+  // Foliate's goTo stays pending while the target section loads, and on
+  // unlock the recording keeps playing: marks for the next sentences arrive
+  // before the page has moved. Followed one by one, each started its own goTo
+  // (the view is still on the old section), and a late resolution could put
+  // the page back behind the voice.
+  test('marks that arrive while the unlock goTo is loading coalesce into at most one scroll, ending on the newest sentence', async () => {
+    const { tts, renderLog, follows, landGoTo } = realController({ slowGoTo: true });
+    try {
+      await tts.init();
+      await tts.start();
+      await flush();
+      const native = FakeNativePlayer.last!;
+
+      setVisibility('hidden');
+      await flush();
+      native.fireEnded(); // a.mp3 -> b.mp3
+      await flush();
+      native.fireEnded(); // -> section 1's c.mp3
+      await flush();
+      renderLog.length = 0;
+      follows.length = 0;
+
+      native.time = 0.5; // section 1's p7
+      setVisibility('visible');
+      for (let i = 0; i < 10; i++) await flush();
+      expect(renderLog).toEqual(['goTo:1:Seventh paragraph.']);
+
+      // The goTo is still loading while the voice moves on to p8, then p9.
+      native.time = 3.2;
+      await vi.advanceTimersByTimeAsync(50);
+      for (let i = 0; i < 10; i++) await flush();
+      native.time = 6.2;
+      await vi.advanceTimersByTimeAsync(50);
+      for (let i = 0; i < 10; i++) await flush();
+      expect(follows).toContain('1:Eighth paragraph.');
+      expect(follows.at(-1)).toBe('1:Ninth paragraph.');
+      expect(renderLog).toEqual(['goTo:1:Seventh paragraph.']);
+
+      landGoTo();
+      for (let i = 0; i < 10; i++) await flush();
+
+      const moves = renderLog.filter((entry) => /^(goTo|scroll|section):/.test(entry));
+      expect(moves.filter((entry) => entry.startsWith('goTo:'))).toHaveLength(1);
+      expect(moves.filter((entry) => entry.startsWith('scroll:')).length).toBeLessThanOrEqual(1);
+      expect(moves.at(-1)).toBe('scroll:1:Ninth paragraph.');
+      expect(renderLog.filter((entry) => entry.startsWith('draw:')).at(-1)).toBe(
+        'draw:1:Ninth paragraph.',
+      );
     } finally {
       await tts.stop();
       await tts.ttsMediaOverlayClient.shutdown();

@@ -30,6 +30,7 @@ import {
   TTS_STOP_AT_CHAPTER_END,
 } from '@/services/tts/TTSSessionManager';
 import { getEffectiveTTSHighlight } from '../utils/annotatorUtil';
+import { TTSFollowNavigation, type TTSFollowTarget } from '../utils/ttsFollowNavigation';
 
 interface UseTTSControlProps {
   bookKey: string;
@@ -419,23 +420,12 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
       }, PAGE_FOLLOW_INTERVAL_MS);
     };
 
-    const handleHighlightMark = (e: Event) => {
-      const { cfi, preview } = (e as CustomEvent<{ cfi: string; preview?: boolean }>).detail;
+    // Move the view to a mark's sentence. Returns the navigation's promise
+    // when it had to load another section (see TTSFollowNavigation).
+    const followMark = ({ cfi, preview }: TTSFollowTarget): Promise<unknown> | void => {
       const view = getView(bookKey);
-      const progress = getProgress(bookKey);
       const viewSettings = getViewSettings(bookKey);
-      const { location } = progress || {};
-      if (!cfi || !view || !location || !viewSettings) return;
-      // This mark supersedes any follow still running for the previous sentence.
-      stopPageFollow();
-
-      // A scrubber-drag preview navigates the view but must not move the
-      // session's saved location — only a committed seek (which fires a
-      // non-preview mark) does that.
-      if (!preview) {
-        viewSettings.ttsLocation = cfi;
-        setViewSettings(bookKey, viewSettings);
-      }
+      if (!view || !viewSettings) return;
 
       const hlContents = view.renderer.getContents();
       const hlPrimaryIdx = view.renderer.primaryIndex;
@@ -466,8 +456,8 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
         }
         sectionChangingTimestampRef.current = Date.now();
         followingTTSLocationRef.current = true;
-        view.goTo?.(cfi);
-        return;
+        // FoliateView types goTo as void; the runtime returns the navigation.
+        return view.goTo?.(cfi) as Promise<void> | void;
       }
 
       // A drag preview is an explicit "show me there" gesture: it navigates
@@ -505,6 +495,30 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
         }
       }
     };
+    const markFollow = new TTSFollowNavigation(followMark);
+
+    const handleHighlightMark = (e: Event) => {
+      const { cfi, preview } = (e as CustomEvent<{ cfi: string; preview?: boolean }>).detail;
+      const view = getView(bookKey);
+      const progress = getProgress(bookKey);
+      const viewSettings = getViewSettings(bookKey);
+      const { location } = progress || {};
+      if (!cfi || !view || !location || !viewSettings) return;
+      // This mark supersedes any follow still running for the previous sentence.
+      stopPageFollow();
+
+      // A scrubber-drag preview navigates the view but must not move the
+      // session's saved location — only a committed seek (which fires a
+      // non-preview mark) does that.
+      if (!preview) {
+        viewSettings.ttsLocation = cfi;
+        setViewSettings(bookKey, viewSettings);
+      }
+
+      // While a cross-section goTo is loading, this only records the target;
+      // the latest one is followed once it lands.
+      markFollow.push({ cfi, preview });
+    };
 
     // Word-level page following: turn the page as soon as the spoken word
     // moves off the visible page, instead of waiting for the next sentence's
@@ -514,6 +528,9 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
       const { cfi } = (e as CustomEvent<{ cfi: string }>).detail;
       const view = getView(bookKey);
       if (!cfi || !view || !followingTTSLocationRef.current) return;
+      // A section is still loading for the mark handler; scrolling the one on
+      // screen now would be a second move.
+      if (markFollow.pending) return;
 
       const hlContents = view.renderer.getContents();
       const hlPrimaryIdx = view.renderer.primaryIndex;
