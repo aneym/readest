@@ -1,4 +1,5 @@
 import { getRuntimeConfig } from '@/services/runtimeConfig';
+import { isHouseholdBuild } from '@/services/household';
 import { isCJKEnv } from '@/utils/misc';
 import { getFilename } from '@/utils/path';
 import { md5Fingerprint } from '@/utils/md5';
@@ -114,8 +115,27 @@ const getAdditionalCJKFontFaces = () => `
 }
 `;
 
+// Household builds read offline, so their @font-face rules keep only the
+// local() aliases and never fall through to the onlinewebfonts.com URLs.
+const toLocalOnlyFontFaces = (css: string) =>
+  css.replace(/(src:(?:\s*local\("[^"]*"\),)+)\s*url\([^;]*;\s*src:[^;]*;/g, (_match, locals) =>
+    String(locals).replace(/,$/, ';'),
+  );
+
 export const mountAdditionalFonts = async (document: Document, isCJK = false) => {
   const mountCJKFonts = isCJK || isCJKEnv();
+
+  // Household builds boot with bundled and system fonts only: no stylesheet
+  // or font file is requested from Google Fonts, jsDelivr, cdnjs or the
+  // Readest font CDN. Families like Bitter fall back to the system stack.
+  if (isHouseholdBuild()) {
+    if (mountCJKFonts) {
+      const style = document.createElement('style');
+      style.textContent = toLocalOnlyFontFaces(getAdditionalCJKFontFaces());
+      document.head.appendChild(style);
+    }
+    return;
+  }
 
   // Mount font stylesheets and @font-face rules
   let links = getAdditionalBasicFontLinks();

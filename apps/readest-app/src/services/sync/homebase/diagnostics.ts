@@ -53,8 +53,19 @@ export const DIAGNOSTICS_MAX_EVENTS = 300;
 export const DIAGNOSTICS_FLUSH_INTERVAL_MS = 60_000;
 /** Cap per POST so a long-offline backlog still fits one request. */
 export const DIAGNOSTICS_BATCH_SIZE = 100;
+/** A diagnostics POST is abandoned after this; the batch waits for the next flush. */
+export const DIAGNOSTICS_TIMEOUT_MS = 5_000;
 
-const hasStorage = () => typeof window !== 'undefined' && !!window.localStorage;
+const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
+// Reading window.localStorage itself throws (SecurityError) where storage is denied.
+const hasStorage = () => {
+  try {
+    return typeof window !== 'undefined' && !!window.localStorage;
+  } catch {
+    return false;
+  }
+};
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -154,17 +165,27 @@ export interface DiagnosticsReporterDeps {
  * paired, or the request failed (the batch is kept for the next attempt).
  */
 export const flushDiagnostics = async (deps: DiagnosticsReporterDeps): Promise<number> => {
-  if (!isHomebaseSyncEnabled()) return 0;
-  const base = getHomebaseBaseUrl();
-  if (!base) return 0;
-  const pending = readDiagnosticEvents();
-  if (pending.length === 0) return 0;
-  const token = await deps.getToken();
-  if (!token) return 0;
-  const batch = pending.slice(0, DIAGNOSTICS_BATCH_SIZE);
-  const body: DiagnosticsBatch = { clientId: deps.clientId, app: getAppBuildInfo(), events: batch };
-  const fetchImpl = deps.fetchImpl ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+  // Callers fire and forget this. It never throws, returns before touching
+  // the network while offline, and aborts the POST after DIAGNOSTICS_TIMEOUT_MS.
+  if (isOffline()) return 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    if (!isHomebaseSyncEnabled()) return 0;
+    const base = getHomebaseBaseUrl();
+    if (!base) return 0;
+    const pending = readDiagnosticEvents();
+    if (pending.length === 0) return 0;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    timer = setTimeout(() => controller?.abort(), DIAGNOSTICS_TIMEOUT_MS);
+    const token = await deps.getToken();
+    if (!token) return 0;
+    const batch = pending.slice(0, DIAGNOSTICS_BATCH_SIZE);
+    const body: DiagnosticsBatch = {
+      clientId: deps.clientId,
+      app: getAppBuildInfo(),
+      events: batch,
+    };
+    const fetchImpl = deps.fetchImpl ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
     const response = await fetchImpl(`${base}${DIAGNOSTICS_PATH}`, {
       method: 'POST',
       headers: {
@@ -173,15 +194,18 @@ export const flushDiagnostics = async (deps: DiagnosticsReporterDeps): Promise<n
         'X-Homebase-Client': deps.clientId,
       },
       body: JSON.stringify(body),
+      ...(controller ? { signal: controller.signal } : {}),
     });
     if (!response.ok) return 0;
+    // Re-read: events recorded during the request must survive the trim.
+    const lastSent = batch[batch.length - 1]!.seq;
+    writeDiagnosticEvents(readDiagnosticEvents().filter((event) => event.seq > lastSent));
+    return batch.length;
   } catch {
     return 0;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  // Re-read: events recorded during the request must survive the trim.
-  const lastSent = batch[batch.length - 1]!.seq;
-  writeDiagnosticEvents(readDiagnosticEvents().filter((event) => event.seq > lastSent));
-  return batch.length;
 };
 
 /**
