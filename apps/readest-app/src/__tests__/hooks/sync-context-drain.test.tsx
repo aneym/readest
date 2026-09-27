@@ -11,8 +11,10 @@ const mock = vi.hoisted(() => ({
 vi.mock('@/services/sync/homebase', () => ({
   resolveRecordSyncClient: () => ({ flushOutbox: () => mock.flush() }),
 }));
+vi.mock('@/utils/supabase', () => ({ supabase: {} }));
 
 import { SyncProvider } from '@/context/SyncContext';
+import { handleHomebaseCallback } from '@/helpers/auth';
 
 afterEach(() => {
   cleanup();
@@ -53,6 +55,22 @@ test('startup drains durable rows; reconnect retries without a manual Sync', asy
   window.dispatchEvent(new Event('online'));
   await waitFor(() => expect(push).toHaveBeenCalledTimes(2));
   now.mockRestore();
+});
+
+test('pairing drains once and teardown removes pairing listener', async () => {
+  const mounted = render(<SyncProvider>Reader</SyncProvider>);
+  await waitFor(() => expect(mock.flush).toHaveBeenCalledTimes(1));
+  const accessToken = `header.${btoa(JSON.stringify({ sub: 'profile' }))}.signature`;
+  const login = vi.fn();
+  const navigate = vi.fn();
+  handleHomebaseCallback({ accessToken, login, navigate });
+  await waitFor(() => expect(mock.flush).toHaveBeenCalledTimes(2));
+  expect(login).toHaveBeenCalledTimes(1);
+  expect(navigate).toHaveBeenCalledWith('/library');
+  mounted.unmount();
+  handleHomebaseCallback({ accessToken, login, navigate });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(mock.flush).toHaveBeenCalledTimes(2);
 });
 
 test('visible resume drains and teardown removes visibility listener', async () => {

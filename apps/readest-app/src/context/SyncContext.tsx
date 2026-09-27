@@ -3,12 +3,9 @@
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import type { RecordSyncClient } from '@/services/sync/homebase/recordSyncClient';
 import { resolveRecordSyncClient } from '@/services/sync/homebase';
+import { subscribeHomebasePaired } from '@/services/sync/homebase/pairingSignal';
 
 const syncClient = resolveRecordSyncClient();
-
-/** Pairing has written the token; retry auth-paused rows immediately. */
-export const drainAfterHomebasePairing = () =>
-  void syncClient.flushOutbox?.().catch(() => undefined);
 
 interface SyncContextType {
   syncClient: RecordSyncClient;
@@ -38,9 +35,11 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
     drain();
     window.addEventListener('online', onOnline);
     document.addEventListener('visibilitychange', onVisible);
+    const unsubscribePaired = subscribeHomebasePaired(() => drain());
     return () => {
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisible);
+      unsubscribePaired();
     };
   }, []);
   const value = useMemo(() => ({ syncClient }), []);
