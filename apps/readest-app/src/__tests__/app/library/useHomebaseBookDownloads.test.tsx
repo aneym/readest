@@ -4,11 +4,32 @@ import { renderHook, cleanup, act } from '@testing-library/react';
 const queueDownload = vi.hoisted(() => vi.fn((..._args: unknown[]) => 'id'));
 const user = vi.hoisted(() => ({ value: { id: 'paired' } as { id: string } | null }));
 const homebase = vi.hoisted(() => ({ enabled: true }));
+const immersionStatus = vi.hoisted(() => vi.fn(async () => ({})));
+const loadBook = vi.hoisted(() => vi.fn());
+const overlays = vi.hoisted(() => vi.fn(() => false));
+const saveLibraryBooks = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('@/services/homebase/immersion/client', () => ({
+  createImmersionClient: () => ({ status: immersionStatus }),
+}));
+vi.mock('@/libs/document', () => ({
+  DocumentLoader: class {
+    constructor(_file: File) {}
+    open() {
+      return loadBook();
+    }
+  },
+}));
+vi.mock('@/services/tts/mediaOverlay', () => ({ hasMediaOverlays: overlays }));
 vi.mock('@/services/transferManager', () => ({
   transferManager: { queueDownload, waitUntilReady: () => Promise.resolve() },
 }));
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ user: user.value }) }));
-vi.mock('@/context/EnvContext', () => ({ useEnv: () => ({ envConfig: {}, appService: {} }) }));
+vi.mock('@/context/EnvContext', () => ({
+  useEnv: () => ({
+    envConfig: { getAppService: async () => ({ saveLibraryBooks }) },
+    appService: { loadBookContent: async () => ({ file: new File(['epub'], 'narrated.epub') }) },
+  }),
+}));
 vi.mock('@/services/sync/homebase/config', () => ({
   isHomebaseSyncEnabled: () => homebase.enabled,
 }));
@@ -19,6 +40,7 @@ import {
   isDesiredHomebaseDownload,
 } from '@/app/library/hooks/useHomebaseBookDownloads';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useImmersionStore } from '@/store/immersionStore';
 import { useTransferStore } from '@/store/transferStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { BOOK_INTEGRITY_ERROR_PREFIX } from '@/services/bookIntegrity';
@@ -48,6 +70,10 @@ beforeEach(() => {
     activeCount: 0,
   });
   useLibraryStore.setState({ library: [], libraryLoaded: true, isSyncing: false });
+  useImmersionStore.getState().setPairs({});
+  immersionStatus.mockResolvedValue({});
+  loadBook.mockResolvedValue({ book: {} });
+  overlays.mockReturnValue(false);
 });
 afterEach(() => {
   cleanup();
@@ -72,6 +98,35 @@ describe('isDesiredHomebaseDownload', () => {
 });
 
 describe('useHomebaseBookDownloads', () => {
+  test('polls pair status and updates the shelf on its 60-second cadence', async () => {
+    immersionStatus.mockResolvedValue({ h1: { state: 'candidate', pairId: 'pair-1' } });
+    renderHook(() => useHomebaseBookDownloads());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(useImmersionStore.getState().pairByHash['h1']?.state).toBe('candidate');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(immersionStatus).toHaveBeenCalledTimes(2);
+  });
+
+  test('completed EPUB download persists narration once, without blocking downloads on failed detection', async () => {
+    const downloaded = row({ downloadedAt: 42 });
+    useLibraryStore.getState().setLibrary([downloaded]);
+    overlays.mockReturnValue(true);
+    const transfer = useTransferStore.getState().addTransfer('h1', 'Canonical', 'download');
+    useTransferStore.getState().setTransferStatus(transfer, 'completed');
+    renderHook(() => useHomebaseBookDownloads());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(useLibraryStore.getState().getBookByHash('h1')?.hasNarration).toBe(true);
+    expect(saveLibraryBooks).toHaveBeenCalled();
+    expect(loadBook).toHaveBeenCalledTimes(1);
+  });
   test('queues every adopted book that has no bytes, newest adoption first', async () => {
     useLibraryStore.setState({
       library: [

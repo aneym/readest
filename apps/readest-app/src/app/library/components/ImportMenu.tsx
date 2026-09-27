@@ -6,6 +6,8 @@ import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import MenuItem from '@/components/MenuItem';
 import Menu from '@/components/Menu';
+import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
+import { useImmersionStore } from '@/store/immersionStore';
 
 export interface ImportMenuProps {
   menuClassName?: string;
@@ -30,6 +32,7 @@ const ImportMenu: React.FC<ImportMenuProps> = ({
 }) => {
   const _ = useTranslation();
   const { appService } = useEnv();
+  const openSheet = useImmersionStore((state) => state.openSheet);
 
   const handleImportFromFiles = () => {
     onImportBooksFromFiles();
@@ -69,6 +72,16 @@ const ImportMenu: React.FC<ImportMenuProps> = ({
       )}
       onCancel={() => setIsDropdownOpen?.(false)}
     >
+      {isHomebaseSyncEnabled() && (
+        <MenuItem
+          label={_('Get a book…')}
+          Icon={<LuLibrary className='h-5 w-5' />}
+          onClick={() => {
+            openSheet('find');
+            setIsDropdownOpen?.(false);
+          }}
+        />
+      )}
       <MenuItem
         label={_('From Local File')}
         Icon={<IoFileTray className='h-5 w-5' />}

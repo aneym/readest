@@ -12,6 +12,10 @@ import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { isDemoBook } from '@/services/demoBooks';
 import { isAudiobook } from '@/utils/audiobook';
 import { Book } from '@/types/book';
+import { createImmersionClient } from '@/services/homebase/immersion/client';
+import { useImmersionStore } from '@/store/immersionStore';
+import { DocumentLoader } from '@/libs/document';
+import { hasMediaOverlays } from '@/services/tts/mediaOverlay';
 
 // Library changes arrive in bursts (adoption batches of 10, cover rewrites);
 // one reconciliation per burst is enough.
@@ -51,10 +55,12 @@ export const isDesiredHomebaseDownload = (book: Book): boolean =>
  */
 export const useHomebaseBookDownloads = () => {
   const { user } = useAuth();
-  const { appService } = useEnv();
+  const { appService, envConfig } = useEnv();
   const library = useLibraryStore((s) => s.library);
   const libraryLoaded = useLibraryStore((s) => s.libraryLoaded);
+  const transfers = useTransferStore((s) => s.transfers);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const checkedNarration = useRef(new Set<string>());
 
   const enabled = !!user && !!appService && isHomebaseSyncEnabled();
 
@@ -118,6 +124,82 @@ export const useHomebaseBookDownloads = () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [enabled, scheduleReconcile]);
+
+  // The shelf status endpoint is independent of book transfer scheduling.
+  useEffect(() => {
+    if (!enabled) return;
+    const api = createImmersionClient();
+    if (!api) return;
+    let mounted = true;
+    let controller: AbortController | null = null;
+    const poll = () => {
+      if (document.visibilityState === 'hidden') return;
+      controller?.abort();
+      controller = new AbortController();
+      void api
+        .status(controller.signal)
+        .then((pairs) => {
+          if (mounted) useImmersionStore.getState().setPairs(pairs);
+        })
+        .catch(() => {
+          /* Retain the last known shelf status while offline. */
+        });
+    };
+    poll();
+    const timer = setInterval(poll, 60_000);
+    document.addEventListener('visibilitychange', poll);
+    window.addEventListener('online', poll);
+    return () => {
+      mounted = false;
+      controller?.abort();
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', poll);
+      window.removeEventListener('online', poll);
+    };
+  }, [enabled]);
+
+  // Transfer completion stamps downloadedAt only after integrity verification.
+  // Inspect each EPUB once; a parse failure must not affect the completed transfer.
+  useEffect(() => {
+    if (!enabled || !appService || !envConfig) return;
+    for (const book of library) {
+      if (
+        book.format !== 'EPUB' ||
+        !book.downloadedAt ||
+        book.hasNarration ||
+        checkedNarration.current.has(book.hash)
+      )
+        continue;
+      const transfer = Object.values(transfers).find(
+        (item) =>
+          item.bookHash === book.hash && item.type === 'download' && item.status === 'completed',
+      );
+      if (!transfer) continue;
+      checkedNarration.current.add(book.hash);
+      void (async () => {
+        let loaded: Awaited<ReturnType<DocumentLoader['open']>>['book'] | undefined;
+        try {
+          const { file } = await appService.loadBookContent(book);
+          ({ book: loaded } = await new DocumentLoader(file).open());
+          if (hasMediaOverlays(loaded)) {
+            const current = useLibraryStore.getState().getBookByHash(book.hash);
+            if (current)
+              await useLibraryStore
+                .getState()
+                .updateBook(envConfig, { ...current, hasNarration: true });
+          }
+        } catch {
+          /* Narration detection is best effort. */
+        } finally {
+          try {
+            await loaded?.destroy?.();
+          } catch {
+            /* Cleanup is best effort too. */
+          }
+        }
+      })();
+    }
+  }, [enabled, appService, envConfig, library, transfers]);
 
   return { reconcile };
 };
