@@ -207,7 +207,9 @@ describe('offline behaviour at the seam', () => {
       adapter: {
         ...createMemoryHomebaseAdapter(),
         push: async () =>
-          reject ? { rejected: [{ family: 'config', id: 'book-hash', reason: 'invalid progress' }] } : {},
+          reject
+            ? { rejected: [{ family: 'config', id: 'book-hash', reason: 'invalid progress' }] }
+            : {},
       },
     });
     const payload = { configs: [{ bookHash: 'book-hash', updatedAt: AUG('01') }] };
