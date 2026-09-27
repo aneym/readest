@@ -140,6 +140,15 @@ export class HomebaseSyncClient implements RecordSyncClient {
     try {
       const response = await this.request(() => this.adapter.push(envelope));
       this.handleRejected(envelope, response.rejected);
+      if (this.outbox) {
+        try {
+          reportOutboxQueue(await this.outbox.settleAccepted(envelope, response.rejected));
+        } catch (error) {
+          recordDiagnostic('sync.outbox', 'warn', 'could not settle accepted sync rows', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
       return decodeEnvelope(response);
     } catch (err) {
       const error =
