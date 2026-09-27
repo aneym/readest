@@ -173,6 +173,50 @@ describe('offline behaviour at the seam', () => {
     expect(useHomebaseSyncStatus.getState().rejectedCount).toBe(1);
   });
 
+  test('a queued row rejected inside a 200 on reconnect stays blocked across restart', async () => {
+    const reset = {
+      rejectedCount: 0,
+      rejectedRows: {},
+      rejectedReasons: [],
+      poisonedKeys: [],
+      blocked: 0,
+    };
+    useHomebaseSyncStatus.setState(reset);
+    const store = createMemoryOutboxStore();
+    const sent: string[][] = [];
+    let online = false;
+    const adapter = {
+      ...createMemoryHomebaseAdapter(),
+      push: async (envelope: { notes?: { id?: string }[] | null }) => {
+        if (!online) throw new HomebaseSyncError('offline', 'NETWORK');
+        sent.push((envelope.notes ?? []).map((note) => note.id ?? ''));
+        return { rejected: [{ family: 'note', id: 'bad', reason: 'invalid row' }] };
+      },
+    };
+    const client = new HomebaseSyncClient({ adapter, outbox: createSyncOutbox({ store }) });
+    await client.pushChanges({
+      notes: [
+        { bookHash: 'a', id: 'ok', updatedAt: AUG('01') },
+        { bookHash: 'a', id: 'bad', updatedAt: AUG('01') },
+      ],
+    });
+    online = true;
+    const flushed = await client.flushOutbox();
+    expect(flushed).toMatchObject({ pushed: 1, remaining: 0 });
+    expect(await store.read()).toMatchObject([
+      { key: 'notes:a:bad', poisoned: true, lastError: 'invalid row', lastErrorCode: 'REJECTED' },
+    ]);
+    expect(useHomebaseSyncStatus.getState()).toMatchObject({ blocked: 1, rejectedCount: 1 });
+
+    // Restart: in-memory rejection state is gone, the durable queue is not.
+    useHomebaseSyncStatus.setState(reset);
+    const restarted = new HomebaseSyncClient({ adapter, outbox: createSyncOutbox({ store }) });
+    await restarted.flushOutbox();
+    expect(sent).toEqual([['ok', 'bad']]);
+    expect(useHomebaseSyncStatus.getState()).toMatchObject({ blocked: 1, pending: 0 });
+    useHomebaseSyncStatus.setState(reset);
+  });
+
   test('a later accepted push clears the rejection for that row', async () => {
     useHomebaseSyncStatus.setState({
       rejectedCount: 0,

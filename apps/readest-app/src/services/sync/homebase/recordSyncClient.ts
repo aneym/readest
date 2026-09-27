@@ -33,13 +33,13 @@ import { decodeEnvelope, encodeSyncData } from './wire';
 import { isDefiniteRejection, type SyncOutbox } from './outbox';
 import type { HomebaseEnvelope } from './types';
 import { recordDiagnostic } from './diagnostics';
-import { reportPushAck } from './syncStatus';
 import {
   beginSyncRequest,
   endSyncRequest,
+  reportOutboxQueue,
+  reportPushAck,
   reportSyncError,
   reportSyncSuccess,
-  useHomebaseSyncStatus,
 } from './syncStatus';
 
 /**
@@ -181,15 +181,7 @@ export class HomebaseSyncClient implements RecordSyncClient {
       this.handleRejected(envelope, response.rejected);
       return response;
     });
-    const pending = await this.outbox.pending();
-    useHomebaseSyncStatus.setState((s) => ({
-      pending: result.remaining,
-      retrying: pending.filter(
-        (entry) => entry.attempts > 0 && entry.lastErrorCode !== 'AUTH_FAILED',
-      ).length,
-      authPaused: pending.filter((entry) => entry.lastErrorCode === 'AUTH_FAILED').length,
-      blocked: result.poisoned.length + s.rejectedCount,
-    }));
+    reportOutboxQueue([...(await this.outbox.pending()), ...result.poisoned]);
     return result;
   }
 }
