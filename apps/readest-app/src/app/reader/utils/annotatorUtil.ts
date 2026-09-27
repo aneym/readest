@@ -1,4 +1,5 @@
 import { Overlayer } from 'foliate-js/overlayer.js';
+import type { TTSHighlightOptions } from '@/services/tts/types';
 import { HIGHLIGHT_COLOR_HEX } from '@/services/constants';
 import {
   BookNote,
@@ -346,6 +347,23 @@ export function getAnnotationOverlayColor<T extends string | undefined>(
   if (!isBwEink) return hexColor;
   if (style === 'highlight') return '#ffffff';
   return isDarkMode ? '#ffffff' : '#000000';
+}
+
+/** Resolve the active TTS overlay without changing the color-screen preference. */
+export function getEffectiveTTSHighlight(
+  viewSettings: Pick<ViewSettings, 'ttsHighlightOptions' | 'ttsHighlightOptionsEink'>,
+  context: { isBwEink: boolean; isDarkMode: boolean },
+): TTSHighlightOptions {
+  const options = context.isBwEink
+    ? (viewSettings.ttsHighlightOptionsEink ?? {
+        style: 'underline',
+        color: context.isDarkMode ? '#ffffff' : '#000000',
+      })
+    : viewSettings.ttsHighlightOptions;
+  return {
+    ...options,
+    color: getAnnotationOverlayColor(options.style, options.color, context),
+  };
 }
 
 /**

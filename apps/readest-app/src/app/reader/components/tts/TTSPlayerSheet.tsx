@@ -308,7 +308,7 @@ const TTSPlayerSheet = ({
       id='tts_player_sheet'
       isOpen={isOpen}
       snapHeight={0.65}
-      title={_('Read Aloud')}
+      title={isNarrating ? _('Listen') : _('Read Aloud')}
       header={header}
       boxClassName='sm:!h-auto sm:!max-h-[85%] sm:!w-[420px] sm:!min-w-0'
       contentClassName='!px-4 sm:!px-4 mt-[-4px]'
@@ -415,7 +415,11 @@ const TTSPlayerSheet = ({
             >
               <RiVoiceAiFill size={iconSize18} />
               <span className='text-base-content/60 max-w-full truncate px-1 text-xs'>
-                {currentVoiceName ? _(currentVoiceName) : _('Voice')}
+                {isNarrating
+                  ? _('Book narration')
+                  : currentVoiceName
+                    ? _(currentVoiceName)
+                    : _('Voice')}
               </span>
             </button>
             <button

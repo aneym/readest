@@ -21,15 +21,17 @@ vi.mock('@/hooks/useResponsiveSize', () => ({
 vi.mock('@/components/Dialog', () => ({
   default: ({
     isOpen,
+    title,
     header,
     children,
   }: {
     isOpen: boolean;
+    title: string;
     header?: React.ReactNode;
     children: React.ReactNode;
   }) =>
     isOpen ? (
-      <div role='dialog'>
+      <div role='dialog' aria-label={title}>
         {header}
         {children}
       </div>
@@ -181,6 +183,13 @@ describe('TTSPlayerSheet', () => {
     expect(await waitFor(() => screen.getByText('Ava'))).toBeTruthy(); // voice button caption
     // The main view carries no header label (vertical space).
     expect(screen.queryByText('Read Aloud')).toBeNull();
+  });
+
+  test('synthetic speech keeps the Read Aloud title, not Listen', async () => {
+    render(<TTSPlayerSheet {...makeProps()} />);
+    expect(screen.getByRole('dialog', { name: 'Read Aloud' })).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Listen' })).toBeNull();
+    expect(await waitFor(() => screen.getByText('Ava'))).toBeTruthy();
   });
 
   test('degrades without a timeline: no scrubber, estimate text instead', () => {
@@ -344,7 +353,8 @@ describe('TTSPlayerSheet', () => {
       onGetVoiceId: vi.fn().mockReturnValue('media-overlay'),
     });
     render(<TTSPlayerSheet {...props} />);
-    expect(await waitFor(() => screen.getByText('Jane Reader'))).toBeTruthy();
+    expect(await waitFor(() => screen.getByText('Book narration'))).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Listen' })).toBeTruthy();
     expect(screen.queryByLabelText('Offline Audio')).toBeNull();
   });
 

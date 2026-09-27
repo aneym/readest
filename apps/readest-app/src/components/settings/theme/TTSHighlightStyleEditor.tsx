@@ -15,6 +15,7 @@ export type TTSHighlightStyle =
 interface TTSHighlightStyleEditorProps {
   granularity: TTSHighlightGranularity;
   style: TTSHighlightStyle;
+  isBwEink: boolean;
   color: string;
   customColors: string[];
   onGranularityChange: (granularity: TTSHighlightGranularity) => void;
@@ -26,6 +27,7 @@ interface TTSHighlightStyleEditorProps {
 const TTSHighlightStyleEditor: React.FC<TTSHighlightStyleEditorProps> = ({
   granularity,
   style,
+  isBwEink,
   color,
   customColors,
   onGranularityChange,
@@ -83,7 +85,7 @@ const TTSHighlightStyleEditor: React.FC<TTSHighlightStyleEditorProps> = ({
           onChange={(e) => onStyleChange(e.target.value as TTSHighlightStyle)}
           ariaLabel={_('Style')}
           options={[
-            { value: 'highlight', label: _('Highlighter') },
+            { value: 'highlight', label: isBwEink ? _('Invert') : _('Highlighter') },
             { value: 'underline', label: _('Underline') },
             { value: 'strikethrough', label: _('Strikethrough') },
             { value: 'squiggly', label: _('Squiggly') },

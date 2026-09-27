@@ -362,6 +362,7 @@ export interface TTSConfig {
   ttsUseNarration: boolean;
   ttsLocation: string;
   ttsHighlightOptions: TTSHighlightOptions;
+  ttsHighlightOptionsEink?: TTSHighlightOptions;
   ttsHighlightGranularity: TTSHighlightGranularity;
   ttsMediaMetadata: TTSMediaMetadataMode;
   ttsPlayerStyle: TTSPlayerStyle;

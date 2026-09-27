@@ -183,6 +183,12 @@ export class TTSController extends EventTarget {
   ttsTargetLang: string = '';
 
   options: TTSHighlightOptions = { style: 'highlight', color: 'gray' };
+  #isBwEink = false;
+
+  #highlightDrawOptions() {
+    const { style, color } = this.options;
+    return style === 'underline' && this.#isBwEink ? { color, width: 3, padding: 1 } : { color };
+  }
 
   constructor(
     appService: AppService | null,
@@ -550,9 +556,9 @@ export class TTSController extends EventTarget {
         // content) resolves to nothing in the current doc; overlayer.add would
         // then dereference a null range. Skip instead.
         if (!visibleRange) return;
-        const { style, color } = this.options;
+        const { style } = this.options;
         overlayer?.remove(HIGHLIGHT_KEY);
-        overlayer?.add(HIGHLIGHT_KEY, visibleRange, Overlayer[style], { color });
+        overlayer?.add(HIGHLIGHT_KEY, visibleRange, Overlayer[style], this.#highlightDrawOptions());
       } catch (e) {
         console.error('Failed to highlight range', e);
       }
@@ -572,9 +578,10 @@ export class TTSController extends EventTarget {
     }
   }
 
-  updateHighlightOptions(options: TTSHighlightOptions) {
+  updateHighlightOptions(options: TTSHighlightOptions, isBwEink = false) {
     this.options.style = options.style;
     this.options.color = options.color;
+    this.#isBwEink = isBwEink;
   }
 
   setHighlightGranularity(granularity: TTSHighlightGranularity) {
@@ -1017,9 +1024,14 @@ export class TTSController extends EventTarget {
       const cfi = this.view.getCFI(index, range);
       const visibleRange = this.view.resolveCFI(cfi).anchor(doc);
       if (!visibleRange) return;
-      const { style, color } = this.options;
+      const { style } = this.options;
       overlayer?.remove(SEEK_PREVIEW_KEY);
-      overlayer?.add(SEEK_PREVIEW_KEY, visibleRange, Overlayer[style], { color });
+      overlayer?.add(
+        SEEK_PREVIEW_KEY,
+        visibleRange,
+        Overlayer[style],
+        this.#highlightDrawOptions(),
+      );
     } catch {}
   }
 
