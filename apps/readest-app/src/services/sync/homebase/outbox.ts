@@ -101,6 +101,11 @@ export interface SyncOutbox {
    * that declined some records); those stay queued as poisoned, not acked. */
   flush(push: (envelope: HomebaseEnvelope) => Promise<unknown>): Promise<FlushResult>;
   pending(): Promise<OutboxEntry[]>;
+  /** Settle previously rejected rows accepted by a direct push. */
+  settleAccepted(
+    envelope: HomebaseEnvelope,
+    rejected: PushRejection[] | undefined,
+  ): Promise<OutboxEntry[]>;
   /** Drop poisoned entries once the caller has reported them. */
   clearPoisoned(): Promise<OutboxEntry[]>;
 }
@@ -178,6 +183,24 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
       }
     },
     pending: () => transaction(async () => (await store.read()).filter((entry) => !entry.poisoned)),
+    settleAccepted: (envelope, rejected) =>
+      transaction(async () => {
+        const rejectedKeys = new Set(
+          (rejected ?? []).map((row) => rejectionKey(row.family, row.id)),
+        );
+        const acceptedKeys = new Set(
+          HOMEBASE_CHANNELS.flatMap((channel) =>
+            ((envelope[channel] ?? []) as HomebaseRecord[])
+              .filter((record) => !rejectedKeys.has(recordRejectionKey(channel, record)))
+              .map((record) => outboxKey(channel, record)),
+          ),
+        );
+        const entries = (await store.read()).filter(
+          (entry) => !entry.poisoned || !acceptedKeys.has(entry.key),
+        );
+        await store.write(entries);
+        return entries;
+      }),
     clearPoisoned: () =>
       transaction(async () => {
         const entries = await store.read();

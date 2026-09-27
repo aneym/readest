@@ -217,6 +217,79 @@ describe('offline behaviour at the seam', () => {
     useHomebaseSyncStatus.setState(reset);
   });
 
+  test('a poisoned row is cleared when a later direct push of the same key is accepted', async () => {
+    const reset = {
+      rejectedCount: 0,
+      rejectedRows: {},
+      rejectedReasons: [],
+      poisonedKeys: [],
+      blocked: 0,
+    };
+    useHomebaseSyncStatus.setState(reset);
+    const store = createMemoryOutboxStore();
+    const outbox = createSyncOutbox({ store });
+    let online = false;
+    let reject = true;
+    const adapter = {
+      ...createMemoryHomebaseAdapter(),
+      push: async () => {
+        if (!online) throw new HomebaseSyncError('offline', 'NETWORK');
+        return reject ? { rejected: [{ family: 'note', id: 'bad', reason: 'invalid row' }] } : {};
+      },
+    };
+    const payload = { notes: [{ bookHash: 'a', id: 'bad', updatedAt: AUG('01') }] };
+    const client = new HomebaseSyncClient({ adapter, outbox });
+    await client.pushChanges(payload);
+    online = true;
+    await client.flushOutbox();
+    expect(await store.read()).toMatchObject([{ key: 'notes:a:bad', poisoned: true }]);
+    expect(useHomebaseSyncStatus.getState().blocked).toBe(1);
+
+    reject = false;
+    await client.pushChanges(payload);
+    expect(await store.read()).toEqual([]);
+    expect(useHomebaseSyncStatus.getState().blocked).toBe(0);
+
+    useHomebaseSyncStatus.setState(reset);
+    await new HomebaseSyncClient({ adapter, outbox: createSyncOutbox({ store }) }).flushOutbox();
+    expect(useHomebaseSyncStatus.getState().blocked).toBe(0);
+  });
+
+  test('a direct push rejected again keeps the row poisoned', async () => {
+    useHomebaseSyncStatus.setState({ rejectedRows: {}, poisonedKeys: [], blocked: 0 });
+    const store = createMemoryOutboxStore();
+    const outbox = createSyncOutbox({ store });
+    let online = false;
+    const adapter = {
+      ...createMemoryHomebaseAdapter(),
+      push: async () => {
+        if (!online) throw new HomebaseSyncError('offline', 'NETWORK');
+        return { rejected: [{ family: 'note', id: 'bad', reason: 'invalid row' }] };
+      },
+    };
+    const client = new HomebaseSyncClient({ adapter, outbox });
+    const payload = { notes: [{ bookHash: 'a', id: 'bad', updatedAt: AUG('01') }] };
+    await client.pushChanges(payload);
+    online = true;
+    await client.flushOutbox();
+    await client.pushChanges(payload);
+    expect(await store.read()).toMatchObject([{ key: 'notes:a:bad', poisoned: true }]);
+    expect(useHomebaseSyncStatus.getState().blocked).toBe(1);
+  });
+
+  test('an accepted direct push does not remove a healthy queued row with the same key', async () => {
+    useHomebaseSyncStatus.setState({ rejectedRows: {}, poisonedKeys: [], blocked: 0 });
+    const store = createMemoryOutboxStore();
+    const outbox = createSyncOutbox({ store });
+    const payload = { notes: [{ bookHash: 'a', id: 'queued', updatedAt: AUG('01') }] };
+    await outbox.enqueue('notes', [{ book_hash: 'a', id: 'queued', updated_at: AUG('01') }]);
+    const client = new HomebaseSyncClient({ adapter: createMemoryHomebaseAdapter(), outbox });
+    await client.pushChanges(payload);
+    expect(await store.read()).toMatchObject([{ key: 'notes:a:queued' }]);
+    expect((await store.read())[0]?.poisoned).not.toBe(true);
+    expect(useHomebaseSyncStatus.getState().pending).toBe(1);
+  });
+
   test('a later accepted push clears the rejection for that row', async () => {
     useHomebaseSyncStatus.setState({
       rejectedCount: 0,
