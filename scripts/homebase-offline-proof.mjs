@@ -193,7 +193,10 @@ export function decodeFsText(value) {
 }
 
 /** Same "file is missing" test the fork's createTauriOutboxFs uses. */
-export const MISSING_FILE_RE = /not found|no such file|ENOENT|os error [23]|cannot find the path/i;
+// Same rule as the app's createTauriOutboxFs: only "(os error 2)" / "(os error 3)"
+// mean missing. EMFILE (24), ENFILE (23), EISDIR (21) or a sharing violation (32)
+// are read failures, never an empty outbox.
+export const MISSING_FILE_RE = /not found|no such file|ENOENT|\(os error [23]\)|cannot find the (path|file)/i;
 
 /** Marker on every harness-issued device fetch, so resource timing can skip them. */
 export const PROBE_MARKER = 'offline-proof-probe';
@@ -1261,6 +1264,10 @@ async function selfTest() {
     expect('pendingProbe merges outbox file and legacy rows', pend.pending === 3 && pend.entries.length === 4 && pend.source === 'outbox-file+outbox-localStorage', JSON.stringify(pend).slice(0, 160));
     const pendDenied = await runSnippet(js.pendingProbe, { window: bridge(() => { throw 'Permission denied (os error 13)'; }).window, localStorage: fakeLs() });
     expect('pendingProbe: unreadable outbox is null, not empty', pendDenied.pending === null && pendDenied.entries === null && pendDenied.source === 'outbox-error');
+    for (const code of ['Too many open files (os error 24)', 'Too many open files in system (os error 23)', 'Is a directory (os error 21)', 'The process cannot access the file because it is being used by another process. (os error 32)']) {
+      const pendIo = await runSnippet(js.pendingProbe, { window: bridge(() => { throw code; }).window, localStorage: fakeLs() });
+      expect(`pendingProbe: ${code} is null, not empty`, pendIo.pending === null && pendIo.entries === null && pendIo.source === 'outbox-error', JSON.stringify(pendIo).slice(0, 160));
+    }
     const pendNone = await runSnippet(js.pendingProbe, { window: bridge(() => { throw 'No such file or directory (os error 2)'; }).window, localStorage: fakeLs() });
     expect('pendingProbe: no outbox anywhere is 0', pendNone.pending === 0 && pendNone.source === 'outbox-empty');
 
