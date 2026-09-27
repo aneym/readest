@@ -10,12 +10,14 @@ import { throttle } from '@/utils/throttle';
 import { debounce } from '@/utils/debounce';
 import { eventDispatcher } from '@/utils/event';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useFileSyncStore } from '@/store/fileSyncStore';
 import {
   isReadestCloudEnabled,
   getActiveFileSyncBackends,
 } from '@/services/sync/cloudSyncProvider';
 import { isDemoBook } from '@/services/demoBooks';
 import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
+import { isHouseholdBuild } from '@/services/household';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { ensureFeedBookCover } from '@/services/rss/feedBook';
 import { runFileLibrarySyncPass } from '@/services/sync/file/runLibrarySync';
@@ -27,6 +29,22 @@ import {
 } from '@/app/library/utils/libraryUtils';
 import { getPrimaryLanguage } from '@/utils/book';
 import { isAudiobook, parseAbsFilePath } from '@/utils/audiobook';
+
+// Transport failures as browsers, Node and the Tauri HTTP plugin word them.
+// Anchored so an HTTP error such as "Failed to fetch file size: 404" is not
+// mistaken for one.
+const NETWORK_ERROR =
+  /^(failed to fetch|load failed|fetch failed|network request failed|network error|request timed out)$|networkerror|error sending request|ENOTFOUND|ECONNREFUSED|EAI_AGAIN/i;
+
+const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
+// In household builds, offline or when every backend this pass ran failed on
+// transport alone, a manual sync reports no failure: the Homebase menu status
+// already carries it. Other builds keep the upstream toast.
+const isQuietFailure = (passErrors: string[]) =>
+  isHouseholdBuild() &&
+  (isOffline() ||
+    (passErrors.length > 0 && passErrors.every((message) => NETWORK_ERROR.test(message))));
 
 export const useBooksSync = () => {
   const _ = useTranslation();
@@ -103,10 +121,21 @@ export const useBooksSync = () => {
         // ignores what the native pull actually synced.
         let fileSynced = 0;
         let fileSucceeded = false;
+        let passErrors: string[] = [];
         if (runFilePass) {
+          const errorsBefore = useFileSyncStore.getState().lastErrorByKind;
           const result = await runFileLibrarySyncPass(envConfig, _);
           fileSucceeded = result !== null;
           fileSynced = result?.booksSynced ?? 0;
+          // The pass writes an entry (null or a message) for every backend it
+          // ran. An untouched map means it never ran, so older errors, or ones
+          // from a backend that is now disabled, don't count.
+          const errorsAfter = useFileSyncStore.getState().lastErrorByKind;
+          if (errorsAfter !== errorsBefore) {
+            passErrors = backends
+              .map((kind) => errorsAfter[kind])
+              .filter((message): message is string => !!message);
+          }
         }
 
         let nativeSynced = 0;
@@ -124,12 +153,14 @@ export const useBooksSync = () => {
           // its pre-existing standalone behaviour. Only report failure when
           // every leg that ran actually failed.
           const succeeded = (runFilePass && fileSucceeded) || runNativePull;
-          eventDispatcher.dispatch('toast', {
-            type: succeeded ? 'info' : 'error',
-            message: succeeded
-              ? _('{{count}} book(s) synced', { count: fileSynced + nativeSynced })
-              : _('Sync failed'),
-          });
+          if (succeeded) {
+            eventDispatcher.dispatch('toast', {
+              type: 'info',
+              message: _('{{count}} book(s) synced', { count: fileSynced + nativeSynced }),
+            });
+          } else if (!isQuietFailure(passErrors)) {
+            eventDispatcher.dispatch('toast', { type: 'error', message: _('Sync failed') });
+          }
         }
       } finally {
         isPullingRef.current = false;
