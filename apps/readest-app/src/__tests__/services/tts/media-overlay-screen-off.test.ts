@@ -480,10 +480,40 @@ describe('MediaOverlayClient handover grace with the screen off (Android)', () =
 });
 
 describe('TTSController with the screen off (Android)', () => {
-  // The real controller over a two-section view, with every mark, highlight
-  // (the page-follow trigger) and section load it produces recorded.
+  // The real controller over a two-section paginated view, both sections
+  // rendered (the multiview paginator keeps the adjacent one alive), with
+  // every mark and highlight cfi it produces recorded.
+  //
+  // `renderLog` records what reaches the screen, in order. The view side is a
+  // stand-in for useTTSControl's two navigation handlers: handleSectionChange
+  // (the controller's onSectionChange) turns to a section start with
+  // renderer.goTo, logged 'section:<index>'; handleHighlightMark follows a
+  // highlight cfi, with view.goTo(cfi) when it is in another section than the
+  // primary view ('goTo:<cfi>') and renderer.scrollToAnchor when it is not
+  // ('scroll:<cfi>'). A navigation relocates the view, and the relocate
+  // re-applies the controller's highlight, as useTTSControl's progress effect
+  // does. Overlay writes log 'draw:<section>:<text>', and 'clear:<section>'
+  // when a drawn highlight is removed.
   const realController = () => {
     const docs = [docOf(HTML_0), docOf(HTML_1)];
+    const renderLog: string[] = [];
+    const ranges = new Map<string, Range>();
+    const contents = docs.map((doc, index) => {
+      let drawn = false;
+      const overlayer = {
+        add: (_key: string, range: Range) => {
+          drawn = true;
+          renderLog.push(`draw:${index}:${range.toString()}`);
+        },
+        remove: (key: string) => {
+          if (key !== 'tts-highlight' || !drawn) return;
+          drawn = false;
+          renderLog.push(`clear:${index}`);
+        },
+      };
+      return { doc, index, overlayer };
+    });
+    const renderer = { getContents: () => contents, primaryIndex: 0, scrolled: false };
     const view = {
       book: {
         sections: book.sections!.map((section, index) => ({
@@ -494,15 +524,29 @@ describe('TTSController with the screen off (Android)', () => {
         loadText: book.loadText,
         loadBlob: book.loadBlob,
       },
-      renderer: { getContents: () => [], primaryIndex: 0 },
+      renderer,
       language: { isCJK: false, canonical: 'en' },
-      getCFI: (index: number, range?: Range) => `${index}:${range?.toString() ?? ''}`,
-      resolveCFI: () => ({ anchor: () => null }),
+      getCFI: (index: number, range?: Range) => {
+        const cfi = `${index}:${range?.toString() ?? ''}`;
+        if (range) ranges.set(cfi, range);
+        return cfi;
+      },
+      resolveCFI: (cfi: string) => ({
+        index: Number(cfi.split(':')[0]),
+        anchor: () => ranges.get(cfi) ?? null,
+      }),
       tts: null,
     } as unknown as FoliateView;
     const sectionLoads: number[] = [];
+    // Scheduled like a relocate: after the navigation, never inside it.
+    const relocate = (index: number) => {
+      renderer.primaryIndex = index;
+      queueMicrotask(() => tts.reapplyCurrentHighlight());
+    };
     const tts = new TTSController(null, view, false, undefined, async (index) => {
       sectionLoads.push(index);
+      renderLog.push(`section:${index}`);
+      relocate(index);
     });
     const marks: string[] = [];
     const follows: string[] = [];
@@ -511,16 +555,24 @@ describe('TTSController with the screen off (Android)', () => {
       if (name) marks.push(name);
     });
     tts.addEventListener('tts-highlight-mark', (event) => {
-      follows.push((event as CustomEvent<{ cfi: string }>).detail.cfi);
+      const { cfi } = (event as CustomEvent<{ cfi: string }>).detail;
+      follows.push(cfi);
+      const index = Number(cfi.split(':')[0]);
+      if (index !== renderer.primaryIndex) {
+        renderLog.push(`goTo:${cfi}`);
+        relocate(index);
+      } else {
+        renderLog.push(`scroll:${cfi}`);
+      }
     });
-    return { tts, sectionLoads, marks, follows };
+    return { tts, renderLog, sectionLoads, marks, follows };
   };
 
   // Its own speak path dispatches each utterance's first mark before the
   // client runs; the page must still move once, to the sentence the recording
   // is on.
-  test('a chapter crossed while locked lands one highlight and one page follow, on the sentence sounding', async () => {
-    const { tts, sectionLoads, marks, follows } = realController();
+  test('a chapter crossed while locked lands one navigation, straight to the sentence sounding, then its highlight', async () => {
+    const { tts, renderLog, sectionLoads, marks, follows } = realController();
     try {
       await tts.init();
       expect(tts.narrationActive).toBe(true);
@@ -528,23 +580,36 @@ describe('TTSController with the screen off (Android)', () => {
       await flush();
       const native = FakeNativePlayer.last!;
       expect(follows.at(-1)).toBe('0:Alpha');
+      expect(renderLog.at(-1)).toBe('scroll:0:Alpha');
 
       setVisibility('hidden');
       await flush();
+      renderLog.length = 0;
       native.fireEnded(); // a.mp3 -> b.mp3
       await flush();
       native.fireEnded(); // -> section 1's c.mp3
       await flush();
       expect(native.calls).toContain('load:OEBPS/c.mp3');
 
+      // Nothing drawn, cleared or navigated while locked, the crossing included.
+      expect(renderLog).toEqual([]);
       marks.length = 0;
       follows.length = 0;
+      renderLog.length = 0;
       native.calls = [];
       native.time = 4; // section 1's p8, mark 1
       setVisibility('visible');
       for (let i = 0; i < 10; i++) await flush();
 
-      expect(sectionLoads.at(-1)).toBe(1);
+      // The controller walked into section 1 without turning to its start: one
+      // view.goTo, to p8's cfi, then p8's highlight, and only then is section
+      // 0's old highlight cleared (off screen by now).
+      expect(sectionLoads).toEqual([]);
+      expect(renderLog).toEqual([
+        'goTo:1:Eighth paragraph.',
+        'draw:1:Eighth paragraph.',
+        'clear:0',
+      ]);
       expect(marks).toEqual(['1']);
       expect(follows).toEqual(['1:Eighth paragraph.']);
       expect(native.calls).not.toContain('seek:0');
@@ -588,6 +653,100 @@ describe('TTSController with the screen off (Android)', () => {
 
       expect(follows).toEqual(['0:Third paragraph.']);
       expect(native.calls).not.toContain('pause');
+    } finally {
+      await tts.stop();
+      await tts.ttsMediaOverlayClient.shutdown();
+    }
+  });
+
+  // The headset "next" reaches #initTTSForSection when the controller's cursor
+  // is on the section's last block. That path used to clear the highlights and
+  // turn to the new section's start through onSectionChange, locked or not.
+  test('a headset next across a chapter while locked turns no page and clears nothing, then lands once on unlock', async () => {
+    const { tts, renderLog, sectionLoads, marks, follows } = realController();
+    try {
+      await tts.init();
+      await tts.start();
+      await flush();
+      const native = FakeNativePlayer.last!;
+      expect(renderLog.slice(-2)).toEqual(['draw:0:Alpha', 'scroll:0:Alpha']);
+
+      setVisibility('hidden');
+      await flush();
+      native.fireEnded(); // a.mp3 -> b.mp3, still section 0
+      await flush();
+      native.time = 2.5; // p6, section 0's last block
+      renderLog.length = 0;
+      marks.length = 0;
+      follows.length = 0;
+      native.calls = [];
+
+      await tts.forward();
+      for (let i = 0; i < 10; i++) await flush();
+
+      // Narration moved into section 1: its first block (p7, mark 0) is loaded
+      // and playing, and the lock screen hears about it.
+      expect(native.calls).toContain('load:OEBPS/c.mp3');
+      expect(native.paused).toBe(false);
+      expect(marks).toEqual(['0']);
+      expect(tts.state).toBe('playing');
+      // Nothing reached the page: no section turn, no goTo, no highlight
+      // cleared or drawn.
+      expect(sectionLoads).toEqual([]);
+      expect(follows).toEqual([]);
+      expect(renderLog).toEqual([]);
+
+      native.time = 4; // section 1's p8, mark 1
+      native.calls = [];
+      setVisibility('visible');
+      for (let i = 0; i < 10; i++) await flush();
+
+      expect(sectionLoads).toEqual([]);
+      expect(renderLog).toEqual([
+        'goTo:1:Eighth paragraph.',
+        'draw:1:Eighth paragraph.',
+        'clear:0',
+      ]);
+      expect(native.calls).not.toContain('pause');
+    } finally {
+      await tts.stop();
+      await tts.ttsMediaOverlayClient.shutdown();
+    }
+  });
+
+  // Paused, no speak() runs to land the new position on unlock: the section's
+  // first mark is held while locked and replayed once on unlock.
+  test('a skip across a chapter while paused and locked lands once on unlock', async () => {
+    const { tts, renderLog, sectionLoads, follows } = realController();
+    try {
+      await tts.init();
+      await tts.start();
+      await flush();
+      await tts.pause();
+      // On screen, walk the cursor to section 0's last block (p6).
+      for (let i = 0; i < 5; i++) await tts.forward();
+      await flush();
+      expect(follows.at(-1)).toBe('0:Sixth paragraph.');
+
+      setVisibility('hidden');
+      await flush();
+      renderLog.length = 0;
+      follows.length = 0;
+
+      await tts.forward();
+      await flush();
+      expect(sectionLoads).toEqual([]);
+      expect(follows).toEqual([]);
+      expect(renderLog).toEqual([]);
+
+      setVisibility('visible');
+      await flush();
+      expect(sectionLoads).toEqual([]);
+      expect(renderLog).toEqual([
+        'goTo:1:Seventh paragraph.',
+        'draw:1:Seventh paragraph.',
+        'clear:0',
+      ]);
     } finally {
       await tts.stop();
       await tts.ttsMediaOverlayClient.shutdown();
