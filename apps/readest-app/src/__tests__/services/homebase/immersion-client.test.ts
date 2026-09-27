@@ -29,7 +29,7 @@ const json = (body: unknown, status = 200) =>
 const setup = (response: unknown = { ok: true }) => {
   const fakeFetch = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => json(response));
   const client = createImmersionClient({
-    baseUrl: 'https://home.example///',
+    baseUrl: 'https://studio.tailf266ac.ts.net:3148/api/readest///',
     token: 'private-token',
     fetch: fakeFetch as typeof fetch,
   });
@@ -38,7 +38,7 @@ const setup = (response: unknown = { ok: true }) => {
 };
 
 describe('Homebase immersion client', () => {
-  test('routes all methods to the origin with JSON and bearer authorization', async () => {
+  test('routes all methods from the path-bearing base with JSON and bearer authorization', async () => {
     const bodies = [
       { ok: true, results: [result] },
       { ok: true, request: record },
@@ -51,7 +51,7 @@ describe('Homebase immersion client', () => {
       json(bodies.shift()),
     );
     const client = createImmersionClient({
-      baseUrl: 'https://home.example///',
+      baseUrl: 'https://studio.tailf266ac.ts.net:3148/api/readest///',
       token: 'private-token',
       fetch: fakeFetch as typeof fetch,
     });
@@ -65,12 +65,12 @@ describe('Homebase immersion client', () => {
     await expect(client!.confirmPair('p/1 ?')).resolves.toEqual(pair);
     await expect(client!.realignPair('p/1 ?')).resolves.toEqual(pair);
     expect(fakeFetch.mock.calls.map(([url]) => url)).toEqual([
-      'https://home.example/api/readest/immersion/search?q=A%20%26%20B',
-      'https://home.example/api/readest/immersion/requests',
-      'https://home.example/api/readest/immersion/requests',
-      'https://home.example/api/readest/immersion/status',
-      'https://home.example/api/readest/immersion/pairs/p%2F1%20%3F/confirm',
-      'https://home.example/api/readest/immersion/pairs/p%2F1%20%3F/realign',
+      'https://studio.tailf266ac.ts.net:3148/api/readest/immersion/search?q=A%20%26%20B',
+      'https://studio.tailf266ac.ts.net:3148/api/readest/immersion/requests',
+      'https://studio.tailf266ac.ts.net:3148/api/readest/immersion/requests',
+      'https://studio.tailf266ac.ts.net:3148/api/readest/immersion/status',
+      'https://studio.tailf266ac.ts.net:3148/api/readest/immersion/pairs/p%2F1%20%3F/confirm',
+      'https://studio.tailf266ac.ts.net:3148/api/readest/immersion/pairs/p%2F1%20%3F/realign',
     ]);
     for (const [, init] of fakeFetch.mock.calls) {
       expect(init?.headers).toMatchObject({
@@ -88,6 +88,26 @@ describe('Homebase immersion client', () => {
     expect(fakeFetch.mock.calls[4]?.[1]?.headers).toMatchObject({
       'Content-Type': 'application/json',
     });
+    expect(fakeFetch.mock.calls[4]?.[1]?.body).toBe('{}');
+    expect(fakeFetch.mock.calls[5]?.[1]?.body).toBe('{}');
+  });
+
+  test.each([
+    'https://studio.tailf266ac.ts.net:3148/api/readest',
+    'https://studio.tailf266ac.ts.net:3148/api/readest/',
+  ])('preserves the configured API path in %s', async (baseUrl) => {
+    const fakeFetch = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+      json({ ok: true, results: [] }),
+    );
+    const client = createImmersionClient({
+      baseUrl,
+      token: 'private-token',
+      fetch: fakeFetch as typeof fetch,
+    })!;
+    await client.search('x');
+    expect(fakeFetch.mock.calls[0]?.[0]).toBe(
+      'https://studio.tailf266ac.ts.net:3148/api/readest/immersion/search?q=x',
+    );
   });
 
   test('returns empty results for an empty query without fetching', async () => {
@@ -108,7 +128,7 @@ describe('Homebase immersion client', () => {
       json(responses.shift()),
     );
     const client = createImmersionClient({
-      baseUrl: 'https://home.example',
+      baseUrl: 'https://studio.tailf266ac.ts.net:3148/api/readest',
       token: 't',
       fetch: fakeFetch as typeof fetch,
     })!;
@@ -128,7 +148,7 @@ describe('Homebase immersion client', () => {
       json(body, status),
     );
     const client = createImmersionClient({
-      baseUrl: 'https://home.example',
+      baseUrl: 'https://studio.tailf266ac.ts.net:3148/api/readest',
       token: 'private-token',
       fetch: fakeFetch as typeof fetch,
     })!;
@@ -138,8 +158,62 @@ describe('Homebase immersion client', () => {
     expect((error as ImmersionApiError).message).not.toContain('private-token');
   });
 
+  test('maps rejected fetch and timeout to typed transport errors, but preserves caller abort', async () => {
+    const offlineFetch = vi.fn(async () => {
+      throw new TypeError('private-token offline');
+    });
+    const offline = createImmersionClient({
+      baseUrl: 'https://studio.tailf266ac.ts.net:3148/api/readest',
+      token: 'private-token',
+      fetch: offlineFetch as typeof fetch,
+    })!;
+    await expect(offline.search('x')).rejects.toMatchObject({ status: 0, code: 'network' });
+    await expect(offline.search('x')).rejects.not.toThrow('private-token');
+
+    const waitingFetch = vi.fn(
+      (_url: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true },
+          );
+        }),
+    );
+    const waiting = createImmersionClient({
+      baseUrl: 'https://studio.tailf266ac.ts.net:3148/api/readest',
+      token: 't',
+      fetch: waitingFetch as typeof fetch,
+      timeoutMs: 5,
+    })!;
+    await expect(waiting.search('x')).rejects.toMatchObject({ status: 0, code: 'timeout' });
+    const caller = new AbortController();
+    const pending = waiting.search('x', caller.signal);
+    caller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  test.each([
+    [200, { results: [result] }],
+    [200, { ok: 'yes', results: [result] }],
+    [200, null],
+  ])('rejects malformed successful envelope at HTTP %i', async (status, body) => {
+    const fakeFetch = vi.fn(async () => json(body, status));
+    const client = createImmersionClient({
+      baseUrl: 'https://studio.tailf266ac.ts.net:3148/api/readest',
+      token: 't',
+      fetch: fakeFetch as typeof fetch,
+    })!;
+    await expect(client.search('x')).rejects.toMatchObject({ status, code: 'bad_response' });
+  });
+
   test('does not create a client without a base URL or token', () => {
     expect(createImmersionClient({ baseUrl: null, token: 'token' })).toBeNull();
-    expect(createImmersionClient({ baseUrl: 'https://home.example', token: null })).toBeNull();
+    expect(
+      createImmersionClient({
+        baseUrl: 'https://studio.tailf266ac.ts.net:3148/api/readest',
+        token: null,
+      }),
+    ).toBeNull();
   });
 });

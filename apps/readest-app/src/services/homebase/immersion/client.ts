@@ -112,8 +112,8 @@ export function createImmersionClient(
         : localStorage.getItem('token')
       : opts.token;
   if (!rawBase?.trim() || !token?.trim()) return null;
-  // The config resolves a server origin, not an API prefix.
-  const base = `${rawBase.trim().replace(/\/+$/, '')}/api/readest/immersion`;
+  // Homebase config already includes /api/readest, just as the sync adapter expects.
+  const base = `${rawBase.trim().replace(/\/+$/, '')}/immersion`;
   const fetchImpl = opts.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const timeoutMs = opts.timeoutMs ?? 15_000;
 
@@ -145,7 +145,8 @@ export function createImmersionClient(
       let parsed: unknown;
       try {
         parsed = await response.json();
-      } catch {
+      } catch (error) {
+        if (controller.signal.aborted || signal?.aborted) throw error;
         parsed = null;
       }
       const body = isObject(parsed) ? parsed : {};
@@ -161,7 +162,17 @@ export function createImmersionClient(
           isString(body['code']) ? body['code'] : undefined,
         );
       }
+      if (body['ok'] !== true) {
+        throw new ImmersionApiError(response.status, 'Invalid immersion response', 'bad_response');
+      }
       return body;
+    } catch (error) {
+      if (error instanceof ImmersionApiError) throw error;
+      if (signal?.aborted) throw error;
+      if (controller.signal.aborted) {
+        throw new ImmersionApiError(0, 'Immersion request timed out', 'timeout');
+      }
+      throw new ImmersionApiError(0, 'Immersion network request failed', 'network');
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
@@ -169,8 +180,14 @@ export function createImmersionClient(
   };
 
   const updatePair = async (pairId: string, action: 'confirm' | 'realign'): Promise<PairState> => {
-    const body = await request(`pairs/${encodeURIComponent(pairId)}/${action}`, { method: 'POST' });
-    return isPairState(body['pair']) ? body['pair'] : { state: 'none' };
+    const body = await request(`pairs/${encodeURIComponent(pairId)}/${action}`, {
+      method: 'POST',
+      body: '{}',
+    });
+    if (!isPairState(body['pair'])) {
+      throw new ImmersionApiError(200, 'Invalid pair response', 'bad_response');
+    }
+    return body['pair'];
   };
 
   return {
@@ -183,7 +200,7 @@ export function createImmersionClient(
     async createRequest(input) {
       const body = await request('requests', { method: 'POST', body: JSON.stringify(input) });
       if (!isRequestRecord(body['request']))
-        throw new ImmersionApiError(200, 'Invalid request response');
+        throw new ImmersionApiError(200, 'Invalid request response', 'bad_response');
       return body['request'];
     },
     async listRequests(signal) {
