@@ -27,11 +27,14 @@ export * from './recordSyncClient';
 export * from './diagnostics';
 
 import { SyncClient } from '@/libs/sync';
+import { isTauriAppPlatform } from '@/services/environment';
 import { isHomebaseSyncEnabled, resolveHomebaseConfig } from './config';
 import { createHomebaseHttpAdapter } from './httpAdapter';
 import { createSyncOutbox, type OutboxStore } from './outbox';
 import {
+  createFileOutboxStore,
   createPersistentOutboxStore,
+  createTauriOutboxFs,
   getHomebaseToken,
   getOrCreateHomebaseClientId,
 } from './persistence';
@@ -40,7 +43,7 @@ import { recordDiagnostic } from './diagnostics';
 import { reportSyncError, useHomebaseSyncStatus } from './syncStatus';
 
 export interface ResolveRecordSyncClientOptions {
-  /** Persistent outbox store. Defaults to in-memory, which loses on restart. */
+  /** Persistent outbox store. Defaults to a file on Tauri, localStorage on web. */
   outboxStore?: OutboxStore;
   /** Bearer token source. Defaults to the Supabase session token. */
   getToken?: () => Promise<string | null>;
@@ -56,14 +59,26 @@ export const resolveRecordSyncClient = (
   options: ResolveRecordSyncClientOptions = {},
 ): RecordSyncClient => {
   if (!isHomebaseSyncEnabled()) return new SyncClient();
-  const config = resolveHomebaseConfig({ clientId: getOrCreateHomebaseClientId() });
+  const config = resolveHomebaseConfig({
+    clientId: getOrCreateHomebaseClientId(),
+  });
   if (!config) return new SyncClient();
 
   const adapter = createHomebaseHttpAdapter(config, {
     getToken: options.getToken ?? getHomebaseToken,
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
-  const storage = options.outboxStore ?? createPersistentOutboxStore();
+  const storage =
+    options.outboxStore ??
+    (isTauriAppPlatform()
+      ? (() => {
+          const fileStore = createTauriOutboxFs().then((fs) => createFileOutboxStore({ fs }));
+          return {
+            read: async () => (await fileStore).read(),
+            write: async (entries) => (await fileStore).write(entries),
+          } satisfies OutboxStore;
+        })()
+      : createPersistentOutboxStore());
   const updateQueue = (entries: Awaited<ReturnType<OutboxStore['read']>>) => {
     useHomebaseSyncStatus.setState({
       pending: entries.filter((e) => !e.poisoned).length,
