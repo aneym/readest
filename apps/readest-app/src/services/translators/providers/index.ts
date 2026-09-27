@@ -1,4 +1,5 @@
 import { TranslationProvider } from '../types';
+import { isHouseholdBuild } from '@/services/household';
 import { deeplProvider } from './deepl';
 import { azureProvider } from './azure';
 import { googleProvider } from './google';
@@ -32,11 +33,13 @@ const availableTranslators = [
 export type TranslatorName = (typeof availableTranslators)[number]['name'];
 
 export const getTranslator = (name: TranslatorName): TranslationProvider | undefined => {
-  return availableTranslators.find((translator) => translator.name === name);
+  return getTranslators().find((translator) => translator.name === name);
 };
 
 export const getTranslators = (): TranslationProvider[] => {
-  return availableTranslators;
+  return isHouseholdBuild()
+    ? availableTranslators.filter((translator) => !translator.authRequired)
+    : availableTranslators;
 };
 
 /**

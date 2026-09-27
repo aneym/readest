@@ -41,6 +41,7 @@ import { isWebAppPlatform } from '@/services/environment';
 import { useCustomOPDSStore } from '@/store/customOPDSStore';
 import { ensurePassphraseUnlocked } from '@/services/sync/passphraseGate';
 import { isCredentialsSyncEnabled } from '@/services/sync/syncCategories';
+import { isHouseholdBuild } from '@/services/household';
 import { isSyncError } from '@/libs/errors';
 import { OPDSCatalog } from '@/types/opds';
 import { isLanAddress } from '@/utils/network';
@@ -501,7 +502,7 @@ export function CatalogManager({ inSubPage = false }: CatalogManagerProps = {}) 
     // the passphrase, so prompting would be both pointless and
     // confusing (Settings → Sync → Credentials toggle).
     const hasCredentials = !!(newCatalog.username || newCatalog.password);
-    if (hasCredentials && isCredentialsSyncEnabled()) {
+    if (!isHouseholdBuild() && hasCredentials && isCredentialsSyncEnabled()) {
       try {
         await ensurePassphraseUnlocked();
       } catch (err) {
