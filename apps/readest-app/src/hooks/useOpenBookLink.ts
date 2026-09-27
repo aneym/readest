@@ -3,11 +3,17 @@ import { useRouter } from 'next/navigation';
 import { getCurrent } from '@tauri-apps/plugin-deep-link';
 import { useEnv } from '@/context/EnvContext';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useReaderStore } from '@/store/readerStore';
 import { isTauriAppPlatform } from '@/services/environment';
 import { isAudiobook } from '@/utils/audiobook';
 import { navigateToReader } from '@/utils/nav';
 import { eventDispatcher } from '@/utils/event';
-import { parseBookDeepLink } from '@/utils/deeplink';
+import {
+  parseBookDeepLink,
+  parseHouseholdOpenLink,
+  resolveHouseholdBook,
+  type HouseholdOpenLink,
+} from '@/utils/deeplink';
 import { setPendingTTSAutoplay } from '@/utils/ttsAutoplay';
 import { useTranslation } from './useTranslation';
 
@@ -28,18 +34,42 @@ export function useOpenBookLink() {
   const { appService } = useEnv();
   const getBookByHash = useLibraryStore((s) => s.getBookByHash);
   const libraryLoaded = useLibraryStore((s) => s.libraryLoaded);
-  const pending = useRef<string | null>(null);
+  const pending = useRef<{ bookHash: string; autoplay?: boolean } | HouseholdOpenLink | null>(null);
 
   const resolveAndNavigate = useCallback(
-    (bookHash: string) => {
-      const book = getBookByHash(bookHash);
-      if (!book) {
+    (link: { bookHash: string; autoplay?: boolean } | HouseholdOpenLink) => {
+      const household = 'calibreId' in link;
+      const book = household
+        ? resolveHouseholdBook(useLibraryStore.getState().library, link)
+        : getBookByHash(link.bookHash);
+      if (!book || (household && book.deletedAt)) {
+        if (household) router.push('/library');
         eventDispatcher.dispatch('toast', {
           type: 'warning',
-          message: _('Book not in your library'),
+          message: _(
+            household ? 'This book is not on this device yet' : 'Book not in your library',
+          ),
           timeout: 2500,
         });
         return;
+      }
+      const bookHash = book.hash;
+      if (household) {
+        // Only displayed keys count: viewStates retains detached views after a switch.
+        const { bookKeys } = useReaderStore.getState();
+        const alreadyOpen =
+          window.location.pathname.startsWith('/reader') &&
+          bookKeys.some((key) => key.startsWith(`${bookHash}-`));
+        if (alreadyOpen) {
+          eventDispatcher.dispatch('open-book-in-reader', { bookHash });
+          if (link.mode === 'listen') {
+            eventDispatcher.dispatch('household:deeplink-listen', { bookHash });
+          }
+          return;
+        }
+        if (link.mode === 'listen') setPendingTTSAutoplay(bookHash);
+      } else if (link.autoplay) {
+        setPendingTTSAutoplay(bookHash);
       }
       // A streaming audiobook has no document to load - it always opens in
       // the player, the same as a library tap on it (useOpenBook.ts). This
@@ -70,11 +100,8 @@ export function useOpenBookLink() {
     if (!isTauriAppPlatform() || !appService) return;
 
     const handle = (url: string, coldStart = false) => {
-      const parsed = parseBookDeepLink(url);
+      const parsed = parseHouseholdOpenLink(url) ?? parseBookDeepLink(url);
       if (!parsed) return;
-      // Android Auto cold-resume: remember to start read-aloud once this book's
-      // view inits (consumed in useBooksManager). Harmless if it never opens.
-      if (parsed.autoplay) setPendingTTSAutoplay(parsed.bookHash);
       // Dedupe ONLY the cold-start path. The OS persists the launch deep link
       // and re-delivers it via getCurrent() on every reader reload, which would
       // re-open the book in a loop. Live taps (app-incoming-url) are genuine
@@ -89,10 +116,10 @@ export function useOpenBookLink() {
         }
       }
       if (!useLibraryStore.getState().libraryLoaded) {
-        pending.current = parsed.bookHash;
+        pending.current = parsed;
         return;
       }
-      resolveAndNavigate(parsed.bookHash);
+      resolveAndNavigate(parsed);
     };
 
     if (!coldStartConsumed) {
@@ -114,8 +141,8 @@ export function useOpenBookLink() {
 
   useEffect(() => {
     if (!libraryLoaded || !pending.current) return;
-    const bookHash = pending.current;
+    const link = pending.current;
     pending.current = null;
-    resolveAndNavigate(bookHash);
+    resolveAndNavigate(link);
   }, [libraryLoaded, resolveAndNavigate]);
 }

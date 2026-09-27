@@ -124,6 +124,14 @@
                 <data android:mimeType="*/*"/>
             </intent-filter>
 
+            <!-- Palma launcher VIEW link; mirrors the palma-readest scheme in tauri.conf.json. -->
+            <intent-filter android:label="palma-readest-open">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="palma-readest" android:host="open" />
+            </intent-filter>
+
             <intent-filter android:label="oauth">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

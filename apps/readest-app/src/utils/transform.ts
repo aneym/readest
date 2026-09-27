@@ -160,6 +160,7 @@ export const transformBookToDB = (book: unknown, userId: string): DBBook => {
 };
 
 export const transformBookFromDB = (dbBook: DBBook): Book => {
+  const calibreId = (dbBook as DBBook & { calibre_id?: number }).calibre_id;
   const {
     book_hash,
     meta_hash,
@@ -186,6 +187,7 @@ export const transformBookFromDB = (dbBook: DBBook): Book => {
   const decodedMetadata = decodeObject(metadata);
   const book: Book = {
     hash: book_hash,
+    ...(Number.isSafeInteger(calibreId) && calibreId! > 0 ? { calibreId } : {}),
     metaHash: meta_hash,
     format: format as BookFormat,
     title,

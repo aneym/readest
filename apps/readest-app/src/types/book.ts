@@ -98,6 +98,7 @@ export interface Book {
   altFilePaths?: string[];
   // Partial md5 hash of the book file, used as the unique identifier
   hash: string;
+  calibreId?: number;
   // Metadata md5 hash, used to aggregate different versions of the same book
   metaHash?: string;
   format: BookFormat;

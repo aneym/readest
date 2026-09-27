@@ -203,6 +203,10 @@
           "appLink": false
         },
         {
+          "scheme": ["palma-readest"],
+          "appLink": false
+        },
+        {
           "scheme": ["readest-onedrive"],
           "appLink": false
         },
