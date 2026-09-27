@@ -881,9 +881,13 @@ export const getThemeCode = () => {
   }
   if (!currentTheme) currentTheme = themes[0];
   const defaultPalette = isDarkMode ? currentTheme!.colors.dark : currentTheme!.colors.light;
+  const einkDark =
+    isDarkMode &&
+    typeof document !== 'undefined' &&
+    document.documentElement.dataset['eink'] === 'true';
   return {
-    bg: defaultPalette['base-100'],
-    fg: defaultPalette['base-content'],
+    bg: einkDark ? '#000000' : defaultPalette['base-100'],
+    fg: einkDark ? '#ffffff' : defaultPalette['base-content'],
     primary: defaultPalette.primary,
     palette: defaultPalette,
     isDarkMode,

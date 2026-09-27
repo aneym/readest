@@ -518,6 +518,46 @@ input[type='range'].slider-input {
   animation: spin-counterclockwise 1s linear;
 }
 
+/* The custom-theme style tag is injected after this sheet; two attributes on
+   html beat its single [data-theme] selector without affecting LCD themes. */
+html[data-eink='true'][data-theme$='-dark'] {
+  --b1: 0% 0 0;
+  --b2: 0% 0 0;
+  --b3: 0% 0 0;
+  --n: 0% 0 0;
+  --bc: 100% 0 0;
+  --nc: 100% 0 0;
+}
+
+html[data-eink='true'][data-theme$='-dark']
+  :is(
+    .modal-box,
+    [role='dialog'],
+    .dropdown-content,
+    .menu-container,
+    .menu,
+    .sidebar-container,
+    .notebook-container,
+    .input,
+    select,
+    textarea
+  ) {
+  border: 1px solid oklch(var(--bc));
+}
+
+html[data-eink='true'][data-theme$='-dark']
+  :is(
+    .btn-active,
+    .btn-ghost.btn-active,
+    .menu li > *:active,
+    .dropdown-content .active,
+    [role='option'][aria-selected='true'],
+    [role='menuitem'][aria-selected='true']
+  ) {
+  background-color: oklch(var(--bc)) !important;
+  color: oklch(var(--b1)) !important;
+}
+
 [data-eink='true'] [class*='shadow-'] {
   box-shadow: none !important;
 }

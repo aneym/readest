@@ -173,7 +173,7 @@ const Dropdown: React.FC<DropdownProps> = ({
           title={showTooltip ? label : undefined}
           className={clsx(
             'dropdown-toggle touch-target',
-            isFocused && isOpen && 'bg-base-300/50',
+            isFocused && isOpen && 'bg-base-300/50 eink:bg-transparent',
             buttonClassName,
           )}
           onClick={toggleDropdown}

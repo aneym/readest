@@ -153,7 +153,7 @@ const BookItem: React.FC<BookItemProps> = ({
           </div>
         )}
         {bookSelected && (
-          <div className='absolute inset-0 bg-black opacity-30 transition-opacity duration-300'></div>
+          <div className='absolute inset-0 bg-black opacity-30 eink:!bg-transparent eink:!opacity-100 transition-opacity duration-300'></div>
         )}
         {isSelectMode && (
           <div className='absolute bottom-1 right-1'>

@@ -19,6 +19,7 @@ import { useBrightnessGesture } from '../hooks/useBrightnessGesture';
 import { registerBookmarkPullDoc } from '../utils/bookmarkPullGesture';
 import BrightnessOverlay from './BrightnessOverlay';
 import { usePagination, viewPagination } from '../hooks/usePagination';
+import { useEinkDarkRefresh } from '../hooks/useEinkDarkRefresh';
 import { useFoliateEvents } from '../hooks/useFoliateEvents';
 import { useProgressSync } from '../hooks/useProgressSync';
 import { useProgressAutoSave } from '../hooks/useProgressAutoSave';
@@ -137,6 +138,7 @@ const FoliateViewer: React.FC<{
   const bookData = getBookData(bookKey);
   const viewState = getViewState(bookKey);
   const viewSettings = getViewSettings(bookKey);
+  const onEinkDarkRelocate = useEinkDarkRefresh(bookKey);
 
   const viewRef = useRef<FoliateView | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -221,6 +223,7 @@ const FoliateViewer: React.FC<{
     const { current, next, total } = detail.location as PageInfo;
     const currentPage = atEnd && total > 0 ? total - 1 : current;
     const pageInfo = { current: currentPage, next, total };
+    onEinkDarkRelocate();
     setProgress(
       bookKey,
       detail.cfi,
@@ -232,7 +235,7 @@ const FoliateViewer: React.FC<{
       detail.range,
       detail.fraction,
     );
-  }, [bookKey, setProgress]);
+  }, [bookKey, onEinkDarkRelocate, setProgress]);
 
   const progressRelocateHandler = (event: Event) => {
     // Always stash the latest detail; if another rAF is already pending

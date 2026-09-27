@@ -59,8 +59,8 @@ const SetStatusAlert: React.FC<SetStatusAlertProps> = ({
       <div
         className={clsx(
           'flex w-auto max-w-[90vw] flex-col gap-3',
-          'border-base-content/10 bg-base-200/95 rounded-2xl border p-4',
-          'shadow-lg backdrop-blur-sm',
+          'border-base-content/10 bg-base-200/95 eink:bg-base-100 rounded-2xl border p-4',
+          'shadow-lg backdrop-blur-sm eink:backdrop-blur-none',
         )}
       >
         {/* Header with close button for small screens */}

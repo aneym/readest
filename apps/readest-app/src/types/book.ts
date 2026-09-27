@@ -338,6 +338,7 @@ export interface ViewConfig {
   animated: boolean;
   pageTurnStyle: PageTurnStyle;
   isEink: boolean;
+  einkDarkRefreshPages: number;
   isColorEink: boolean;
 
   paragraphMode: ParagraphModeConfig;
