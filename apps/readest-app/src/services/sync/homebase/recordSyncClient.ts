@@ -30,7 +30,10 @@
 import type { SyncClient, SyncData, SyncResult, SyncType } from '@/libs/sync';
 import { HomebaseSyncError, type HomebaseSyncAdapter } from './adapter';
 import { decodeEnvelope, encodeSyncData } from './wire';
-import type { SyncOutbox } from './outbox';
+import { isDefiniteRejection, type SyncOutbox } from './outbox';
+import type { HomebaseEnvelope } from './types';
+import { recordDiagnostic } from './diagnostics';
+import { reportRejected } from './syncStatus';
 import {
   beginSyncRequest,
   endSyncRequest,
@@ -44,6 +47,11 @@ import {
  * match `SyncClient`'s signatures exactly so `SyncClient` conforms without
  * being modified.
  */
+export type RecordPushResult = SyncResult & {
+  queued?: boolean;
+  rejected?: HomebaseEnvelope['rejected'];
+};
+
 export interface RecordSyncClient {
   pullChanges(
     since: number,
@@ -52,7 +60,7 @@ export interface RecordSyncClient {
     metaHash?: string,
     limit?: number,
   ): Promise<SyncResult>;
-  pushChanges(payload: SyncData): Promise<SyncResult>;
+  pushChanges(payload: SyncData): Promise<RecordPushResult>;
   flushOutbox?(): Promise<import('./outbox').FlushResult | null>;
 }
 
@@ -64,10 +72,10 @@ const EMPTY_RESULT: SyncResult = { books: null, configs: null, notes: null };
 export interface HomebaseSyncClientOptions {
   adapter: HomebaseSyncAdapter;
   /**
-   * Optional offline outbox. With one, a retryable push failure queues the rows
-   * and RESOLVES — the local write is durable, so reporting failure to the user
-   * would be a lie. Without one, the failure propagates exactly as the stock
-   * client's does. A non-retryable failure always propagates.
+   * Optional offline outbox. With one, all non-terminal failures (including
+   * auth pauses and unknown failures) queue durably and resolve as queued.
+   * Definite client rejections still propagate; without an outbox every failure
+   * propagates exactly as the stock client's does.
    */
   outbox?: SyncOutbox;
   /** Called when rows are queued instead of sent, so the UI can show a badge. */
@@ -127,33 +135,49 @@ export class HomebaseSyncClient implements RecordSyncClient {
     return decodeEnvelope(envelope);
   }
 
-  async pushChanges(payload: SyncData): Promise<SyncResult> {
+  async pushChanges(payload: SyncData): Promise<RecordPushResult> {
     const envelope = encodeSyncData(payload);
     try {
-      return decodeEnvelope(await this.request(() => this.adapter.push(envelope)));
+      const response = await this.request(() => this.adapter.push(envelope));
+      this.handleRejected(response.rejected);
+      return decodeEnvelope(response);
     } catch (err) {
       const error =
         err instanceof HomebaseSyncError
           ? err
           : new HomebaseSyncError(err instanceof Error ? err.message : String(err));
-      if (!this.outbox || !error.retryable) throw error;
-      await this.outbox.enqueueEnvelope(envelope);
+      if (!this.outbox || isDefiniteRejection(error)) throw error;
+      await this.outbox.enqueueEnvelope(envelope, error);
       this.onQueued?.(countRecords(payload), error);
-      // Resolving with the empty result mirrors "nothing came back from the
-      // server", which is true. `useSync.pushChanges` reads only the boolean
-      // outcome, and `setSyncResult` treats null channels as "unsynced" rather
-      // than "empty", so a queued push does not clear anything locally.
-      return EMPTY_RESULT;
+      return { ...EMPTY_RESULT, queued: true };
     }
   }
 
-  /** Drain the outbox. Called by whatever the app already uses as a sync tick. */
+  private handleRejected(rejected: HomebaseEnvelope['rejected']) {
+    if (!rejected?.length) return;
+    reportRejected(rejected);
+    for (const row of rejected) {
+      recordDiagnostic('sync.rejected', 'warn', 'server rejected sync row', row);
+    }
+  }
+
+  /** Drain the outbox on startup, reconnect, resume, or manual Sync. */
   async flushOutbox() {
     if (!this.outbox) return null;
-    const result = await this.outbox.flush((envelope) =>
-      this.request(() => this.adapter.push(envelope)),
-    );
-    useHomebaseSyncStatus.setState({ pending: result.remaining, blocked: result.poisoned.length });
+    const result = await this.outbox.flush(async (envelope) => {
+      const response = await this.request(() => this.adapter.push(envelope));
+      this.handleRejected(response.rejected);
+      return response;
+    });
+    const pending = await this.outbox.pending();
+    useHomebaseSyncStatus.setState((s) => ({
+      pending: result.remaining,
+      retrying: pending.filter(
+        (entry) => entry.attempts > 0 && entry.lastErrorCode !== 'AUTH_FAILED',
+      ).length,
+      authPaused: pending.filter((entry) => entry.lastErrorCode === 'AUTH_FAILED').length,
+      blocked: result.poisoned.length + s.rejectedCount,
+    }));
     return result;
   }
 }

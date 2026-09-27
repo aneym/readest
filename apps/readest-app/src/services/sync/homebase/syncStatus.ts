@@ -27,10 +27,34 @@ const readSuccess = (): number | null => {
 export const useHomebaseSyncStatus = create<{
   active: number;
   pending: number;
+  retrying: number;
+  authPaused: number;
   blocked: number;
+  rejectedCount: number;
+  rejectedReasons: string[];
   lastSuccessAt: number | null;
   error: string | null;
-}>(() => ({ active: 0, pending: 0, blocked: 0, lastSuccessAt: readSuccess(), error: null }));
+}>(() => ({
+  active: 0,
+  pending: 0,
+  retrying: 0,
+  authPaused: 0,
+  blocked: 0,
+  rejectedCount: 0,
+  rejectedReasons: [],
+  lastSuccessAt: readSuccess(),
+  error: null,
+}));
+
+export const reportRejected = (rows: { family: string; id: string; reason: string }[]) =>
+  useHomebaseSyncStatus.setState((s) => ({
+    rejectedCount: s.rejectedCount + rows.length,
+    blocked: s.blocked + rows.length,
+    rejectedReasons: [
+      ...s.rejectedReasons,
+      ...rows.map((row) => `${row.family}/${row.id}: ${row.reason}`),
+    ].slice(-5),
+  }));
 
 export const beginSyncRequest = () =>
   useHomebaseSyncStatus.setState((s) => ({ active: s.active + 1 }));

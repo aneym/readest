@@ -266,7 +266,7 @@ export function useSync(bookKey?: string) {
     try {
       const result = await syncClient.pushChanges(payload);
       setSyncResult(result);
-      return true;
+      return !result.queued && !result.rejected?.length;
     } catch (err: unknown) {
       console.error(err);
       if (err instanceof Error) {

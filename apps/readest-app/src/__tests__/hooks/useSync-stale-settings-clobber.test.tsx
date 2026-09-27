@@ -49,7 +49,8 @@ const h = vi.hoisted(() => {
     saveSettings: vi.fn(async (_env: unknown, _settings: SystemSettings) => {}),
   };
 
-  return { baseSettings, storeState };
+  const setConfig = vi.fn();
+  return { baseSettings, storeState, setConfig };
 });
 
 vi.mock('next/navigation', () => ({
@@ -62,7 +63,9 @@ vi.mock('@/context/EnvContext', () => ({
 
 const syncClientMock = vi.hoisted(() => ({
   pullChanges: vi.fn(),
-  pushChanges: vi.fn(async () => ({ books: null, configs: null, notes: null })),
+  pushChanges: vi.fn<() => Promise<{ books: null; configs: null; notes: null; queued?: boolean }>>(
+    async () => ({ books: null, configs: null, notes: null }),
+  ),
 }));
 
 vi.mock('@/context/SyncContext', () => ({
@@ -84,7 +87,7 @@ vi.mock('@/store/settingsStore', () => {
 });
 
 vi.mock('@/store/bookDataStore', () => ({
-  useBookDataStore: () => ({ getConfig: () => null, setConfig: vi.fn() }),
+  useBookDataStore: () => ({ getConfig: () => ({ location: 'page-1' }), setConfig: h.setConfig }),
 }));
 
 vi.mock('@/store/readerStore', () => ({
@@ -110,10 +113,50 @@ beforeEach(() => {
   h.storeState.setSettings.mockClear();
   h.storeState.saveSettings.mockClear();
   syncClientMock.pullChanges.mockReset();
+  syncClientMock.pushChanges.mockReset();
+  h.setConfig.mockClear();
 });
 
 afterEach(() => {
   cleanup();
+});
+
+describe('useSync push acknowledgement', () => {
+  test('queued Homebase configs and notes do not advance their last pushed timestamps', async () => {
+    syncClientMock.pushChanges.mockResolvedValue({
+      books: null,
+      configs: null,
+      notes: null,
+      queued: true,
+    });
+    const { result } = renderHook(() => useSync('book-key'));
+    await act(async () => {
+      await result.current.syncConfigs([{ bookHash: 'a' } as never], 'a', undefined, 'push');
+      await result.current.syncNotes([{ bookHash: 'a' } as never], 'a', undefined, 'push');
+    });
+    expect(syncClientMock.pushChanges).toHaveBeenCalledTimes(2);
+    expect(h.setConfig).not.toHaveBeenCalledWith(
+      'book-key',
+      expect.objectContaining({ lastPushedAtConfig: expect.any(Number) }),
+    );
+    expect(h.setConfig).not.toHaveBeenCalledWith(
+      'book-key',
+      expect.objectContaining({ lastPushedAtNotes: expect.any(Number) }),
+    );
+    syncClientMock.pushChanges.mockResolvedValue({ books: null, configs: null, notes: null });
+    await act(async () => {
+      await result.current.syncConfigs([{ bookHash: 'a' } as never], 'a', undefined, 'push');
+      await result.current.syncNotes([{ bookHash: 'a' } as never], 'a', undefined, 'push');
+    });
+    expect(h.setConfig).toHaveBeenCalledWith(
+      'book-key',
+      expect.objectContaining({ lastPushedAtConfig: expect.any(Number) }),
+    );
+    expect(h.setConfig).toHaveBeenCalledWith(
+      'book-key',
+      expect.objectContaining({ lastPushedAtNotes: expect.any(Number) }),
+    );
+  });
 });
 
 describe('useSync pull persistence (issue #4780)', () => {

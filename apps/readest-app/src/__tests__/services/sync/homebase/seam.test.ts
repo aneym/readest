@@ -10,6 +10,8 @@ import {
   type StockClientConformsToSeam,
 } from '@/services/sync/homebase/recordSyncClient';
 import { resolveRecordSyncClient } from '@/services/sync/homebase';
+import { useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
+import { readDiagnosticEvents } from '@/services/sync/homebase/diagnostics';
 
 /**
  * The seam. Everything else in the spike is machinery; this file is the claim:
@@ -116,7 +118,7 @@ describe('offline behaviour at the seam', () => {
       client.pushChanges({
         notes: [{ bookHash: 'a', id: 'n1', note: 'queued', updatedAt: AUG('01') }],
       } as unknown as SyncData),
-    ).resolves.toMatchObject({ books: null, configs: null, notes: null });
+    ).resolves.toMatchObject({ books: null, configs: null, notes: null, queued: true });
     expect(onQueued).toHaveBeenCalledWith(1, expect.objectContaining({ code: 'NETWORK' }));
     expect(server.rows('notes')).toHaveLength(0);
 
@@ -125,16 +127,43 @@ describe('offline behaviour at the seam', () => {
     expect(server.rows('notes')).toHaveLength(1);
   });
 
-  test('a permanent failure still propagates, outbox or not', async () => {
+  test('auth failure queues without poisoning until sign-in resumes', async () => {
     const server = createMemoryHomebaseAdapter();
+    const outbox = createSyncOutbox({ store: createMemoryOutboxStore() });
+    const client = new HomebaseSyncClient({ adapter: server, outbox });
+    server.failNext(new HomebaseSyncError('revoked', 'AUTH_FAILED', 401), 2);
+    expect(
+      await client.pushChanges({ books: [{ hash: 'a', updatedAt: AUG('01') }] }),
+    ).toMatchObject({ queued: true });
+    expect(await outbox.pending()).toMatchObject([{ attempts: 1, lastErrorCode: 'AUTH_FAILED' }]);
+    const flush = await client.flushOutbox();
+    expect(flush?.poisoned).toHaveLength(0);
+    expect(await outbox.pending()).toMatchObject([{ attempts: 2, lastErrorCode: 'AUTH_FAILED' }]);
+    expect(useHomebaseSyncStatus.getState().authPaused).toBe(1);
+  });
+
+  test('HTTP 200 rejected rows are visible, diagnosed, and never requeued', async () => {
+    useHomebaseSyncStatus.setState({ rejectedCount: 0, rejectedReasons: [], blocked: 0 });
+    const outbox = createSyncOutbox({ store: createMemoryOutboxStore() });
+    const adapter = createMemoryHomebaseAdapter();
     const client = new HomebaseSyncClient({
-      adapter: server,
-      outbox: createSyncOutbox({ store: createMemoryOutboxStore() }),
+      adapter: {
+        ...adapter,
+        push: async () => ({ rejected: [{ family: 'notes', id: 'n1', reason: 'invalid row' }] }),
+      },
+      outbox,
     });
-    server.failNext(new HomebaseSyncError('revoked', 'AUTH_FAILED', 401), 1);
-    await expect(client.pushChanges({ books: [] } as unknown as SyncData)).rejects.toMatchObject({
-      code: 'AUTH_FAILED',
+    const result = await client.pushChanges({
+      notes: [{ bookHash: 'a', id: 'n1', updatedAt: AUG('01') }],
     });
+    expect(result.rejected).toEqual([{ family: 'notes', id: 'n1', reason: 'invalid row' }]);
+    expect(await outbox.pending()).toHaveLength(0);
+    expect(useHomebaseSyncStatus.getState()).toMatchObject({
+      blocked: 1,
+      rejectedCount: 1,
+      rejectedReasons: ['notes/n1: invalid row'],
+    });
+    expect(readDiagnosticEvents().some((event) => event.kind === 'sync.rejected')).toBe(true);
   });
 
   test('without an outbox the failure propagates exactly like the stock client', async () => {

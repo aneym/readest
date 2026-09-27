@@ -167,6 +167,45 @@ describe('flush', () => {
     expect(await outbox.clearPoisoned()).toHaveLength(1);
   });
 
+  test('ten network failures keep the row pending with its attempt count', async () => {
+    const outbox = makeOutbox();
+    await outbox.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);
+    for (let i = 0; i < 10; i++) {
+      await outbox.flush(async () => {
+        throw new HomebaseSyncError('offline', 'NETWORK');
+      });
+    }
+    expect(await outbox.pending()).toMatchObject([{ attempts: 10, lastErrorCode: 'NETWORK' }]);
+  });
+
+  test('auth and unknown failures stay recoverable; only definite client errors block', async () => {
+    const outbox = makeOutbox();
+    await outbox.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);
+    for (const error of [
+      new HomebaseSyncError('signed out', 'AUTH_FAILED', 401),
+      new HomebaseSyncError('unexpected', 'UNKNOWN'),
+    ]) {
+      expect(
+        (
+          await outbox.flush(async () => {
+            throw error;
+          })
+        ).poisoned,
+      ).toHaveLength(0);
+    }
+    expect(await outbox.pending()).toMatchObject([{ attempts: 2, lastErrorCode: 'UNKNOWN' }]);
+  });
+
+  test('simultaneous flushes send one batch', async () => {
+    const outbox = makeOutbox();
+    await outbox.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);
+    const push = vi.fn(async () => {});
+    const [first, second] = await Promise.all([outbox.flush(push), outbox.flush(push)]);
+    expect(first.pushed).toBe(1);
+    expect(second.pushed).toBe(1);
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
   test('offline retries never expire the durable queue', async () => {
     const outbox = makeOutbox({ maxAttempts: 3 });
     await outbox.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);

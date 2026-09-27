@@ -226,7 +226,10 @@ const decodeRows = <T extends object>(rows: T[] | null | undefined): T[] | null 
  * count is unknown, on the grounds that a fabricated page number is worse than
  * none).
  */
-export const decodeEnvelope = (env: HomebaseEnvelope): SyncResult => ({
+export const decodeEnvelope = (
+  env: HomebaseEnvelope,
+): SyncResult & Pick<HomebaseEnvelope, 'rejected'> => ({
+  ...(env.rejected ? { rejected: env.rejected } : {}),
   books: decodeRows(env.books) as unknown as SyncResult['books'],
   configs: decodeRows(env.configs) as unknown as SyncResult['configs'],
   notes: decodeRows(env.notes) as unknown as SyncResult['notes'],

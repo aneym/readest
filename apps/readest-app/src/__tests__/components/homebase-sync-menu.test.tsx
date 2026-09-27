@@ -24,6 +24,10 @@ beforeEach(() => {
   useHomebaseSyncStatus.setState({
     active: 0,
     pending: 0,
+    retrying: 0,
+    authPaused: 0,
+    rejectedCount: 0,
+    rejectedReasons: [],
     blocked: 0,
     lastSuccessAt: null,
     error: null,
@@ -96,6 +100,22 @@ describe('actual sync request receipts and menu', () => {
     expect((await box.pending())[0]?.record).toMatchObject({ note: 'keep offline' });
     expect(screen.getByText(/not yet recorded/)).toBeTruthy();
   });
+  it('renders retrying, auth pause, blocked and latest rejection reasons', () => {
+    context.client = {};
+    useHomebaseSyncStatus.setState({
+      pending: 3,
+      retrying: 1,
+      authPaused: 1,
+      blocked: 1,
+      rejectedReasons: ['notes/n1: invalid row'],
+    });
+    render(<HomebaseSyncMenu onSync={() => {}} />);
+    expect(screen.getByText('1 changes retrying')).toBeTruthy();
+    expect(screen.getByText('1 changes paused until sign-in')).toBeTruthy();
+    expect(screen.getByText('1 blocked changes retained on this device')).toBeTruthy();
+    expect(screen.getByText('notes/n1: invalid row')).toBeTruthy();
+  });
+
   it('does not erase a failure when a concurrent unrelated request succeeds', async () => {
     const client = new HomebaseSyncClient({
       adapter: {
