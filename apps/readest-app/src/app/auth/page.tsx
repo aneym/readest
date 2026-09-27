@@ -25,6 +25,8 @@ import { authWithCustomTab, authWithSafari } from './utils/nativeAuth';
 import WindowButtons from '@/components/WindowButtons';
 import type { OAuthProvider } from './components/ProviderLogin';
 import AuthPanel from './components/AuthPanel';
+import HomebasePairingPanel from './components/HomebasePairingPanel';
+import { isHouseholdBuild } from '@/services/household';
 
 interface SingleInstancePayload {
   args: string[];
@@ -164,6 +166,7 @@ export default function AuthPage() {
       handleHomebaseCallback({ accessToken, login, navigate: router.push });
       return;
     }
+    if (isHouseholdBuild()) return;
     if (error) {
       console.error('OAuth callback error:', error, errorCode, errorDescription);
       handleAuthCallback({ error, errorCode, errorDescription, login, navigate: router.push });
@@ -249,11 +252,13 @@ export default function AuthPage() {
     if (isOAuthServerRunning.current) return;
     isOAuthServerRunning.current = true;
 
-    invoke('get_environment_variable', { name: 'USE_CUSTOM_OAUTH' }).then((value) => {
-      if (value === 'true') {
-        useCustomeOAuth.current = true;
-      }
-    });
+    if (!isHouseholdBuild()) {
+      invoke('get_environment_variable', { name: 'USE_CUSTOM_OAUTH' }).then((value) => {
+        if (value === 'true') {
+          useCustomeOAuth.current = true;
+        }
+      });
+    }
 
     startTauriOAuth();
     return () => {
@@ -264,6 +269,7 @@ export default function AuthPage() {
   }, []);
 
   useEffect(() => {
+    if (isHouseholdBuild()) return;
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.access_token && session.user) {
         login(session.access_token, session.user);
@@ -291,6 +297,8 @@ export default function AuthPage() {
   if (!isMounted) {
     return null;
   }
+
+  if (isHouseholdBuild()) return <HomebasePairingPanel />;
 
   // For tauri app development, use a custom OAuth server to handle the OAuth callback
   // For tauri app production, use deeplink to handle the OAuth callback
