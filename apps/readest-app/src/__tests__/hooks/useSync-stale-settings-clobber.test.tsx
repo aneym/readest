@@ -103,6 +103,8 @@ vi.mock('@/utils/transform', () => ({
 }));
 
 import { useSync } from '@/hooks/useSync';
+import { useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
+import { readDiagnosticEvents } from '@/services/sync/homebase/diagnostics';
 
 const flush = async () => {
   for (let i = 0; i < 20; i++) await Promise.resolve();
@@ -119,6 +121,61 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+describe('Homebase book pull watermark', () => {
+  test('applies returned pages but exposes an incomplete later-page discovery', async () => {
+    syncClientMock.pullChanges.mockImplementation(async () => {
+      if (syncClientMock.pullChanges.mock.calls.length > 1) throw new Error('network down');
+      return {
+        books: Array.from({ length: 1000 }, (_, i) => ({
+          book_hash: String(i),
+          synced_at: new Date(1000 + i).toISOString(),
+        })),
+        configs: null,
+        notes: null,
+      };
+    });
+    const { result } = renderHook(() => useSync());
+    await act(flush);
+    await act(async () => {
+      await result.current.syncBooks(undefined, 'pull', 0);
+    });
+    expect(result.current.syncedBooks).toHaveLength(1000);
+    expect(h.storeState.settings.lastSyncedAtBooks).toBe(1999);
+    expect(result.current.syncError).toBe('library sync incomplete; will retry');
+    expect(useHomebaseSyncStatus.getState().error).toBe('library sync incomplete; will retry');
+    expect(readDiagnosticEvents().some((event) => event.kind === 'sync.partial')).toBe(true);
+  });
+
+  test('requests the stored watermark unchanged so strict > includes the next millisecond', async () => {
+    const watermark = Date.now() - 1000 - 24 * 60 * 60 * 1000;
+    h.storeState.settings = {
+      ...h.baseSettings(),
+      lastSyncedAtBooks: watermark + 24 * 60 * 60 * 1000,
+    };
+    syncClientMock.pullChanges.mockImplementation(async (since: number) => ({
+      books:
+        since < watermark + 1
+          ? [{ book_hash: 'next', synced_at: new Date(watermark + 1).toISOString() }]
+          : [],
+      configs: null,
+      notes: null,
+    }));
+    const { result } = renderHook(() => useSync());
+    await act(flush);
+    await act(async () => {
+      await result.current.syncBooks(undefined, 'pull');
+    });
+    expect(syncClientMock.pullChanges).toHaveBeenCalledWith(
+      watermark,
+      'books',
+      undefined,
+      undefined,
+      1000,
+    );
+    expect(result.current.syncResult.books).toMatchObject([{ book_hash: 'next' }]);
+  });
 });
 
 describe('useSync push acknowledgement', () => {

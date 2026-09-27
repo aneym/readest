@@ -13,6 +13,8 @@ import { DBBook, DBBookConfig, DBBookNote } from '@/types/records';
 import { Book, BookConfig, BookDataRecord, BookNote } from '@/types/book';
 import { navigateToLogin } from '@/utils/nav';
 import { useReaderStore } from '@/store/readerStore';
+import { recordDiagnostic } from '@/services/sync/homebase/diagnostics';
+import { useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
 
 const transformsFromDB = {
   books: transformBookFromDB,
@@ -75,6 +77,7 @@ export async function pullBooksPaged(
   since: number,
   onPage?: (cursor: number) => void,
   pageSize = BOOKS_PULL_PAGE_SIZE,
+  onPartial?: (reason: string) => void,
 ): Promise<BookDataRecord[]> {
   const byHash = new Map<string, BookDataRecord>();
   let cursor = since;
@@ -89,6 +92,7 @@ export async function pullBooksPaged(
       // past them, so dropping them here would skip their rows forever. Keep
       // the partial delta — it matches the cursor — and resume next sync.
       if (cursor === since) throw err;
+      onPartial?.('later page failed');
       break;
     }
     for (const rec of page) {
@@ -98,7 +102,8 @@ export async function pullBooksPaged(
     if (pageMax > cursor) {
       cursor = pageMax;
       onPage?.(cursor);
-    } else if (page.length > 0) {
+    } else if (page.length >= pageSize) {
+      onPartial?.('full page did not advance cursor');
       break;
     }
     if (page.length < pageSize) break;
@@ -180,6 +185,7 @@ export function useSync(bookKey?: string) {
 
     try {
       let records: BookDataRecord[] | null | undefined;
+      let partialReason: string | null = null;
       if (type === 'books' && !bookId && !metaHash) {
         records = await pullBooksPaged(
           async (cursor, limit) => {
@@ -195,12 +201,25 @@ export function useSync(bookKey?: string) {
             settings.lastSyncedAtBooks = cursor;
             setSettings(settings);
           },
+          BOOKS_PULL_PAGE_SIZE,
+          (reason) => {
+            partialReason = reason;
+          },
         );
       } else {
         const result = await syncClient.pullChanges(since, type, bookId, metaHash);
         records = (result as unknown as Record<string, BookDataRecord[] | null | undefined>)[type];
       }
       setSyncResult({ ...syncResult, [type]: records });
+      if (partialReason) {
+        const message = 'library sync incomplete; will retry';
+        setSyncError(message);
+        useHomebaseSyncStatus.setState({ error: message });
+        recordDiagnostic('sync.partial', 'warn', message, { reason: partialReason });
+        // onPage already persisted the last completed page. Never advance to
+        // now or infer a new watermark from an incomplete discovery.
+        return countSyncedRecords(type, records);
+      }
       if (since > 1000 && !records?.length) return 0;
       // For since <= 1000, we set lastSyncedAt to now if no records returned
       const maxTime = records?.length ? computeMaxTimestamp(records) : Date.now();
@@ -290,7 +309,7 @@ export function useSync(bookKey?: string) {
       if (op === 'pull' || op === 'both') {
         return await pullChanges(
           'books',
-          since ?? lastSyncedAtBooks + 1,
+          since ?? lastSyncedAtBooks,
           setLastSyncedAtBooks,
           setSyncingBooks,
         );

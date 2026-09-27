@@ -6,6 +6,10 @@ import { resolveRecordSyncClient } from '@/services/sync/homebase';
 
 const syncClient = resolveRecordSyncClient();
 
+/** Pairing has written the token; retry auth-paused rows immediately. */
+export const drainAfterHomebasePairing = () =>
+  void syncClient.flushOutbox?.().catch(() => undefined);
+
 interface SyncContextType {
   syncClient: RecordSyncClient;
 }
@@ -15,15 +19,27 @@ const SyncContext = createContext<SyncContextType>({ syncClient });
 export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useEffect(() => {
     if (!syncClient.flushOutbox) return;
-    const drain = () => void syncClient.flushOutbox?.().catch(() => undefined);
+    let lastFailureAt = -Infinity;
+    const drain = (eventTriggered = false) => {
+      if (eventTriggered && Date.now() - lastFailureAt < 30_000) return;
+      void syncClient.flushOutbox?.().then(
+        (result) => {
+          if (result?.stoppedBy) lastFailureAt = Date.now();
+        },
+        () => {
+          lastFailureAt = Date.now();
+        },
+      );
+    };
+    const onOnline = () => drain(true);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') drain();
+      if (document.visibilityState === 'visible') drain(true);
     };
     drain();
-    window.addEventListener('online', drain);
+    window.addEventListener('online', onOnline);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
-      window.removeEventListener('online', drain);
+      window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);

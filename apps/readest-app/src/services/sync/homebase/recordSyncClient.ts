@@ -33,7 +33,7 @@ import { decodeEnvelope, encodeSyncData } from './wire';
 import { isDefiniteRejection, type SyncOutbox } from './outbox';
 import type { HomebaseEnvelope } from './types';
 import { recordDiagnostic } from './diagnostics';
-import { reportRejected } from './syncStatus';
+import { reportPushAck } from './syncStatus';
 import {
   beginSyncRequest,
   endSyncRequest,
@@ -139,7 +139,7 @@ export class HomebaseSyncClient implements RecordSyncClient {
     const envelope = encodeSyncData(payload);
     try {
       const response = await this.request(() => this.adapter.push(envelope));
-      this.handleRejected(response.rejected);
+      this.handleRejected(envelope, response.rejected);
       return decodeEnvelope(response);
     } catch (err) {
       const error =
@@ -153,10 +153,17 @@ export class HomebaseSyncClient implements RecordSyncClient {
     }
   }
 
-  private handleRejected(rejected: HomebaseEnvelope['rejected']) {
-    if (!rejected?.length) return;
-    reportRejected(rejected);
-    for (const row of rejected) {
+  private handleRejected(envelope: HomebaseEnvelope, rejected: HomebaseEnvelope['rejected']) {
+    const sent = Object.entries(envelope).flatMap(([family, rows]) =>
+      !Array.isArray(rows)
+        ? []
+        : rows.map((row: { book_hash?: string; id?: string }) => ({
+            family,
+            id: row.id ?? row.book_hash ?? '',
+          })),
+    );
+    reportPushAck(sent, rejected);
+    for (const row of rejected ?? []) {
       recordDiagnostic('sync.rejected', 'warn', 'server rejected sync row', row);
     }
   }
@@ -166,7 +173,7 @@ export class HomebaseSyncClient implements RecordSyncClient {
     if (!this.outbox) return null;
     const result = await this.outbox.flush(async (envelope) => {
       const response = await this.request(() => this.adapter.push(envelope));
-      this.handleRejected(response.rejected);
+      this.handleRejected(envelope, response.rejected);
       return response;
     });
     const pending = await this.outbox.pending();

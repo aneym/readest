@@ -27,6 +27,7 @@ beforeEach(() => {
     retrying: 0,
     authPaused: 0,
     rejectedCount: 0,
+    rejectedRows: {},
     rejectedReasons: [],
     blocked: 0,
     lastSuccessAt: null,

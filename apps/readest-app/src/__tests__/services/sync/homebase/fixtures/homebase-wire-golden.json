@@ -17,7 +17,10 @@
       "updatedAt": 1700000000000,
       "deletedAt": null,
       "coverImageUrl": "https://reader.example.test/api/readest/reader/books/dd76b92e7c1a4f0b93e5a1c8d2f60b37/cover",
-      "tags": ["Fiction", "Volumes"],
+      "tags": [
+        "Fiction",
+        "Volumes"
+      ],
       "metadata": "{\"series\":\"Hainish Cycle\",\"subjects\":[\"Fiction\",\"Volumes\"],\"seriesIndex\":4}"
     }
   ],

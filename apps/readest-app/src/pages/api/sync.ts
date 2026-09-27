@@ -494,6 +494,13 @@ export async function POST(req: NextRequest) {
       // Transform all records to DB format
       const dbRecords = batch.map((rec) => {
         const dbRec = transformsToDB[table](rec, user.id);
+        // Homebase audio metadata is carried on notes but is not a Supabase
+        // book_notes column. Keep it in the Homebase wire, not this write.
+        if (table === 'book_notes') {
+          for (const key of Object.keys(dbRec)) {
+            if (key.startsWith('hb')) delete (dbRec as unknown as Record<string, unknown>)[key];
+          }
+        }
         rec.user_id = user.id;
         rec.book_hash = dbRec.book_hash;
         return { original: rec, db: dbRec };

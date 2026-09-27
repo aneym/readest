@@ -40,13 +40,19 @@ test('startup drains durable rows; reconnect retries without a manual Sync', asy
   mock.flush.mockImplementation(() => mock.client!.flushOutbox());
   const mounted = render(<SyncProvider>Reader</SyncProvider>);
   await waitFor(async () => expect((await box.pending())[0]?.attempts).toBe(1));
+  window.dispatchEvent(new Event('online'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(push).toHaveBeenCalledTimes(1);
   online = true;
+  const resumedAt = Date.now() + 30_001;
+  const now = vi.spyOn(Date, 'now').mockReturnValue(resumedAt);
   window.dispatchEvent(new Event('online'));
   await waitFor(async () => expect(await box.pending()).toHaveLength(0));
   expect(push).toHaveBeenCalledTimes(2);
   mounted.unmount();
   window.dispatchEvent(new Event('online'));
-  expect(push).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(push).toHaveBeenCalledTimes(2));
+  now.mockRestore();
 });
 
 test('visible resume drains and teardown removes visibility listener', async () => {
@@ -72,6 +78,6 @@ test('visible resume drains and teardown removes visibility listener', async () 
   mounted.unmount();
   await box.enqueue('notes', [{ book_hash: 'book', id: 'n2', updated_at: 1 }]);
   document.dispatchEvent(new Event('visibilitychange'));
-  expect(await box.pending()).toHaveLength(1);
+  await waitFor(async () => expect(await box.pending()).toHaveLength(1));
   visibility.mockRestore();
 });

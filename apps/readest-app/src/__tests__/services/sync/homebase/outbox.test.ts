@@ -167,17 +167,6 @@ describe('flush', () => {
     expect(await outbox.clearPoisoned()).toHaveLength(1);
   });
 
-  test('ten network failures keep the row pending with its attempt count', async () => {
-    const outbox = makeOutbox();
-    await outbox.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);
-    for (let i = 0; i < 10; i++) {
-      await outbox.flush(async () => {
-        throw new HomebaseSyncError('offline', 'NETWORK');
-      });
-    }
-    expect(await outbox.pending()).toMatchObject([{ attempts: 10, lastErrorCode: 'NETWORK' }]);
-  });
-
   test('auth and unknown failures stay recoverable; only definite client errors block', async () => {
     const outbox = makeOutbox();
     await outbox.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);

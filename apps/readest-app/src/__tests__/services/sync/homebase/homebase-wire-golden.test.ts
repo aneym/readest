@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'vitest';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { HomebaseEnvelope } from '@/services/sync/homebase/types';
 import { decodeEnvelope } from '@/services/sync/homebase/wire';
 import {
@@ -14,6 +17,12 @@ import fixture from './fixtures/homebase-wire-golden.json';
 const wire = fixture as unknown as HomebaseEnvelope;
 
 describe('Homebase server wire through the reader pull path', () => {
+  test('fixture bytes match the canonical server fixture (including formatting)', () => {
+    const bytes = readFileSync(resolve(__dirname, 'fixtures/homebase-wire-golden.json'));
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(
+      '822181bad80116aa996c50324f90d63fcfd4b0a92ab2873ba6ee38ece18c9baa',
+    );
+  });
   test('books, configs, and notes retain their server clocks and content', () => {
     const rows = decodeEnvelope(wire);
     const books = rows.books!.map((row) => transformBookFromDB(row as unknown as DBBook));

@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { handleAuthCallback } from '@/helpers/auth';
+import { handleAuthCallback, handleHomebaseCallback } from '@/helpers/auth';
 
 export default function AuthCallback() {
   const router = useRouter();
@@ -20,6 +20,11 @@ export default function AuthCallback() {
     const error = params.get('error');
     const errorDescription = params.get('error_description');
     const errorCode = params.get('error_code');
+
+    if (type === 'homebase') {
+      handleHomebaseCallback({ accessToken, login, navigate: router.push });
+      return;
+    }
 
     handleAuthCallback({
       accessToken,

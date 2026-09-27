@@ -143,7 +143,12 @@ describe('offline behaviour at the seam', () => {
   });
 
   test('HTTP 200 rejected rows are visible, diagnosed, and never requeued', async () => {
-    useHomebaseSyncStatus.setState({ rejectedCount: 0, rejectedReasons: [], blocked: 0 });
+    useHomebaseSyncStatus.setState({
+      rejectedCount: 0,
+      rejectedRows: {},
+      rejectedReasons: [],
+      blocked: 0,
+    });
     const outbox = createSyncOutbox({ store: createMemoryOutboxStore() });
     const adapter = createMemoryHomebaseAdapter();
     const client = new HomebaseSyncClient({
@@ -164,6 +169,30 @@ describe('offline behaviour at the seam', () => {
       rejectedReasons: ['notes/n1: invalid row'],
     });
     expect(readDiagnosticEvents().some((event) => event.kind === 'sync.rejected')).toBe(true);
+    await client.pushChanges({ notes: [{ bookHash: 'a', id: 'n1', updatedAt: AUG('01') }] });
+    expect(useHomebaseSyncStatus.getState().rejectedCount).toBe(1);
+  });
+
+  test('a later accepted push clears the rejection for that row', async () => {
+    useHomebaseSyncStatus.setState({
+      rejectedCount: 0,
+      rejectedRows: {},
+      rejectedReasons: [],
+      blocked: 0,
+    });
+    let reject = true;
+    const client = new HomebaseSyncClient({
+      adapter: {
+        ...createMemoryHomebaseAdapter(),
+        push: async () =>
+          reject ? { rejected: [{ family: 'notes', id: 'n1', reason: 'invalid row' }] } : {},
+      },
+    });
+    const payload = { notes: [{ bookHash: 'a', id: 'n1', updatedAt: AUG('01') }] };
+    await client.pushChanges(payload);
+    reject = false;
+    await client.pushChanges(payload);
+    expect(useHomebaseSyncStatus.getState()).toMatchObject({ rejectedCount: 0, blocked: 0 });
   });
 
   test('without an outbox the failure propagates exactly like the stock client', async () => {
