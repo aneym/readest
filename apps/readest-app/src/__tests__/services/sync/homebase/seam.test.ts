@@ -154,19 +154,19 @@ describe('offline behaviour at the seam', () => {
     const client = new HomebaseSyncClient({
       adapter: {
         ...adapter,
-        push: async () => ({ rejected: [{ family: 'notes', id: 'n1', reason: 'invalid row' }] }),
+        push: async () => ({ rejected: [{ family: 'note', id: 'n1', reason: 'invalid row' }] }),
       },
       outbox,
     });
     const result = await client.pushChanges({
       notes: [{ bookHash: 'a', id: 'n1', updatedAt: AUG('01') }],
     });
-    expect(result.rejected).toEqual([{ family: 'notes', id: 'n1', reason: 'invalid row' }]);
+    expect(result.rejected).toEqual([{ family: 'note', id: 'n1', reason: 'invalid row' }]);
     expect(await outbox.pending()).toHaveLength(0);
     expect(useHomebaseSyncStatus.getState()).toMatchObject({
       blocked: 1,
       rejectedCount: 1,
-      rejectedReasons: ['notes/n1: invalid row'],
+      rejectedReasons: ['note/n1: invalid row'],
     });
     expect(readDiagnosticEvents().some((event) => event.kind === 'sync.rejected')).toBe(true);
     await client.pushChanges({ notes: [{ bookHash: 'a', id: 'n1', updatedAt: AUG('01') }] });
@@ -185,7 +185,7 @@ describe('offline behaviour at the seam', () => {
       adapter: {
         ...createMemoryHomebaseAdapter(),
         push: async () =>
-          reject ? { rejected: [{ family: 'notes', id: 'n1', reason: 'invalid row' }] } : {},
+          reject ? { rejected: [{ family: 'note', id: 'n1', reason: 'invalid row' }] } : {},
       },
     });
     const payload = { notes: [{ bookHash: 'a', id: 'n1', updatedAt: AUG('01') }] };
@@ -193,6 +193,37 @@ describe('offline behaviour at the seam', () => {
     reject = false;
     await client.pushChanges(payload);
     expect(useHomebaseSyncStatus.getState()).toMatchObject({ rejectedCount: 0, blocked: 0 });
+  });
+
+  test('a config rejected by its book hash is cleared when a later push accepts it', async () => {
+    useHomebaseSyncStatus.setState({
+      rejectedCount: 0,
+      rejectedRows: {},
+      rejectedReasons: [],
+      blocked: 0,
+    });
+    let reject = true;
+    const client = new HomebaseSyncClient({
+      adapter: {
+        ...createMemoryHomebaseAdapter(),
+        push: async () =>
+          reject ? { rejected: [{ family: 'config', id: 'book-hash', reason: 'invalid progress' }] } : {},
+      },
+    });
+    const payload = { configs: [{ bookHash: 'book-hash', updatedAt: AUG('01') }] };
+    await client.pushChanges(payload);
+    expect(useHomebaseSyncStatus.getState()).toMatchObject({
+      rejectedRows: { 'config/book-hash': 'invalid progress' },
+      rejectedCount: 1,
+      blocked: 1,
+    });
+    reject = false;
+    await client.pushChanges(payload);
+    expect(useHomebaseSyncStatus.getState()).toMatchObject({
+      rejectedRows: {},
+      rejectedCount: 0,
+      blocked: 0,
+    });
   });
 
   test('without an outbox the failure propagates exactly like the stock client', async () => {

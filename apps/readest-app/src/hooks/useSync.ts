@@ -77,7 +77,7 @@ export async function pullBooksPaged(
   since: number,
   onPage?: (cursor: number) => void,
   pageSize = BOOKS_PULL_PAGE_SIZE,
-  onPartial?: (reason: string) => void,
+  onPartial?: (reason: string, error?: unknown) => void,
 ): Promise<BookDataRecord[]> {
   const byHash = new Map<string, BookDataRecord>();
   let cursor = since;
@@ -92,7 +92,7 @@ export async function pullBooksPaged(
       // past them, so dropping them here would skip their rows forever. Keep
       // the partial delta — it matches the cursor — and resume next sync.
       if (cursor === since) throw err;
-      onPartial?.('later page failed');
+      onPartial?.('later page failed', err);
       break;
     }
     for (const rec of page) {
@@ -183,9 +183,23 @@ export function useSync(bookKey?: string) {
     setSyncing(true);
     setSyncError(null);
 
+    const handleAuthFailure = (error: unknown) => {
+      const latest = useSettingsStore.getState().settings;
+      if (
+        error instanceof Error &&
+        error.message.includes('Not authenticated') &&
+        latest.keepLogin
+      ) {
+        latest.keepLogin = false;
+        setSettings(latest);
+        navigateToLogin(router);
+      }
+    };
+
     try {
       let records: BookDataRecord[] | null | undefined;
       let partialReason: string | null = null;
+      let partialError: unknown;
       if (type === 'books' && !bookId && !metaHash) {
         records = await pullBooksPaged(
           async (cursor, limit) => {
@@ -202,8 +216,9 @@ export function useSync(bookKey?: string) {
             setSettings(settings);
           },
           BOOKS_PULL_PAGE_SIZE,
-          (reason) => {
+          (reason, error) => {
             partialReason = reason;
+            partialError = error;
           },
         );
       } else {
@@ -212,6 +227,7 @@ export function useSync(bookKey?: string) {
       }
       setSyncResult({ ...syncResult, [type]: records });
       if (partialReason) {
+        handleAuthFailure(partialError);
         const message = 'library sync incomplete; will retry';
         setSyncError(message);
         useHomebaseSyncStatus.setState({ error: message });
@@ -254,13 +270,7 @@ export function useSync(bookKey?: string) {
     } catch (err: unknown) {
       console.error(err);
       if (err instanceof Error) {
-        // Read live store settings, not the stale hook closure (see below).
-        const latest = useSettingsStore.getState().settings;
-        if (err.message.includes('Not authenticated') && latest.keepLogin) {
-          latest.keepLogin = false;
-          setSettings(latest);
-          navigateToLogin(router);
-        }
+        handleAuthFailure(err);
         setSyncError(err.message || `Error pulling ${type}`);
       } else {
         setSyncError(`Error pulling ${type}`);

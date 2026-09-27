@@ -48,18 +48,23 @@ export const useHomebaseSyncStatus = create<{
   error: null,
 }));
 
+const rejectionKey = (family: string, id: string): string => {
+  const canonical = { books: 'book', configs: 'config', notes: 'note' }[family] ?? family;
+  return `${canonical}/${id}`;
+};
+
 export const reportPushAck = (
   sent: { family: string; id: string }[],
   rejected: { family: string; id: string; reason: string }[] = [],
 ) =>
   useHomebaseSyncStatus.setState((s) => {
     const rejectedRows = { ...s.rejectedRows };
-    const rejectedKeys = new Set(rejected.map((row) => `${row.family}/${row.id}`));
+    const rejectedKeys = new Set(rejected.map((row) => rejectionKey(row.family, row.id)));
     for (const row of sent) {
-      const key = `${row.family}/${row.id}`;
+      const key = rejectionKey(row.family, row.id);
       if (!rejectedKeys.has(key)) delete rejectedRows[key];
     }
-    for (const row of rejected) rejectedRows[`${row.family}/${row.id}`] = row.reason;
+    for (const row of rejected) rejectedRows[rejectionKey(row.family, row.id)] = row.reason;
     const rejectedCount = Object.keys(rejectedRows).length;
     return {
       rejectedRows,

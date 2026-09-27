@@ -157,9 +157,14 @@ export class HomebaseSyncClient implements RecordSyncClient {
     const sent = Object.entries(envelope).flatMap(([family, rows]) =>
       !Array.isArray(rows)
         ? []
-        : rows.map((row: { book_hash?: string; id?: string }) => ({
+        : rows.map((row: { book_hash?: string; bookHash?: string; id?: string }) => ({
             family,
-            id: row.id ?? row.book_hash ?? '',
+            // Configs are keyed by book hash; the wire backfills `id` from it
+            // because Homebase reports config rejections using record.id.
+            id:
+              family === 'configs'
+                ? (row.book_hash ?? row.bookHash ?? row.id ?? '')
+                : (row.id ?? row.book_hash ?? ''),
           })),
     );
     reportPushAck(sent, rejected);
