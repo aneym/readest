@@ -968,6 +968,20 @@ describe('provider registry availability handling', () => {
   // each test would re-evaluate the full import chain and churn module
   // state for no benefit.
 
+  it('excludes account-bound providers on household devices and retains them upstream', async () => {
+    const { getTranslators, getTranslator } = await import('@/services/translators/providers');
+    vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', '1');
+    try {
+      expect(getTranslators().every((provider) => !provider.authRequired)).toBe(true);
+      expect(getTranslators().some((provider) => provider.name === 'google')).toBe(true);
+      expect(getTranslator('deepl')).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(getTranslators().map((provider) => provider.name)).toContain('deepl');
+    expect(getTranslator('deepl')?.authRequired).toBe(true);
+  });
+
   it('keeps yandex in getTranslators() so the UI can render it', async () => {
     const { getTranslators } = await import('@/services/translators/providers');
     const names = getTranslators().map((t) => t.name);

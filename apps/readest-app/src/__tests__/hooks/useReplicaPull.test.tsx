@@ -23,7 +23,9 @@ let envValue: { envConfig: unknown; appService: unknown } = {
   appService: null,
 };
 
-let authValue: { user: { id: string } | null } = { user: { id: 'test-user' } };
+let authValue: { user: { id: string; user_metadata?: { homebase: boolean } } | null } = {
+  user: { id: 'test-user' },
+};
 
 vi.mock('@/services/sync/replicaPullAndApply', () => ({
   replicaPullAndApply: (...args: unknown[]) => pullSpy(...args),
@@ -106,6 +108,7 @@ vi.mock('@/utils/misc', () => ({
 }));
 
 import { useReplicaPull, __resetReplicaPullForTests } from '@/hooks/useReplicaPull';
+import { ReplicaSyncClient } from '@/libs/replicaSyncClient';
 
 const fakeService = { createDir: vi.fn(), name: 'fake' };
 
@@ -142,6 +145,7 @@ beforeEach(() => {
   getReplicaSyncSpy.mockReset();
   subscribeReplicaSyncReadySpy.mockClear();
   readyListeners.clear();
+  vi.unstubAllEnvs();
   __resetReplicaPullForTests();
   envValue = { envConfig: { name: 'env' }, appService: fakeService };
   authValue = { user: { id: 'test-user' } };
@@ -150,9 +154,44 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   cleanup();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('useReplicaPull', () => {
+  test('paired household boot never requests Readest replicas or keys; upstream boot still pulls', async () => {
+    authValue = { user: { id: 'homebase-device', user_metadata: { homebase: true } } };
+    const client = new ReplicaSyncClient();
+    const request = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify({ rows: [] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', request);
+    const manager = {
+      pull: (kind: string) => client.pull(kind, null),
+      pullMany: vi.fn(async () => new Map()),
+    };
+    getReplicaSyncSpy.mockReturnValue({ manager });
+    pullSpy.mockImplementation(async (deps) => {
+      await (deps as { pull: () => Promise<unknown[]> }).pull();
+    });
+
+    vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', '1');
+    const household = renderHook(() => useReplicaPull({ kinds: ['dictionary'], delayMs: 1 }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(request).not.toHaveBeenCalled();
+    household.unmount();
+    __resetReplicaPullForTests();
+
+    vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', '0');
+    renderHook(() => useReplicaPull({ kinds: ['dictionary'], delayMs: 1 }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(request.mock.calls.some(([url]) => String(url).includes('/sync/replicas'))).toBe(true);
+  });
+
   test('does not pull before delayMs elapses', () => {
     getReplicaSyncSpy.mockReturnValue({ manager: makeManagerMock() });
     renderHook(() => useReplicaPull({ kinds: ['dictionary'], delayMs: 5_000 }));

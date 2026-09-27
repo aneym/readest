@@ -48,6 +48,7 @@ import { upgradeToKeychainIfAvailable } from '@/libs/crypto/passphrase';
 import { cryptoSession } from '@/libs/crypto/session';
 import { useAppLockStore } from '@/store/appLockStore';
 import { initSettingsSync } from '@/services/sync/replicaSettingsSync';
+import { isHouseholdBuild } from '@/services/household';
 
 // One-time, on first launch after this feature ships, decide how to handle
 // PostHog telemetry for the current install:
@@ -161,16 +162,20 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
           getToken: getHomebaseToken,
         });
       }
-      const hadSettingsFilePromise = appService.exists(SETTINGS_FILENAME, 'Settings');
+      const hadSettingsFilePromise = isHouseholdBuild()
+        ? null
+        : appService.exists(SETTINGS_FILENAME, 'Settings');
       appService.loadSettings().then(async (settings) => {
         const globalViewSettings = settings.globalViewSettings;
-        const hadSettingsFile = await hadSettingsFilePromise.catch(() => false);
-        finalizeTelemetryDecision({
-          appService,
-          settings,
-          isNewUser: !hadSettingsFile,
-          onShowPrompt: () => setShowTelemetryConsent(true),
-        });
+        if (hadSettingsFilePromise) {
+          const hadSettingsFile = await hadSettingsFilePromise.catch(() => false);
+          finalizeTelemetryDecision({
+            appService,
+            settings,
+            isNewUser: !hadSettingsFile,
+            onShowPrompt: () => setShowTelemetryConsent(true),
+          });
+        }
         applyUILanguage(globalViewSettings.uiLanguage);
         // Seed the customTextureStore with the disk-loaded textures (preserving
         // their saved ids) so the boot-time applyBackgroundTexture below can
@@ -207,7 +212,7 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
         // local defaults to the server with a fresh HLC — overwriting
         // the cross-device authoritative values another device set.
         // Idempotent — safe to call on remount.
-        initSettingsSync(settings);
+        if (!isHouseholdBuild()) initSettingsSync(settings);
       });
     }
   }, [
@@ -227,7 +232,7 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     void (async () => {
       await upgradeToKeychainIfAvailable();
-      await cryptoSession.tryRestoreFromStore();
+      if (!isHouseholdBuild()) await cryptoSession.tryRestoreFromStore();
     })();
   }, []);
 
@@ -248,35 +253,36 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
   const showAppLockScreen = isLockInitialized && !isUnlocked;
   const appShellHidden = !isLockInitialized || !isUnlocked;
 
-  return (
-    <CSPostHogProvider>
-      <AuthProvider>
-        <IconContext.Provider value={{ size: `${iconSize}px` }}>
-          <SyncProvider>
-            <DropdownProvider>
-              <CommandPaletteProvider>
-                <div
-                  aria-hidden={appShellHidden}
-                  style={appShellHidden ? { display: 'none' } : undefined}
-                >
-                  {children}
-                  <CommandPalette />
-                  <AtmosphereOverlay />
-                  <PassphrasePrompt />
-                </div>
-                <AppLockDialog />
+  const content = (
+    <AuthProvider>
+      <IconContext.Provider value={{ size: `${iconSize}px` }}>
+        <SyncProvider>
+          <DropdownProvider>
+            <CommandPaletteProvider>
+              <div
+                aria-hidden={appShellHidden}
+                style={appShellHidden ? { display: 'none' } : undefined}
+              >
+                {children}
+                <CommandPalette />
+                <AtmosphereOverlay />
+                <PassphrasePrompt />
+              </div>
+              <AppLockDialog />
+              {!isHouseholdBuild() && (
                 <TelemetryConsentDialog
                   open={showTelemetryConsent}
                   onClose={() => setShowTelemetryConsent(false)}
                 />
-                {showAppLockScreen && <AppLockScreen />}
-              </CommandPaletteProvider>
-            </DropdownProvider>
-          </SyncProvider>
-        </IconContext.Provider>
-      </AuthProvider>
-    </CSPostHogProvider>
+              )}
+              {showAppLockScreen && <AppLockScreen />}
+            </CommandPaletteProvider>
+          </DropdownProvider>
+        </SyncProvider>
+      </IconContext.Provider>
+    </AuthProvider>
   );
+  return isHouseholdBuild() ? content : <CSPostHogProvider>{content}</CSPostHogProvider>;
 };
 
 export default Providers;

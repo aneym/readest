@@ -2,6 +2,7 @@ import { transferManager } from '@/services/transferManager';
 import { getReplicaAdapter } from './replicaRegistry';
 import { isSyncCategoryEnabled } from './syncCategories';
 import { getAccessToken } from '@/utils/access';
+import { isHouseholdBuild } from '@/services/household';
 import type { AppService, BaseDir } from '@/types/system';
 import type { ReplicaTransferFile } from '@/store/transferStore';
 import type { ClosableFile } from '@/utils/file';
@@ -61,7 +62,7 @@ export const queueReplicaBinaryUpload = async <T extends ReplicaBinaryRecord>(
   record: T,
   appService: AppService,
 ): Promise<string | null> => {
-  if (!isSyncCategoryEnabled(kind)) return null;
+  if (isHouseholdBuild() || !isSyncCategoryEnabled(kind)) return null;
   if (!record.contentId) return null;
   if (!(await getAccessToken())) return null;
   if (!transferManager.isReady()) return null;
