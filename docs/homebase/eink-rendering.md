@@ -2,6 +2,22 @@
 
 Scope: fork checkout at `/Volumes/StudioExt/repos/personal/readest-homebase-landing-v1/apps/readest-app/`, read-only. Device: BOOX Palma 2 Pro Color, Android 15, BOOX firmware 4.1.1, 824x1648 @ 300dpi, Kaleido color e-ink. No code was changed and no device was touched during this research.
 
+## BOOX night mode
+
+In the household fork, `f75b9906` and `23f8ae5d` map the base and neutral surface tokens to true black (`#000`) and content to white when `html[data-eink='true'][data-theme$='-dark']`. The two-attribute selector overrides the injected custom theme without changing LCD themes. Dialogs and controls retain hairline borders, and active items and sliders stay identifiable when all dark surface tiers collapse to black. The book background is also forced black on e-ink in dark mode. Code: `apps/readest-app/src/styles/globals.css`, `src/utils/style.ts`, `src/styles/themes.ts` and the e-ink hook. A black framebuffer does not prove that BOOX's panel makes equally deep black; that judgment needs a person viewing the device.
+
+Dark, paginated Android e-ink reading calls `refreshEinkScreen()` after every `viewSettings.einkDarkRefreshPages` committed page relocations. The default is **6**, **0** disables periodic refresh, and scrolled mode skips it. The hook resets the count when book or mode/settings change and delays the refresh briefly after relocation. It does not replace the BOOX per-app refresh mode, nor does it run in LCD or light mode. See `apps/readest-app/src/app/reader/hooks/useEinkDarkRefresh.ts` and `src/services/constants.ts` (`f75b9906`, `23f8ae5d`).
+
+BOOX holds separate per-app E-Ink Center settings in `oec_service`. With the Palma lock held and the device connected, read them without changing them:
+
+```sh
+adb shell dumpsys oec_service | grep '^EACAppConfig:com.bilingify.readest'
+```
+
+The recorded `com.bilingify.readest` values are `updateMode=2`, `turbo=2`, full refresh by tap `20`, contrast `30`, `monoLevel=10` (light color filter), enhance **on**, high contrast **off**, B&W mode `0`, and vividness `65`. These values are a snapshot, not a verified best setting, and the numeric update mode should not be relabeled HD without checking the device UI. To open the per-app settings UI with Readest in front, use `adb shell am broadcast -a com.onyx.SHOW_EAC_SETTINGS_VIEW_REQUEST --es args_component com.bilingify.readest/.MainActivity`. The manual path is Quick Settings > E-Ink Center tile with Readest in front > Edit > Refresh / Display / Color / Others. Readest Dev is a separate app and needs separate tuning.
+
+A person must judge the refresh-mode and turbo tradeoff (latency versus ghosting), full-refresh interval and flicker, contrast, light color filter, enhance, high contrast, B&W and vividness, and the apparent depth of black on the actual panel. Android screencap captures the framebuffer before the e-ink display processing, so ghosting and panel-level effects cannot be approved from a screenshot. The `oec_service` read and the UI broadcast do not provide a supported method for writing per-app optimization values; adjust them in E-Ink Center, not with guessed service calls. This section updates the earlier read-only research below; its older statement that no broadcast exists refers to **setting values**, not opening the settings UI.
+
 ## 1. What the code already has, and whether it activates on BOOX
 
 E-ink detection is automatic. It does not need a setting flipped.
