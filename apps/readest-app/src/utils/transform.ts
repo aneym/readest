@@ -42,6 +42,20 @@ const decodeProgress = (value: unknown): [number, number] | undefined => {
     : undefined;
 };
 
+// Supabase dates are ISO strings; Homebase clocks may already be epoch ms.
+const clockMs = (value: unknown): number | undefined => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'string') {
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : undefined;
+  }
+  return undefined;
+};
+const rowClock = (row: object, snake: string, camel: string): number | undefined => {
+  const fields = row as Record<string, unknown>;
+  return clockMs(fields[snake]) ?? clockMs(fields[camel]);
+};
+
 export const transformBookConfigToDB = (bookConfig: unknown, userId: string): DBBookConfig => {
   const {
     bookHash,
@@ -79,7 +93,6 @@ export const transformBookConfigFromDB = (dbBookConfig: DBBookConfig): BookConfi
     rsvp_position,
     search_config,
     view_settings,
-    updated_at,
   } = dbBookConfig;
   // A Homebase config carries `hbFraction` (the reading fraction) because this
   // deployment has no page count to build `progress` from. It is rebuilt field
@@ -104,7 +117,7 @@ export const transformBookConfigFromDB = (dbBookConfig: DBBookConfig): BookConfi
     ...(rsvpPosition ? { rsvpPosition } : {}),
     ...(searchConfig ? { searchConfig } : {}),
     ...(viewSettings ? { viewSettings } : {}),
-    updatedAt: new Date(updated_at!).getTime(),
+    updatedAt: rowClock(dbBookConfig, 'updated_at', 'updatedAt') ?? Date.now(),
   } as BookConfig;
 };
 
@@ -177,12 +190,13 @@ export const transformBookFromDB = (dbBook: DBBook): Book => {
     source_title,
     metadata,
     metadata_updated_at,
-    created_at,
-    updated_at,
-    deleted_at,
     uploaded_at,
   } = dbBook;
 
+  const updatedAt = rowClock(dbBook, 'updated_at', 'updatedAt');
+  const createdAt = rowClock(dbBook, 'created_at', 'createdAt');
+  const deletedAt = rowClock(dbBook, 'deleted_at', 'deletedAt');
+  const coverImageUrl = (dbBook as DBBook & { coverImageUrl?: string | null }).coverImageUrl;
   const decodedMetadata = decodeObject(metadata);
   const book: Book = {
     hash: book_hash,
@@ -199,6 +213,7 @@ export const transformBookFromDB = (dbBook: DBBook): Book => {
       ? new Date(reading_status_updated_at).getTime()
       : undefined,
     coverHash: cover_hash ?? null,
+    ...(coverImageUrl !== undefined ? { coverImageUrl } : {}),
     coverUpdatedAt: cover_updated_at ? new Date(cover_updated_at).getTime() : null,
     sourceTitle: source_title,
     ...(decodedMetadata
@@ -211,9 +226,9 @@ export const transformBookFromDB = (dbBook: DBBook): Book => {
             metadataUpdatedAt: metadata_updated_at ? new Date(metadata_updated_at).getTime() : null,
           }
         : {}),
-    createdAt: new Date(created_at!).getTime(),
-    updatedAt: new Date(updated_at!).getTime(),
-    deletedAt: deleted_at ? new Date(deleted_at).getTime() : null,
+    createdAt: createdAt ?? updatedAt ?? Date.now(),
+    updatedAt: updatedAt ?? createdAt ?? Date.now(),
+    deletedAt: deletedAt ?? null,
     uploadedAt: uploaded_at ? new Date(uploaded_at).getTime() : null,
   };
   // Native cloud DBBook has no `url` column; a feed book carries its feed URL in
@@ -245,6 +260,10 @@ export const transformBookNoteToDB = (bookNote: unknown, userId: string): DBBook
     color,
     note,
     global,
+    hbKind,
+    hbAudioSha256,
+    hbAudioDurationMs,
+    hbTranscriptSource,
     createdAt,
     updatedAt,
     deletedAt,
@@ -265,6 +284,10 @@ export const transformBookNoteToDB = (bookNote: unknown, userId: string): DBBook
     color,
     note,
     global,
+    ...(hbKind !== undefined ? { hbKind } : {}),
+    ...(hbAudioSha256 !== undefined ? { hbAudioSha256 } : {}),
+    ...(hbAudioDurationMs !== undefined ? { hbAudioDurationMs } : {}),
+    ...(hbTranscriptSource !== undefined ? { hbTranscriptSource } : {}),
     created_at: new Date(createdAt ?? Date.now()).toISOString(),
     updated_at: new Date(updatedAt ?? Date.now()).toISOString(),
     // note that only null deleted_at is updated to the database, undefined is not
@@ -287,11 +310,14 @@ export const transformBookNoteFromDB = (dbBookNote: DBBookNote): BookNote => {
     color,
     note,
     global,
-    created_at,
-    updated_at,
-    deleted_at,
   } = dbBookNote;
 
+  const updatedAt = rowClock(dbBookNote, 'updated_at', 'updatedAt');
+  const createdAt = rowClock(dbBookNote, 'created_at', 'createdAt');
+  const deletedAt = rowClock(dbBookNote, 'deleted_at', 'deletedAt');
+  const { hbKind, hbAudioSha256, hbAudioDurationMs, hbTranscriptSource } =
+    dbBookNote as DBBookNote &
+      Pick<BookNote, 'hbKind' | 'hbAudioSha256' | 'hbAudioDurationMs' | 'hbTranscriptSource'>;
   return {
     bookHash: book_hash,
     metaHash: meta_hash,
@@ -306,8 +332,12 @@ export const transformBookNoteFromDB = (dbBookNote: DBBookNote): BookNote => {
     color: color as HighlightColor,
     note,
     global,
-    createdAt: new Date(created_at!).getTime(),
-    updatedAt: new Date(updated_at!).getTime(),
-    deletedAt: deleted_at ? new Date(deleted_at).getTime() : null,
+    ...(hbKind !== undefined ? { hbKind } : {}),
+    ...(hbAudioSha256 !== undefined ? { hbAudioSha256 } : {}),
+    ...(hbAudioDurationMs !== undefined ? { hbAudioDurationMs } : {}),
+    ...(hbTranscriptSource !== undefined ? { hbTranscriptSource } : {}),
+    createdAt: createdAt ?? updatedAt ?? Date.now(),
+    updatedAt: updatedAt ?? createdAt ?? Date.now(),
+    deletedAt: deletedAt ?? null,
   };
 };

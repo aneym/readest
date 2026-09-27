@@ -196,6 +196,10 @@ export interface BookNote {
    * bookmarks and excerpts, and for fixed-layout formats (e.g. PDF).
    */
   global?: boolean;
+  hbKind?: string;
+  hbAudioSha256?: string;
+  hbAudioDurationMs?: number;
+  hbTranscriptSource?: 'asr' | 'human';
 
   createdAt: number;
   updatedAt: number;

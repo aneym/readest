@@ -58,33 +58,48 @@ export const createHomebaseHttpAdapter = (
   const fetchImpl = deps.fetchImpl ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const syncUrl = `${config.baseUrl}${config.syncPath}`;
 
-  const request = async (url: string, init: RequestInit): Promise<Response> => {
+  const request = async <T>(
+    url: string,
+    init: RequestInit,
+    read: (res: Response) => Promise<T>,
+  ): Promise<T> => {
     const token = await deps.getToken();
     if (!token) throw new HomebaseSyncError('Not authenticated', 'AUTH_FAILED', 401, false);
 
-    // AbortController rather than a bare timeout: a hung Homebase must not pin
-    // the sync loop, and `SyncClient` already sets the same 15s budget.
+    // The same budget covers headers and the body, even if a fetch implementation
+    // does not reject its pending json() when the signal is aborted.
     const controller = new AbortController();
+    let onAbort: () => void = () => {};
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(new Error('aborted'));
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+    });
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
     try {
-      return await fetchImpl(url, {
-        ...init,
-        signal: controller.signal,
-        headers: {
-          ...init.headers,
-          Authorization: `Bearer ${token}`,
-          'X-Homebase-Client': config.clientId,
-          'X-Homebase-Schema': String(HOMEBASE_WIRE_VERSION),
-        },
-      });
+      return await Promise.race([
+        (async () => {
+          const res = await fetchImpl(url, {
+            ...init,
+            signal: controller.signal,
+            headers: {
+              ...init.headers,
+              Authorization: `Bearer ${token}`,
+              'X-Homebase-Client': config.clientId,
+              'X-Homebase-Schema': String(HOMEBASE_WIRE_VERSION),
+            },
+          });
+          return read(res);
+        })(),
+        aborted,
+      ]);
     } catch (err) {
-      // A thrown fetch is a transport failure (DNS, offline, abort) — always
-      // retryable, which is what keeps an offline push in the outbox rather
-      // than poisoning it.
+      if (err instanceof HomebaseSyncError) throw err;
+      // Transport failures (DNS, offline, abort or a stalled body) are retryable.
       const reason = err instanceof Error ? err.message : String(err);
       throw new HomebaseSyncError(`Homebase request failed: ${reason}`, 'NETWORK', undefined, true);
     } finally {
       clearTimeout(timer);
+      controller.signal.removeEventListener('abort', onAbort);
     }
   };
 
@@ -98,18 +113,18 @@ export const createHomebaseHttpAdapter = (
     endpointId: syncUrl,
 
     async capabilities(): Promise<HomebaseCapabilities | null> {
-      const res = await request(`${syncUrl}/capabilities`, { method: 'GET' });
-      // A server that predates the probe answers 404. That is a version signal,
-      // not a failure: fall back to the v1 assumption rather than breaking sync.
-      if (res.status === 404) return null;
-      await expectOk(res);
-      const body = (await res.json()) as Partial<HomebaseCapabilities>;
-      return {
-        channels: body.channels ?? HOMEBASE_CHANNELS,
-        storage: body.storage ?? false,
-        noteAudio: body.noteAudio ?? false,
-        schemaVersion: body.schemaVersion ?? HOMEBASE_WIRE_VERSION,
-      };
+      return request(`${syncUrl}/capabilities`, { method: 'GET' }, async (res) => {
+        // A server that predates the probe answers 404: fall back to v1.
+        if (res.status === 404) return null;
+        await expectOk(res);
+        const body = (await res.json()) as Partial<HomebaseCapabilities>;
+        return {
+          channels: body.channels ?? HOMEBASE_CHANNELS,
+          storage: body.storage ?? false,
+          noteAudio: body.noteAudio ?? false,
+          schemaVersion: body.schemaVersion ?? HOMEBASE_WIRE_VERSION,
+        };
+      });
     },
 
     async pull(query: HomebasePullQuery): Promise<HomebaseEnvelope> {
@@ -118,19 +133,25 @@ export const createHomebaseHttpAdapter = (
       if (query.bookHash) params.set('book', query.bookHash);
       if (query.metaHash) params.set('meta_hash', query.metaHash);
       if (query.limit && query.limit > 0) params.set('limit', String(query.limit));
-      const res = await request(`${syncUrl}?${params.toString()}`, { method: 'GET' });
-      await expectOk(res);
-      return (await res.json()) as HomebaseEnvelope;
+      return request(`${syncUrl}?${params.toString()}`, { method: 'GET' }, async (res) => {
+        await expectOk(res);
+        return (await res.json()) as HomebaseEnvelope;
+      });
     },
 
     async push(envelope: HomebaseEnvelope): Promise<HomebaseEnvelope> {
-      const res = await request(syncUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(envelope),
-      });
-      await expectOk(res);
-      return (await res.json()) as HomebaseEnvelope;
+      return request(
+        syncUrl,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(envelope),
+        },
+        async (res) => {
+          await expectOk(res);
+          return (await res.json()) as HomebaseEnvelope;
+        },
+      );
     },
   };
 };

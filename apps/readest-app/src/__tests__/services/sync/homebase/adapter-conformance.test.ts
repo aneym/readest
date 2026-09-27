@@ -129,6 +129,26 @@ describe('HTTP adapter — wire details', () => {
     }
   });
 
+  test('a response with stalled JSON aborts and surfaces as retryable NETWORK', async () => {
+    let signal: AbortSignal | undefined;
+    const adapter = createHomebaseHttpAdapter(
+      { ...CONFIG, timeoutMs: 10 },
+      {
+        getToken: async () => 't',
+        fetchImpl: (async (_url: string, init: RequestInit) => {
+          signal = init.signal ?? undefined;
+          return { ok: true, json: () => new Promise(() => {}) } as Response;
+        }) as typeof fetch,
+      },
+    );
+    const outcome = await Promise.race([
+      adapter.pull({ since: 0 }).catch((error: unknown) => error),
+      new Promise((resolve) => setTimeout(() => resolve('body hung'), 250)),
+    ]);
+    expect(outcome).toMatchObject({ code: 'NETWORK', retryable: true });
+    expect(signal?.aborted).toBe(true);
+  });
+
   test('a timeout aborts and surfaces as retryable NETWORK', async () => {
     const adapter = createHomebaseHttpAdapter(
       { ...CONFIG, timeoutMs: 5 },
