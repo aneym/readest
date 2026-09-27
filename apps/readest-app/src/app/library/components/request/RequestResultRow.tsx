@@ -26,8 +26,14 @@ export default function RequestResultRow({
         <p className='font-semibold'>{result.title}</p>
         <p className='text-base-content/70 text-sm'>{result.author}</p>
         <p className='text-base-content/70 text-xs'>
-          {_('Ebook')}: {_(halfLabel(result.ebook))} · {_('Audiobook')}:{' '}
-          {_(halfLabel(result.audiobook))}
+          {_('Ebook')}:{' '}
+          {result.ebook.state === 'failed'
+            ? _('Failed: {{detail}}', { detail: result.ebook.detail ?? '' })
+            : _(halfLabel(result.ebook))}{' '}
+          · {_('Audiobook')}:{' '}
+          {result.audiobook.state === 'failed'
+            ? _('Failed: {{detail}}', { detail: result.audiobook.detail ?? '' })
+            : _(halfLabel(result.audiobook))}
         </p>
         {error && <p role='alert'>{_("Couldn't send. Try again.")}</p>}
         {requested ? (

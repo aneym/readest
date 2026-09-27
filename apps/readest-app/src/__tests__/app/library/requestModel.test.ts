@@ -40,22 +40,39 @@ const record = (state: PairStateName): RequestRecord => ({
 
 describe('request action matrix', () => {
   test.each([
-    ['missing', 'missing', 'none', 'Get both', 'pair'],
-    ['missing', 'have', 'none', 'Get ebook', 'ebook'],
-    ['have', 'missing', 'none', 'Get audiobook', 'audiobook'],
-    ['failed', 'failed', 'none', 'Get both', 'pair'],
-    ['have', 'have', 'candidate', 'Confirm match', undefined],
-    ['have', 'have', 'ready-to-swap', 'Use narrated edition', undefined],
-    ['have', 'have', 'failed', 'Retry alignment', undefined],
-    ['have', 'have', 'queued', undefined, undefined],
-    ['have', 'have', 'aligning', undefined, undefined],
-    ['have', 'have', 'aligned', undefined, undefined],
-    ['have', 'have', 'none', undefined, undefined],
-  ] as const)('%s ebook / %s audio / %s pair exposes %s', (ebook, audio, pair, label, want) => {
-    const actions = actionsFor(result(ebook, audio, pair));
-    expect(actions.map((action) => [action.label, action.want])).toEqual(
-      label ? [[label, want]] : [],
-    );
+    [
+      'missing',
+      'missing',
+      'none',
+      [
+        ['Get both', 'pair'],
+        ['Ebook only', 'ebook'],
+        ['Audio only', 'audiobook'],
+      ],
+    ],
+    ['missing', 'have', 'none', [['Get ebook', 'ebook']]],
+    ['have', 'missing', 'none', [['Get audiobook', 'audiobook']]],
+    [
+      'failed',
+      'failed',
+      'none',
+      [
+        ['Get both', 'pair'],
+        ['Retry ebook', 'ebook'],
+        ['Retry audiobook', 'audiobook'],
+      ],
+    ],
+    ['have', 'have', 'candidate', [['Confirm match', undefined]]],
+    ['have', 'have', 'ready-to-swap', [['Use narrated edition', undefined]]],
+    ['have', 'have', 'failed', [['Retry alignment', undefined]]],
+    ['have', 'have', 'queued', []],
+    ['have', 'have', 'aligning', []],
+    ['have', 'have', 'aligned', []],
+    ['have', 'have', 'none', []],
+  ] as const)('%s ebook / %s audio / %s pair action choices', (ebook, audio, pair, expected) => {
+    expect(
+      actionsFor(result(ebook, audio, pair)).map((action) => [action.label, action.want]),
+    ).toEqual(expected);
   });
 
   test('half labels narrate every acquisition state', () => {
@@ -63,30 +80,26 @@ describe('request action matrix', () => {
       (['have', 'missing', 'requested', 'acquiring', 'failed'] as const).map((state) =>
         halfLabel({ state }),
       ),
-    ).toEqual(['Available', 'Not available', 'Requested', 'Getting it', 'Couldn’t get it']);
+    ).toEqual(['In library', 'Not in library', 'Requested', 'Downloading', 'Failed:']);
   });
 });
 
 describe('pair status narration', () => {
   test.each([
     ['none', 'Requested'],
-    ['candidate', 'Confirm match'],
-    ['queued', 'Queued for alignment'],
+    ['candidate', 'Check the match'],
+    ['queued', 'Waiting to align'],
     ['aligning', 'Aligning 43%'],
-    ['ready-to-swap', 'Ready to use narrated edition'],
-    ['aligned', 'Narrated edition ready'],
+    ['ready-to-swap', 'Narration ready'],
+    ['aligned', 'Narrated'],
     ['failed', 'Alignment failed'],
   ] as const)('%s reads %s', (state, expected) => {
     expect(statusLine(record(state), { isBwEink: false })).toBe(expected);
   });
   test('B/W e-ink floors alignment to five-percent steps, color retains integer', () => {
     expect(statusLine(record('aligning'), { isBwEink: true })).toBe('Aligning 40%');
-    expect(chipFor({ state: 'aligning', progress: 0.43 }, { isBwEink: true })?.text).toBe(
-      'Aligning 40%',
-    );
-    expect(chipFor({ state: 'aligning', progress: 0.43 }, { isBwEink: false })?.text).toBe(
-      'Aligning 43%',
-    );
+    expect(chipFor({ state: 'aligning', progress: 0.43 }, { isBwEink: true })?.text).toBe('40%');
+    expect(chipFor({ state: 'aligning', progress: 0.43 }, { isBwEink: false })?.text).toBe('43%');
   });
   test('none and aligned never render shelf chips', () => {
     expect(chipFor(undefined, { isBwEink: false })).toBeNull();

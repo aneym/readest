@@ -18,6 +18,7 @@ export interface ImportMenuProps {
   onImportBookFromNovelUrl?: () => void;
   onOpenCatalogManager: () => void;
   onOpenFeeds: () => void;
+  searchQuery?: string;
 }
 
 const ImportMenu: React.FC<ImportMenuProps> = ({
@@ -29,6 +30,7 @@ const ImportMenu: React.FC<ImportMenuProps> = ({
   onImportBookFromNovelUrl,
   onOpenCatalogManager,
   onOpenFeeds,
+  searchQuery,
 }) => {
   const _ = useTranslation();
   const { appService } = useEnv();
@@ -77,7 +79,7 @@ const ImportMenu: React.FC<ImportMenuProps> = ({
           label={_('Get a book…')}
           Icon={<LuLibrary className='h-5 w-5' />}
           onClick={() => {
-            openSheet('find');
+            openSheet('find', searchQuery);
             setIsDropdownOpen?.(false);
           }}
         />

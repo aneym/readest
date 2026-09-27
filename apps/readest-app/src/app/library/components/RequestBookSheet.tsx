@@ -17,6 +17,7 @@ export default function RequestBookSheet() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [requests, setRequests] = useState<RequestRecord[]>([]);
   const [searchState, setSearchState] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle');
+  const [retrySearch, setRetrySearch] = useState(0);
   const [requestState, setRequestState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [connected, setConnected] = useState(
     () => typeof navigator === 'undefined' || navigator.onLine,
@@ -68,10 +69,10 @@ export default function RequestBookSheet() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [sheet.open, sheet.tab, sheet.query, online]);
+  }, [sheet.open, sheet.tab, sheet.query, online, retrySearch]);
 
   useEffect(() => {
-    if (!sheet.open || sheet.tab !== 'requests' || !online || !client.current) return;
+    if (!sheet.open || !online || !client.current) return;
     let cancelled = false;
     const controller = new AbortController();
     const refresh = () => {
@@ -81,7 +82,11 @@ export default function RequestBookSheet() {
           if (cancelled) return;
           setRequests(rows);
           hasInFlight.current = rows.some(
-            (row) => row.pair.state !== 'aligned' && row.pair.state !== 'failed',
+            (row) =>
+              row.pair.state === 'queued' ||
+              row.pair.state === 'aligning' ||
+              (row.want !== 'audiobook' && ['requested', 'acquiring'].includes(row.ebook.state)) ||
+              (row.want !== 'ebook' && ['requested', 'acquiring'].includes(row.audiobook.state)),
           );
           setRequestState('ready');
         })
@@ -93,7 +98,7 @@ export default function RequestBookSheet() {
     refresh();
     // Only keep polling while some request still needs work or a decision.
     const timer = setInterval(() => {
-      if (hasInFlight.current) refresh();
+      if (sheet.tab === 'requests' && hasInFlight.current) refresh();
     }, 10_000);
     return () => {
       cancelled = true;
@@ -201,7 +206,11 @@ export default function RequestBookSheet() {
           </button>
         </div>
         {!online || !client.current ? (
-          <p role='status'>{_('Connect to Homebase to get a book.')}</p>
+          <p role='status'>
+            {online
+              ? _('Connect Homebase in Settings to request books.')
+              : _("You're offline. Requests need a connection.")}
+          </p>
         ) : sheet.tab === 'find' ? (
           <div className='min-h-0 overflow-y-auto'>
             <label htmlFor='request-book-query' className='sr-only'>
@@ -225,13 +234,20 @@ export default function RequestBookSheet() {
             )}
             {searchState === 'empty' && (
               <p role='status' className='py-4'>
-                {_('No books found. Try another title or author.')}
+                {_('No matches for "{{q}}". Try the author\'s name.', { q: sheet.query.trim() })}
               </p>
             )}
             {searchState === 'error' && (
-              <p role='alert' className='py-4'>
-                {_('Couldn’t search. Try again.')}
-              </p>
+              <div className='py-4'>
+                <p role='alert'>{_("Couldn't reach Homebase.")}</p>
+                <button
+                  type='button'
+                  className='btn btn-sm btn-outline'
+                  onClick={() => setRetrySearch((value) => value + 1)}
+                >
+                  {_('Try again')}
+                </button>
+              </div>
             )}
             <ul>
               {results.map((result) => (
@@ -253,7 +269,7 @@ export default function RequestBookSheet() {
               <p role='alert'>{_('Couldn’t load requests. Try again.')}</p>
             )}
             {requestState === 'ready' && requests.length === 0 && (
-              <p role='status'>{_('No requests yet.')}</p>
+              <p role='status'>{_('Nothing requested yet.')}</p>
             )}
             <ul>
               {requests.map((record) => (

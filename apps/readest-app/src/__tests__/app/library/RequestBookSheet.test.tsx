@@ -14,7 +14,13 @@ const api = vi.hoisted(() => ({
 vi.mock('@/services/homebase/immersion/client', () => ({
   createImmersionClient: () => api as unknown as ImmersionClient,
 }));
-vi.mock('@/hooks/useTranslation', () => ({ useTranslation: () => (key: string) => key }));
+vi.mock('@/hooks/useTranslation', () => ({
+  useTranslation: () => (key: string, values?: Record<string, string>) =>
+    Object.entries(values ?? {}).reduce(
+      (line, [name, value]) => line.replace(`{{${name}}}`, value),
+      key,
+    ),
+}));
 
 import RequestBookSheet from '@/app/library/components/RequestBookSheet';
 import { useImmersionStore } from '@/store/immersionStore';
@@ -71,13 +77,13 @@ describe('Get a book sheet', () => {
     api.search.mockResolvedValueOnce([]);
     open();
     await waitFor(() =>
-      expect(screen.getByText('No books found. Try another title or author.')).toBeTruthy(),
+      expect(screen.getByText('No matches for "One". Try the author\'s name.')).toBeTruthy(),
     );
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'x' } });
     expect(screen.getByText('Enter at least 2 characters to search.')).toBeTruthy();
     api.search.mockRejectedValueOnce(new Error('offline'));
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Other' } });
-    await waitFor(() => expect(screen.getByText('Couldn’t search. Try again.')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Couldn't reach Homebase.")).toBeTruthy());
   });
   test('Get both sends pair and acknowledges request, failure stays inline', async () => {
     open();

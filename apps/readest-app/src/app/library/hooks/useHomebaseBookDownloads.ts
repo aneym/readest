@@ -58,9 +58,18 @@ export const useHomebaseBookDownloads = () => {
   const { appService, envConfig } = useEnv();
   const library = useLibraryStore((s) => s.library);
   const libraryLoaded = useLibraryStore((s) => s.libraryLoaded);
-  const transfers = useTransferStore((s) => s.transfers);
+  // A primitive selector only changes on book download completion, not on progress ticks.
+  const completedBookHashes = useTransferStore((s) =>
+    Object.values(s.transfers)
+      .filter((t) => t.kind === 'book' && t.type === 'download' && t.status === 'completed')
+      .map((t) => t.bookHash)
+      .sort()
+      .join('|'),
+  );
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkedNarration = useRef(new Set<string>());
+  const narrationQueue = useRef<Book[]>([]);
+  const narrationRunning = useRef(false);
 
   const enabled = !!user && !!appService && isHomebaseSyncEnabled();
 
@@ -159,47 +168,52 @@ export const useHomebaseBookDownloads = () => {
   }, [enabled]);
 
   // Transfer completion stamps downloadedAt only after integrity verification.
-  // Inspect each EPUB once; a parse failure must not affect the completed transfer.
+  // Process completed EPUBs serially, including outstanding completed rows on mount.
+  // A successful negative result is persisted as false to avoid re-parsing on remount.
   useEffect(() => {
-    if (!enabled || !appService || !envConfig) return;
+    if (!enabled || !appService || !envConfig || !libraryLoaded) return;
+    const completed = new Set(completedBookHashes ? completedBookHashes.split('|') : []);
     for (const book of library) {
       if (
         book.format !== 'EPUB' ||
         !book.downloadedAt ||
-        book.hasNarration ||
+        book.hasNarration !== undefined ||
+        !completed.has(book.hash) ||
         checkedNarration.current.has(book.hash)
       )
         continue;
-      const transfer = Object.values(transfers).find(
-        (item) =>
-          item.bookHash === book.hash && item.type === 'download' && item.status === 'completed',
-      );
-      if (!transfer) continue;
       checkedNarration.current.add(book.hash);
-      void (async () => {
-        let loaded: Awaited<ReturnType<DocumentLoader['open']>>['book'] | undefined;
-        try {
-          const { file } = await appService.loadBookContent(book);
-          ({ book: loaded } = await new DocumentLoader(file).open());
-          if (hasMediaOverlays(loaded)) {
-            const current = useLibraryStore.getState().getBookByHash(book.hash);
-            if (current)
-              await useLibraryStore
-                .getState()
-                .updateBook(envConfig, { ...current, hasNarration: true });
-          }
-        } catch {
-          /* Narration detection is best effort. */
-        } finally {
+      narrationQueue.current.push(book);
+    }
+    if (narrationRunning.current || narrationQueue.current.length === 0) return;
+    narrationRunning.current = true;
+    void (async () => {
+      try {
+        while (narrationQueue.current.length) {
+          const book = narrationQueue.current.shift()!;
+          let loaded: Awaited<ReturnType<DocumentLoader['open']>>['book'] | undefined;
           try {
-            await loaded?.destroy?.();
+            const { file } = await appService.loadBookContent(book);
+            ({ book: loaded } = await new DocumentLoader(file).open());
+            const hasNarration = hasMediaOverlays(loaded);
+            const current = useLibraryStore.getState().getBookByHash(book.hash);
+            if (current && current.hasNarration === undefined)
+              await useLibraryStore.getState().updateBook(envConfig, { ...current, hasNarration });
           } catch {
-            /* Cleanup is best effort too. */
+            /* A failed detection leaves the flag undefined, skipped this session. */
+          } finally {
+            try {
+              await loaded?.destroy?.();
+            } catch {
+              /* Best effort cleanup. */
+            }
           }
         }
-      })();
-    }
-  }, [enabled, appService, envConfig, library, transfers]);
+      } finally {
+        narrationRunning.current = false;
+      }
+    })();
+  }, [enabled, appService, envConfig, libraryLoaded, library, completedBookHashes]);
 
   return { reconcile };
 };

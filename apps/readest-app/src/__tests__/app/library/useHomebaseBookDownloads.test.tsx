@@ -111,7 +111,7 @@ describe('useHomebaseBookDownloads', () => {
     expect(immersionStatus).toHaveBeenCalledTimes(2);
   });
 
-  test('completed EPUB download persists narration once, without blocking downloads on failed detection', async () => {
+  test('completed EPUB download persists narration once, including a negative result', async () => {
     const downloaded = row({ downloadedAt: 42 });
     useLibraryStore.getState().setLibrary([downloaded]);
     overlays.mockReturnValue(true);
@@ -127,6 +127,26 @@ describe('useHomebaseBookDownloads', () => {
     expect(saveLibraryBooks).toHaveBeenCalled();
     expect(loadBook).toHaveBeenCalledTimes(1);
   });
+  test('failed narration parse leaves completed download intact and skips reparse this session', async () => {
+    const downloaded = row({ downloadedAt: 42 });
+    useLibraryStore.getState().setLibrary([downloaded]);
+    loadBook.mockRejectedValue(new Error('cannot parse'));
+    const transfer = useTransferStore.getState().addTransfer('h1', 'Canonical', 'download');
+    useTransferStore.getState().setTransferStatus(transfer, 'completed');
+    renderHook(() => useHomebaseBookDownloads());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(useLibraryStore.getState().getBookByHash('h1')?.downloadedAt).toBe(42);
+    expect(useLibraryStore.getState().getBookByHash('h1')?.hasNarration).toBeUndefined();
+    useTransferStore.getState().updateTransferProgress(transfer, 99, 100, 100, 0);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(loadBook).toHaveBeenCalledTimes(1);
+  });
+
   test('queues every adopted book that has no bytes, newest adoption first', async () => {
     useLibraryStore.setState({
       library: [

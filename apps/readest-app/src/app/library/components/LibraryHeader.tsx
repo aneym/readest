@@ -20,8 +20,6 @@ import WindowButtons from '@/components/WindowButtons';
 import Dropdown from '@/components/Dropdown';
 import SettingsMenu from './SettingsMenu';
 import ImportMenu from './ImportMenu';
-import { useImmersionStore } from '@/store/immersionStore';
-import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
 import LibrarySearchOptionsMenu from './LibrarySearchOptionsMenu';
 import ViewMenu from './ViewMenu';
 
@@ -68,7 +66,6 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
 }) => {
   const _ = useTranslation();
   const { appService } = useEnv();
-  const openRequestSheet = useImmersionStore((state) => state.openSheet);
   const { systemUIVisible, statusBarHeight } = useThemeStore();
   const { currentBookshelf } = useLibraryStore();
 
@@ -200,15 +197,6 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
             {searchTarget !== 'text' && (
               <>
                 <span className='bg-base-content/50 mx-2 h-4 w-[0.5px]'></span>
-                {isHomebaseSyncEnabled() && (
-                  <button
-                    type='button'
-                    className='text-base-content/70 text-xs'
-                    onClick={() => openRequestSheet('find', searchQuery)}
-                  >
-                    {_('Get a book…')}
-                  </button>
-                )}
                 <Dropdown
                   label={_('Import Books')}
                   className={clsx(
@@ -218,6 +206,7 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
                   toggleButton={<PiPlus role='none' className='m-0.5 h-5 w-5' />}
                 >
                   <ImportMenu
+                    searchQuery={searchQuery}
                     onImportBooksFromFiles={onImportBooksFromFiles}
                     onImportBooksFromDirectory={onImportBooksFromDirectory}
                     onImportBookFromUrl={onImportBookFromUrl}

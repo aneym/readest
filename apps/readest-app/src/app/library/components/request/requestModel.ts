@@ -9,15 +9,15 @@ import type {
 export const halfLabel = (half: HalfState): string => {
   switch (half.state) {
     case 'have':
-      return 'Available';
+      return 'In library';
     case 'missing':
-      return 'Not available';
+      return 'Not in library';
     case 'requested':
       return 'Requested';
     case 'acquiring':
-      return 'Getting it';
+      return 'Downloading';
     case 'failed':
-      return 'Couldn’t get it';
+      return `Failed: ${half.detail ?? ''}`.trimEnd();
   }
 };
 
@@ -39,9 +39,21 @@ export const actionsFor = (result: SearchResult): ResultAction[] => {
   if (pair.state === 'queued' || pair.state === 'aligning' || pair.state === 'aligned') return [];
   const needEbook = ebook.state === 'missing' || ebook.state === 'failed';
   const needAudio = audiobook.state === 'missing' || audiobook.state === 'failed';
-  if (needEbook && needAudio) return [{ label: 'Get both', want: 'pair' }];
-  if (needEbook) return [{ label: 'Get ebook', want: 'ebook' }];
-  if (needAudio) return [{ label: 'Get audiobook', want: 'audiobook' }];
+  if (needEbook && needAudio)
+    return [
+      { label: 'Get both', want: 'pair' },
+      { label: ebook.state === 'failed' ? 'Retry ebook' : 'Ebook only', want: 'ebook' },
+      { label: audiobook.state === 'failed' ? 'Retry audiobook' : 'Audio only', want: 'audiobook' },
+    ];
+  if (needEbook)
+    return [{ label: ebook.state === 'failed' ? 'Retry ebook' : 'Get ebook', want: 'ebook' }];
+  if (needAudio)
+    return [
+      {
+        label: audiobook.state === 'failed' ? 'Retry audiobook' : 'Get audiobook',
+        want: 'audiobook',
+      },
+    ];
   return [];
 };
 
@@ -60,39 +72,54 @@ export const chipFor = (
     case 'aligned':
       return null;
     case 'candidate':
-      return { text: 'Confirm match', needsAction: true };
+      return { text: 'Check', needsAction: true };
     case 'queued':
       return { text: 'Queued', needsAction: false };
     case 'aligning':
-      return { text: `Aligning ${percent(pair.progress, isBwEink)}%`, needsAction: false };
+      return { text: `${percent(pair.progress, isBwEink)}%`, needsAction: false };
     case 'ready-to-swap':
-      return { text: 'Use narrated edition', needsAction: true };
+      return { text: 'Ready', needsAction: true };
     case 'failed':
-      return { text: 'Alignment failed', needsAction: true };
+      return { text: 'Failed', needsAction: true };
   }
 };
 
 export const statusLine = (record: RequestRecord, { isBwEink }: { isBwEink: boolean }): string => {
   switch (record.pair.state) {
     case 'candidate':
-      return 'Confirm match';
+      return 'Check the match';
     case 'queued':
-      return 'Queued for alignment';
+      return 'Waiting to align';
     case 'aligning':
       return `Aligning ${percent(record.pair.progress, isBwEink)}%`;
     case 'ready-to-swap':
-      return 'Ready to use narrated edition';
+      return 'Narration ready';
     case 'aligned':
-      return 'Narrated edition ready';
+      return 'Narrated';
     case 'failed':
       return 'Alignment failed';
     case 'none':
       if (record.ebook.state === 'acquiring' || record.audiobook.state === 'acquiring')
-        return 'Getting your book';
-      if (record.ebook.state === 'failed' || record.audiobook.state === 'failed')
-        return 'Couldn’t get your book';
-      if (record.ebook.state === 'have' && record.audiobook.state === 'have')
-        return 'Both editions available';
+        return 'Downloading';
+      if (record.ebook.state === 'failed' || record.audiobook.state === 'failed') return 'Failed';
       return 'Requested';
+  }
+};
+
+export const listLine = (pair: PairState, { isBwEink }: { isBwEink: boolean }): string => {
+  switch (pair.state) {
+    case 'none':
+    case 'aligned':
+      return '';
+    case 'candidate':
+      return 'Narration: check the match';
+    case 'queued':
+      return 'Narration: waiting to align';
+    case 'aligning':
+      return `Narration: aligning ${percent(pair.progress, isBwEink)}%`;
+    case 'ready-to-swap':
+      return 'Narration: ready';
+    case 'failed':
+      return 'Narration: alignment failed';
   }
 };

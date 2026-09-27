@@ -49,11 +49,11 @@ afterEach(cleanup);
 
 describe('shelf pair chips', () => {
   test.each([
-    ['candidate', 'Confirm match', true],
+    ['candidate', 'Check', true],
     ['queued', 'Queued', false],
-    ['aligning', 'Aligning 40%', false],
-    ['ready-to-swap', 'Use narrated edition', true],
-    ['failed', 'Alignment failed', true],
+    ['aligning', '40%', false],
+    ['ready-to-swap', 'Ready', true],
+    ['failed', 'Failed', true],
   ] as const)('%s exposes %s with action inversion %s', (state, label, needsAction) => {
     show({ state, progress: 0.43 });
     const chip = screen.getByRole('button', { name: label });
@@ -68,12 +68,12 @@ describe('shelf pair chips', () => {
     show({ state });
     expect(
       screen.queryByRole('button', {
-        name: /Confirm match|Queued|Aligning|Use narrated edition|Alignment failed/,
+        name: /Check|Queued|40%|Ready|Failed/,
       }),
     ).toBeNull();
   });
   test('list mode announces the pair state as a text line', () => {
     show({ state: 'queued' }, 'list');
-    expect(screen.getByText('Queued')).toBeTruthy();
+    expect(screen.getByText('Narration: waiting to align')).toBeTruthy();
   });
 });
