@@ -37,7 +37,7 @@ import {
 } from './persistence';
 import { HomebaseSyncClient, type RecordSyncClient } from './recordSyncClient';
 import { recordDiagnostic } from './diagnostics';
-import { reportSyncError, useHomebaseSyncStatus } from './syncStatus';
+import { reportOutboxQueue, reportSyncError } from './syncStatus';
 
 export interface ResolveRecordSyncClientOptions {
   /** Persistent outbox store. Defaults to in-memory, which loses on restart. */
@@ -65,15 +65,7 @@ export const resolveRecordSyncClient = (
   });
   const storage = options.outboxStore ?? createPersistentOutboxStore();
   const updateQueue = (entries: Awaited<ReturnType<OutboxStore['read']>>) => {
-    useHomebaseSyncStatus.setState({
-      pending: entries.filter((e) => !e.poisoned).length,
-      retrying: entries.filter(
-        (e) => !e.poisoned && e.attempts > 0 && e.lastErrorCode !== 'AUTH_FAILED',
-      ).length,
-      authPaused: entries.filter((e) => !e.poisoned && e.lastErrorCode === 'AUTH_FAILED').length,
-      blocked:
-        entries.filter((e) => e.poisoned).length + useHomebaseSyncStatus.getState().rejectedCount,
-    });
+    reportOutboxQueue(entries);
     return entries;
   };
   const store: OutboxStore = {

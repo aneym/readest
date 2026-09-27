@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { HomebaseSyncError } from './adapter';
+import { recordRejectionKey, rejectionKey, type OutboxEntry } from './outbox';
 
 const SUCCESS_KEY = 'readest-homebase-last-successful-sync';
 export const PRIVATE_SERVER_UNAVAILABLE =
@@ -30,6 +31,9 @@ export const useHomebaseSyncStatus = create<{
   retrying: number;
   authPaused: number;
   blocked: number;
+  /** Rejection keys of poisoned outbox rows, so a row that is both poisoned
+   * and in `rejectedRows` counts once in `blocked`. */
+  poisonedKeys: string[];
   rejectedCount: number;
   rejectedRows: Record<string, string>;
   rejectedReasons: string[];
@@ -41,6 +45,7 @@ export const useHomebaseSyncStatus = create<{
   retrying: 0,
   authPaused: 0,
   blocked: 0,
+  poisonedKeys: [],
   rejectedCount: 0,
   rejectedRows: {},
   rejectedReasons: [],
@@ -48,10 +53,25 @@ export const useHomebaseSyncStatus = create<{
   error: null,
 }));
 
-const rejectionKey = (family: string, id: string): string => {
-  const canonical = { books: 'book', configs: 'config', notes: 'note' }[family] ?? family;
-  return `${canonical}/${id}`;
-};
+const blockedCount = (poisonedKeys: string[], rejectedRows: Record<string, string>): number =>
+  new Set([...poisonedKeys, ...Object.keys(rejectedRows)]).size;
+
+/** Publish the durable queue's counts. Every outbox read and write lands here. */
+export const reportOutboxQueue = (entries: OutboxEntry[]) =>
+  useHomebaseSyncStatus.setState((s) => {
+    const poisonedKeys = entries
+      .filter((e) => e.poisoned)
+      .map((e) => recordRejectionKey(e.channel, e.record));
+    return {
+      pending: entries.filter((e) => !e.poisoned).length,
+      retrying: entries.filter(
+        (e) => !e.poisoned && e.attempts > 0 && e.lastErrorCode !== 'AUTH_FAILED',
+      ).length,
+      authPaused: entries.filter((e) => !e.poisoned && e.lastErrorCode === 'AUTH_FAILED').length,
+      poisonedKeys,
+      blocked: blockedCount(poisonedKeys, s.rejectedRows),
+    };
+  });
 
 export const reportPushAck = (
   sent: { family: string; id: string }[],
@@ -69,7 +89,7 @@ export const reportPushAck = (
     return {
       rejectedRows,
       rejectedCount,
-      blocked: s.blocked - s.rejectedCount + rejectedCount,
+      blocked: blockedCount(s.poisonedKeys, rejectedRows),
       rejectedReasons: Object.entries(rejectedRows)
         .slice(-5)
         .map(([key, reason]) => `${key}: ${reason}`),

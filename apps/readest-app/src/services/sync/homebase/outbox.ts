@@ -68,10 +68,37 @@ export const outboxKey = (channel: HomebaseChannel, rec: HomebaseRecord): string
   return `${channel}:${rec.book_hash}`;
 };
 
+/** Homebase names rejected rows `config/<book hash>` or `note/<id>`; channel
+ * names map onto those families so both spellings meet on one key. */
+export const rejectionKey = (family: string, id: string): string => {
+  const canonical = { books: 'book', configs: 'config', notes: 'note' }[family] ?? family;
+  return `${canonical}/${id}`;
+};
+
+/** The rejection key the server would report for a queued record. Configs are
+ * keyed by book hash; the wire backfills `id` from it for the server. */
+export const recordRejectionKey = (channel: HomebaseChannel, rec: HomebaseRecord): string => {
+  const row = rec as { book_hash?: string; bookHash?: string; id?: string };
+  return rejectionKey(
+    channel,
+    channel === 'configs'
+      ? (row.book_hash ?? row.bookHash ?? row.id ?? '')
+      : (row.id ?? row.book_hash ?? ''),
+  );
+};
+
+type PushRejection = { family: string; id: string; reason: string };
+const rejectionsOf = (response: unknown): PushRejection[] => {
+  const rows = (response as { rejected?: unknown } | null | undefined)?.rejected;
+  return Array.isArray(rows) ? (rows as PushRejection[]) : [];
+};
+
 export interface SyncOutbox {
   enqueue(channel: HomebaseChannel, records: HomebaseRecord[]): Promise<void>;
   /** Enqueue a whole push payload — the shape `pushChanges` receives. */
   enqueueEnvelope(envelope: HomebaseEnvelope, failedWith?: HomebaseSyncError): Promise<void>;
+  /** `push` may resolve with a response carrying `rejected` rows (an HTTP 200
+   * that declined some records); those stay queued as poisoned, not acked. */
   flush(push: (envelope: HomebaseEnvelope) => Promise<unknown>): Promise<FlushResult>;
   pending(): Promise<OutboxEntry[]>;
   /** Drop poisoned entries once the caller has reported them. */
@@ -173,15 +200,36 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
             (target[entry.channel] ??= []).push(entry.record);
           }
           try {
-            await push(envelope);
+            const response = await push(envelope);
+            const rejected = new Map(
+              rejectionsOf(response).map((row) => [rejectionKey(row.family, row.id), row.reason]),
+            );
+            const rejectedInBatch = batch.filter((sent) =>
+              rejected.has(recordRejectionKey(sent.channel, sent.record)),
+            ).length;
             // Delete only the exact revision acknowledged; a newer edit stays.
+            // A row the server declined inside a 200 is not acknowledged: it
+            // stays durable as poisoned so its blocked status survives restart.
             await transaction(async () => {
               const live = await store.read();
               await store.write(
-                live.filter((entry) => !batch.some((sent) => sameRevision(entry, sent))),
+                live.flatMap((entry) => {
+                  if (!batch.some((sent) => sameRevision(entry, sent))) return [entry];
+                  const reason = rejected.get(recordRejectionKey(entry.channel, entry.record));
+                  if (reason === undefined) return [];
+                  return [
+                    {
+                      ...entry,
+                      attempts: entry.attempts + 1,
+                      lastError: reason,
+                      lastErrorCode: 'REJECTED',
+                      poisoned: true,
+                    },
+                  ];
+                }),
               );
             });
-            pushed += batch.length;
+            pushed += batch.length - rejectedInBatch;
           } catch (err) {
             stoppedBy =
               err instanceof HomebaseSyncError
