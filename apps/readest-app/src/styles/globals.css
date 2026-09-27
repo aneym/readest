@@ -527,6 +527,12 @@ html[data-eink='true'][data-theme$='-dark'] {
   --n: 0% 0 0;
   --bc: 100% 0 0;
   --nc: 100% 0 0;
+  --fallback-b1: #000;
+  --fallback-b2: #000;
+  --fallback-b3: #000;
+  --fallback-n: #000;
+  --fallback-bc: #fff;
+  --fallback-nc: #fff;
 }
 
 html[data-eink='true'][data-theme$='-dark']
@@ -535,7 +541,7 @@ html[data-eink='true'][data-theme$='-dark']
     [role='dialog'],
     .dropdown-content,
     .menu-container,
-    .menu,
+    .menu:not(.dropdown-content .menu),
     .sidebar-container,
     .notebook-container,
     .input,
@@ -556,6 +562,25 @@ html[data-eink='true'][data-theme$='-dark']
   ) {
   background-color: oklch(var(--bc)) !important;
   color: oklch(var(--b1)) !important;
+}
+
+/* The slider's dark base tiers all collapse to black: preserve its geometry. */
+html[data-eink='true'][data-theme$='-dark'] .slider-track {
+  border: 1px solid oklch(var(--bc));
+}
+html[data-eink='true'][data-theme$='-dark'] .slider-fill {
+  background-color: oklch(var(--bc));
+}
+html[data-eink='true'][data-theme$='-dark'] .slider-thumb {
+  border: 1px solid oklch(var(--bc));
+}
+
+/* Solid base-300 marks a selected item; keep it distinct when every base tier
+   is black. Exact class tokens exclude hover:/focus: variants at rest. */
+html[data-eink='true'][data-theme$='-dark']
+:is([class~='bg-base-300'], [class^='bg-base-300/'], [class*=' bg-base-300/']) {
+  outline: 1px solid oklch(var(--bc));
+  outline-offset: -1px;
 }
 
 [data-eink='true'] [class*='shadow-'] {

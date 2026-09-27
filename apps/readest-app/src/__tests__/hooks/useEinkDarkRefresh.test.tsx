@@ -10,13 +10,13 @@ const device = vi.hoisted(() => ({ isAndroidApp: true }));
 vi.mock('@/context/EnvContext', () => ({ useEnv: () => ({ appService: device }) }));
 vi.mock('@/utils/bridge', () => ({ refreshEinkScreen: vi.fn().mockResolvedValue(undefined) }));
 
-const setSettings = (isEink: boolean, pages: number) => {
+const setSettings = (isEink: boolean, pages: number, scrolled = false) => {
   useReaderStore.setState((s) => ({
     viewStates: {
       ...s.viewStates,
       book: {
         ...s.viewStates['book']!,
-        viewSettings: { isEink, einkDarkRefreshPages: pages } as ViewSettings,
+        viewSettings: { isEink, einkDarkRefreshPages: pages, scrolled } as ViewSettings,
       },
     },
   }));
@@ -46,6 +46,27 @@ describe('periodic dark e-ink refresh', () => {
     });
     expect(refreshEinkScreen).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
+    expect(refreshEinkScreen).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not count scrolling relocations toward a later paginated refresh', () => {
+    setSettings(true, 6, true);
+    const { result } = renderHook(() => useEinkDarkRefresh('book'));
+    act(() => {
+      for (let i = 0; i < 12; i++) result.current();
+      vi.advanceTimersByTime(120);
+    });
+    expect(refreshEinkScreen).not.toHaveBeenCalled();
+    act(() => setSettings(true, 6, false));
+    act(() => {
+      for (let i = 0; i < 5; i++) result.current();
+      vi.advanceTimersByTime(120);
+    });
+    expect(refreshEinkScreen).not.toHaveBeenCalled();
+    act(() => {
+      result.current();
+      vi.advanceTimersByTime(120);
+    });
     expect(refreshEinkScreen).toHaveBeenCalledTimes(1);
   });
 
