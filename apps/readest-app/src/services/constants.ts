@@ -408,6 +408,7 @@ export const DEFAULT_FIXED_LAYOUT_VIEW_SETTINGS: Partial<ViewSettings> = {
 
 export const DEFAULT_EINK_VIEW_SETTINGS: Partial<ViewSettings> = {
   isEink: true,
+  einkDarkRefreshPages: 6,
   animated: false,
   volumeKeysToFlip: true,
 };
@@ -441,6 +442,7 @@ export const DEFAULT_VIEW_CONFIG: ViewConfig = {
   animated: false,
   pageTurnStyle: 'push',
   isEink: false,
+  einkDarkRefreshPages: 6,
   isColorEink: false,
 
   paragraphMode: DEFAULT_PARAGRAPH_MODE_CONFIG,

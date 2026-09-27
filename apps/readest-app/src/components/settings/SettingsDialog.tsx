@@ -354,7 +354,9 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       // modal layer (z-120) so a modal opened from inside Settings (e.g. Add
       // OPDS Catalog) renders on top. !important beats the Dialog's hardcoded z-50.
       className='modal-open !z-[110]'
-      bgClassName={bookKey ? 'sm:!bg-black/20' : 'sm:!bg-black/50'}
+      bgClassName={
+        bookKey ? 'sm:!bg-black/20 eink:!bg-transparent' : 'sm:!bg-black/50 eink:!bg-transparent'
+      }
       boxClassName={clsx(
         'sm:min-w-[520px] overflow-hidden not-eink:bg-base-200',
         appService?.isMobile && 'sm:max-w-[90%] sm:w-3/4',

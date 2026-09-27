@@ -1,4 +1,6 @@
 import { useCallback } from 'react';
+import { useThemeStore } from '@/store/themeStore';
+import { getThemeCode } from '@/utils/style';
 
 export const useEinkMode = () => {
   const applyEinkMode = useCallback((isEink: boolean) => {
@@ -8,6 +10,7 @@ export const useEinkMode = () => {
       document.body.classList.remove('no-transitions');
     }
     document.documentElement.setAttribute('data-eink', isEink.toString());
+    useThemeStore.setState({ themeCode: getThemeCode() });
   }, []);
 
   return { applyEinkMode };

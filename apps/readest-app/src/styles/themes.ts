@@ -9,6 +9,16 @@ export type BaseColor = {
 /** `ambient` follows the ambient light sensor (lux → light/dark), Android-first. */
 export type ThemeMode = 'auto' | 'light' | 'dark' | 'schedule' | 'ambient';
 
+/** Match the e-ink device's initial UI theme when no preference is saved. */
+export const getInitialThemeColor = (): string => {
+  if (typeof window !== 'undefined' && localStorage) {
+    return (
+      localStorage.getItem('themeColor') || (window.__READEST_IS_EINK ? 'contrast' : 'default')
+    );
+  }
+  return 'default';
+};
+
 export type Palette = {
   'base-100': string;
   'base-200': string;

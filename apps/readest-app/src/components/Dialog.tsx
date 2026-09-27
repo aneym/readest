@@ -207,7 +207,7 @@ const Dialog: React.FC<DialogProps> = ({
       <Overlay
         captureBlocking={isOpen}
         className={clsx(
-          'dialog-overlay z-10 bg-black/50 sm:bg-black/50',
+          'dialog-overlay z-10 bg-black/50 sm:bg-black/50 eink:bg-transparent',
           appService?.hasRoundedWindow && 'rounded-window',
           bgClassName,
         )}

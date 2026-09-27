@@ -112,7 +112,7 @@ export function FeedsView({ onClose }: FeedsViewProps) {
         isOpen={true}
         title={liveFeed ? liveFeed.title : _('Feeds')}
         onClose={onClose}
-        bgClassName='sm:!bg-black/75'
+        bgClassName='sm:!bg-black/75 eink:!bg-transparent'
         boxClassName='sm:min-w-[520px] sm:w-3/4 sm:h-[85%] sm:!max-w-screen-sm'
       >
         <div className='bg-base-100 relative flex flex-col overflow-y-auto pb-4'>

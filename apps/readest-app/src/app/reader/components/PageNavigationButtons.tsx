@@ -107,7 +107,7 @@ const PageNavigationButtons: React.FC<PageNavigationButtonsProps> = ({
           <span
             className={clsx(
               'flex h-12 w-12 items-center justify-center rounded-full',
-              'bg-base-100/90 shadow-lg backdrop-blur-sm',
+              'bg-base-100/90 eink:bg-base-100 shadow-lg backdrop-blur-sm eink:backdrop-blur-none',
               'eink:border eink:border-base-content not-eink:group-hover:bg-base-200',
               'transition-transform active:scale-95',
             )}
@@ -128,7 +128,7 @@ const PageNavigationButtons: React.FC<PageNavigationButtonsProps> = ({
           <span
             className={clsx(
               'flex h-12 w-12 items-center justify-center rounded-full',
-              'bg-base-100/90 shadow-lg backdrop-blur-sm',
+              'bg-base-100/90 eink:bg-base-100 shadow-lg backdrop-blur-sm eink:backdrop-blur-none',
               'eink:border eink:border-base-content not-eink:group-hover:bg-base-200',
               'transition-transform active:scale-95',
             )}
@@ -159,7 +159,7 @@ const PageNavigationButtons: React.FC<PageNavigationButtonsProps> = ({
           <span
             className={clsx(
               'flex h-12 w-12 items-center justify-center rounded-full',
-              'bg-base-100/90 shadow-lg backdrop-blur-sm',
+              'bg-base-100/90 eink:bg-base-100 shadow-lg backdrop-blur-sm eink:backdrop-blur-none',
               'eink:border eink:border-base-content not-eink:group-hover:bg-base-200',
               'transition-transform active:scale-95',
             )}
@@ -180,7 +180,7 @@ const PageNavigationButtons: React.FC<PageNavigationButtonsProps> = ({
           <span
             className={clsx(
               'flex h-12 w-12 items-center justify-center rounded-full',
-              'bg-base-100/90 shadow-lg backdrop-blur-sm',
+              'bg-base-100/90 eink:bg-base-100 shadow-lg backdrop-blur-sm eink:backdrop-blur-none',
               'eink:border eink:border-base-content not-eink:group-hover:bg-base-200',
               'transition-transform active:scale-95',
             )}

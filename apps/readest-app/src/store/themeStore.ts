@@ -26,7 +26,7 @@ import {
   type ThemeSchedule,
 } from '@/utils/themeSchedule';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { CustomTheme, Palette, ThemeMode } from '@/styles/themes';
+import { CustomTheme, Palette, ThemeMode, getInitialThemeColor } from '@/styles/themes';
 import { EnvConfigType, isWebAppPlatform } from '@/services/environment';
 import { SystemSettings } from '@/types/settings';
 import { Insets } from '@/types/misc';
@@ -75,14 +75,6 @@ interface ThemeState {
 }
 
 const getInitialThemeMode = (): ThemeMode => readThemeModeWithScheduleDefault(isValidThemeMode);
-
-const getInitialThemeColor = (): string => {
-  if (typeof window !== 'undefined' && localStorage) {
-    const defaultColor = window.__READEST_IS_EINK ? 'contrast' : 'default';
-    return localStorage.getItem('themeColor') || defaultColor;
-  }
-  return 'default';
-};
 
 const getInitialAmbientIsDarkMode = (systemIsDarkMode: boolean): boolean => {
   if (typeof window !== 'undefined' && localStorage) {
