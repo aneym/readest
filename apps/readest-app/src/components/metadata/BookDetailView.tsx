@@ -30,6 +30,7 @@ import {
 import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { isHouseholdBuild } from '@/services/household';
 import { saveSysSettings } from '@/helpers/settings';
+import HouseholdAudioRow from './HouseholdAudioRow';
 import BookCover from '@/components/BookCover';
 import BookCoverViewer, { useBookCoverViewer } from '@/components/BookCoverViewer';
 import Dropdown from '../Dropdown';
@@ -393,6 +394,7 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
             </div>
           )}
         </div>
+        {isHouseholdBuild() && <HouseholdAudioRow book={book} />}
         <div className='metadata-series'>
           <button
             className={clsx(
