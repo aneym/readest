@@ -14,7 +14,8 @@ import { Book, BookConfig, BookDataRecord, BookNote } from '@/types/book';
 import { navigateToLogin } from '@/utils/nav';
 import { useReaderStore } from '@/store/readerStore';
 import { recordDiagnostic } from '@/services/sync/homebase/diagnostics';
-import { useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
+import { HomebaseSyncError } from '@/services/sync/homebase';
+import { syncErrorMessage, useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
 
 const transformsFromDB = {
   books: transformBookFromDB,
@@ -184,6 +185,15 @@ export function useSync(bookKey?: string) {
     setSyncError(null);
 
     const handleAuthFailure = (error: unknown) => {
+      if (error instanceof HomebaseSyncError) {
+        if (error.code === 'AUTH_FAILED') {
+          useHomebaseSyncStatus.setState((s) => ({
+            authPaused: Math.max(1, s.authPaused),
+            error: syncErrorMessage(error),
+          }));
+        }
+        return;
+      }
       const latest = useSettingsStore.getState().settings;
       if (
         error instanceof Error &&
@@ -230,7 +240,9 @@ export function useSync(bookKey?: string) {
         handleAuthFailure(partialError);
         const message = 'library sync incomplete; will retry';
         setSyncError(message);
-        useHomebaseSyncStatus.setState({ error: message });
+        if (!(partialError instanceof HomebaseSyncError && partialError.code === 'AUTH_FAILED')) {
+          useHomebaseSyncStatus.setState({ error: message });
+        }
         recordDiagnostic('sync.partial', 'warn', message, { reason: partialReason });
         // onPage already persisted the last completed page. Never advance to
         // now or infer a new watermark from an incomplete discovery.
