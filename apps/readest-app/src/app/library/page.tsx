@@ -29,6 +29,7 @@ import { ingestFile } from '@/services/ingestService';
 import { eventDispatcher } from '@/utils/event';
 import { transferManager } from '@/services/transferManager';
 import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
+import { isHouseholdBuild } from '@/services/household';
 import { getFilename, getFolderImportGroupName, joinScannedPath } from '@/utils/path';
 import { parseOpenWithFiles } from '@/helpers/openWith';
 import {
@@ -738,7 +739,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           setSettings(settings);
           saveSettings(envConfig, settings);
         }
-      } else if (settings.keepLogin) {
+      } else if (settings.keepLogin && !isHouseholdBuild()) {
         router.push('/auth');
       }
     };

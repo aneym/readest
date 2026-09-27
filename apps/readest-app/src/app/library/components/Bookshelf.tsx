@@ -52,6 +52,7 @@ import {
   withTimeRemainingLast,
 } from '../utils/libraryUtils';
 import { eventDispatcher } from '@/utils/event';
+import { isHouseholdBuild } from '@/services/household';
 import { getLocalBookFilename } from '@/utils/book';
 import { MIMETYPES, EXTS } from '@/libs/document';
 import { makeSafeFilename } from '@/utils/misc';
@@ -715,6 +716,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   useEffect(() => {
     const handleShareIntent = (event: CustomEvent) => {
       const book = (event.detail as { book?: Book } | undefined)?.book;
+      if (isHouseholdBuild()) return;
       if (!book) return;
       if (!user) {
         // Logged-out users can't share their own files; route through the
@@ -1156,7 +1158,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
         />
       )}
       <ShareBookDialog
-        isOpen={!!shareDialogBook}
+        isOpen={!isHouseholdBuild() && !!shareDialogBook}
         book={shareDialogBook}
         onClose={() => setShareDialogBook(null)}
       />

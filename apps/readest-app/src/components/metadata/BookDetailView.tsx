@@ -28,6 +28,7 @@ import {
   getContributorNames,
 } from '@/utils/book';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
+import { isHouseholdBuild } from '@/services/household';
 import { saveSysSettings } from '@/helpers/settings';
 import BookCover from '@/components/BookCover';
 import BookCoverViewer, { useBookCoverViewer } from '@/components/BookCoverViewer';
@@ -214,7 +215,7 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
                     openExternalUrl(getGoodreadsSearchUrl(getBookGoodreadsQuery(book)))
                   }
                 />
-                {onShare && (
+                {onShare && !isHouseholdBuild() && (
                   <MenuItem
                     noIcon
                     transient

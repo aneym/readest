@@ -12,6 +12,7 @@ import {
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/utils/supabase';
 import posthog from 'posthog-js';
+import { isHouseholdBuild } from '@/services/household';
 
 interface AuthContextType {
   token: string | null;
@@ -39,6 +40,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   });
 
   useEffect(() => {
+    if (isHouseholdBuild()) return;
     const syncSession = (
       session: { access_token: string; refresh_token: string; user: User } | null,
     ) => {
@@ -103,6 +105,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = useCallback(async () => {
     console.log('Logging out');
+    if (isHouseholdBuild()) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('refresh_token');
+      setToken(null);
+      setUser(null);
+      return;
+    }
     try {
       await supabase.auth.refreshSession();
     } catch {
@@ -116,6 +126,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const refresh = useCallback(async () => {
+    if (isHouseholdBuild()) return;
     try {
       await supabase.auth.refreshSession();
     } catch {}

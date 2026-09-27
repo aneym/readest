@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { isHouseholdBuild } from '@/services/household';
 import { useAuth } from '@/context/AuthContext';
 import { useEnv } from '@/context/EnvContext';
 import { useCustomDictionaryStore, findDictionaryByContentId } from '@/store/customDictionaryStore';
@@ -579,12 +580,12 @@ export const useReplicaPull = ({
   // change (Supabase TOKEN_REFRESHED reissues the user object on
   // foreground / refresh) doesn't tear down the boot-pull effect.
   useEffect(() => {
+    if (isHouseholdBuild()) return;
     hasCurrentUser = !!user;
   }, [user]);
 
   useEffect(() => {
-    if (!appService) return;
-    if (!user) return;
+    if (isHouseholdBuild() || !appService || !user) return;
 
     for (const kind of kinds) registeredKinds.add(kind);
 

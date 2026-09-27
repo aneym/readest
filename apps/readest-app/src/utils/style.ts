@@ -13,6 +13,7 @@ import {
   CustomTheme,
   generateLightPalette,
   generateDarkPalette,
+  getInitialThemeColor,
 } from '@/styles/themes';
 import { createFontCSS, CustomFont } from '@/styles/fonts';
 import { readStoredAmbientIsDarkMode } from './ambientLight';
@@ -850,7 +851,7 @@ export const getThemeCode = () => {
   let scheduleIsDarkMode = false;
   let customThemes: CustomTheme[] = [];
   if (typeof window !== 'undefined') {
-    themeColor = localStorage.getItem('themeColor') || 'default';
+    themeColor = getInitialThemeColor();
     themeMode = localStorage.getItem('themeMode') || 'schedule';
     scheduleIsDarkMode = readScheduleIsDarkMode();
     systemIsDarkMode = localStorage.getItem('systemIsDarkMode') === 'true';
@@ -881,9 +882,13 @@ export const getThemeCode = () => {
   }
   if (!currentTheme) currentTheme = themes[0];
   const defaultPalette = isDarkMode ? currentTheme!.colors.dark : currentTheme!.colors.light;
+  const einkDark =
+    isDarkMode &&
+    typeof document !== 'undefined' &&
+    document.documentElement.dataset['eink'] === 'true';
   return {
-    bg: defaultPalette['base-100'],
-    fg: defaultPalette['base-content'],
+    bg: einkDark ? '#000000' : defaultPalette['base-100'],
+    fg: einkDark ? '#ffffff' : defaultPalette['base-content'],
     primary: defaultPalette.primary,
     palette: defaultPalette,
     isDarkMode,

@@ -1,4 +1,5 @@
 import { READEST_WEB_BASE_URL } from '@/services/constants';
+import type { Book } from '@/types/book';
 
 export type AnnotationDeepLink = {
   bookHash: string;
@@ -89,6 +90,54 @@ export const parseAnnotationDeepLink = (url: string): AnnotationDeepLink | null 
   }
 
   return null;
+};
+
+export type HouseholdOpenLink = {
+  calibreId: number;
+  hash?: string;
+  mode: 'read' | 'listen';
+};
+
+/** A local-only launcher request; reject malformed identity and playback mode. */
+export const parseHouseholdOpenLink = (url: string): HouseholdOpenLink | null => {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'palma-readest:' || parsed.host !== 'open' || parsed.pathname !== '') {
+    return null;
+  }
+  const rawId = parsed.searchParams.get('calibreId');
+  if (!rawId || !/^[1-9]\d*$/.test(rawId)) return null;
+  const calibreId = Number(rawId);
+  if (!Number.isSafeInteger(calibreId)) return null;
+  const hash = parsed.searchParams.get('hash');
+  if (hash !== null && !/^[0-9a-f]{32}$/i.test(hash)) return null;
+  const mode = parsed.searchParams.get('mode') ?? 'read';
+  if (mode !== 'read' && mode !== 'listen') return null;
+  return { calibreId, ...(hash !== null ? { hash: hash.toLowerCase() } : {}), mode };
+};
+
+/** Prefer a matching local file, then the most suitable format of a Calibre title. */
+export const resolveHouseholdBook = (
+  books: Book[],
+  { hash, calibreId }: Pick<HouseholdOpenLink, 'hash' | 'calibreId'>,
+): Book | null => {
+  const available = books.filter((book) => !book.deletedAt);
+  if (hash) {
+    const exact = available.find((book) => book.hash === hash);
+    if (exact) return exact;
+  }
+  return (
+    available
+      .filter((book) => book.calibreId === calibreId)
+      .sort(
+        (a, b) =>
+          Number(b.format === 'EPUB') - Number(a.format === 'EPUB') || b.updatedAt - a.updatedAt,
+      )[0] ?? null
+  );
 };
 
 /**

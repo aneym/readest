@@ -35,6 +35,7 @@ import type { SystemSettings } from '@/types/settings';
 import type { EnvConfigType } from '@/services/environment';
 import { useSettingsStore } from '@/store/settingsStore';
 import { publishReplicaUpsert } from '@/services/sync/replicaPublish';
+import { isHouseholdBuild } from '@/services/household';
 import {
   SETTINGS_DICTIONARY_FIELDS,
   SETTINGS_ENCRYPTED_FIELDS,
@@ -234,6 +235,7 @@ const setStoredLastSeenCipher = (val: Record<string, string>): void => {
 };
 
 export const publishSettingsIfChanged = async (settings: SystemSettings): Promise<void> => {
+  if (isHouseholdBuild()) return;
   // Pass 1: figure out what's changed. Plaintext paths use the
   // in-memory snapshot; encrypted paths AND credential connection
   // metadata compare against the persisted SHA-256 hash so
@@ -520,7 +522,7 @@ let unsubscribe: (() => void) | null = null;
  * Idempotent — subsequent calls are no-ops.
  */
 export const initSettingsSync = (initialSettings?: SystemSettings): void => {
-  if (unsubscribe) return;
+  if (isHouseholdBuild() || unsubscribe) return;
   if (initialSettings) {
     for (const path of SETTINGS_WHITELIST) {
       const v = readPath(initialSettings, path);

@@ -17,6 +17,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { LibraryCoverFitType, LibraryViewModeType } from '@/types/settings';
 import { navigateToLogin } from '@/utils/nav';
+import { isHouseholdBuild } from '@/services/household';
 import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { isAudiobook } from '@/utils/audiobook';
@@ -153,7 +154,7 @@ const BookItem: React.FC<BookItemProps> = ({
           </div>
         )}
         {bookSelected && (
-          <div className='absolute inset-0 bg-black opacity-30 transition-opacity duration-300'></div>
+          <div className='absolute inset-0 bg-black opacity-30 eink:!bg-transparent eink:!opacity-100 transition-opacity duration-300'></div>
         )}
         {isSelectMode && (
           <div className='absolute bottom-1 right-1'>
@@ -263,7 +264,11 @@ const BookItem: React.FC<BookItemProps> = ({
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => {
                       if (!user) {
-                        navigateToLogin(router);
+                        if (isHouseholdBuild()) {
+                          router.push('/auth');
+                        } else {
+                          navigateToLogin(router);
+                        }
                         return;
                       }
                       if (!book.uploadedAt) {

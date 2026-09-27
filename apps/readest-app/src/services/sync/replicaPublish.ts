@@ -1,5 +1,6 @@
 import { setField, removeReplica, hlcMax } from '@/libs/crdt';
 import { getUserID } from '@/utils/access';
+import { isHouseholdBuild } from '@/services/household';
 import { getReplicaAdapter } from './replicaRegistry';
 import { getReplicaSync } from './replicaSync';
 import { encryptPackedFields } from './replicaCryptoMiddleware';
@@ -23,7 +24,7 @@ export const publishReplicaUpsert = async <T>(
   contentId: string,
   reincarnation?: string,
 ): Promise<void> => {
-  if (!isSyncCategoryEnabled(kind)) return;
+  if (isHouseholdBuild() || !isSyncCategoryEnabled(kind)) return;
   const ctx = getReplicaSync();
   if (!ctx) return;
   const adapter = getReplicaAdapter<T>(kind);
@@ -84,7 +85,7 @@ export const publishReplicaUpsert = async <T>(
  * authenticated.
  */
 export const publishReplicaDelete = async (kind: string, contentId: string): Promise<void> => {
-  if (!isSyncCategoryEnabled(kind)) return;
+  if (isHouseholdBuild() || !isSyncCategoryEnabled(kind)) return;
   const ctx = getReplicaSync();
   if (!ctx) return;
   const adapter = getReplicaAdapter(kind);
@@ -123,7 +124,7 @@ export const publishReplicaManifest = async (
   files: { filename: string; byteSize: number; partialMd5: string; sha256?: string }[],
   reincarnation?: string,
 ): Promise<void> => {
-  if (!isSyncCategoryEnabled(kind)) return;
+  if (isHouseholdBuild() || !isSyncCategoryEnabled(kind)) return;
   const ctx = getReplicaSync();
   if (!ctx) return;
   const adapter = getReplicaAdapter(kind);

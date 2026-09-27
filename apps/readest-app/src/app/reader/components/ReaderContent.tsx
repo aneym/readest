@@ -23,6 +23,7 @@ import { splitLibraryOpenIds } from '@/utils/audiobook';
 import { uniqueId } from '@/utils/misc';
 import { throttle } from '@/utils/throttle';
 import { eventDispatcher } from '@/utils/event';
+import { isHouseholdBuild } from '@/services/household';
 import {
   closeReaderWindowOrGoToLibrary,
   ensureMainLibraryWindow,
@@ -152,7 +153,7 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   useEffect(() => {
     const handleShareIntent = (event: CustomEvent) => {
       const detail = event.detail as { book: Book; cfi?: string | null } | undefined;
-      if (!detail?.book) return;
+      if (isHouseholdBuild() || !detail?.book) return;
       if (!user) {
         eventDispatcher.dispatch('toast', {
           type: 'info',
@@ -351,7 +352,7 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
         />
       )}
       <ShareBookDialog
-        isOpen={!!shareDialogState}
+        isOpen={!isHouseholdBuild() && !!shareDialogState}
         book={shareDialogState?.book ?? null}
         cfi={shareDialogState?.cfi ?? null}
         onClose={() => setShareDialogState(null)}

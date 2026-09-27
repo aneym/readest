@@ -1,4 +1,5 @@
 import posthog from 'posthog-js';
+import { isHouseholdBuild } from '@/services/household';
 
 export const TELEMETRY_OPT_OUT_KEY = 'readest-telemetry-opt-out';
 export const TELEMETRY_DECISION_KEY = 'readest-telemetry-decision';
@@ -29,17 +30,19 @@ export const rollIntoTelemetryPromptBucket = (rng: () => number = Math.random) =
 };
 
 export const captureEvent = (event: string, properties?: Record<string, unknown>) => {
-  if (!hasOptedOutTelemetry()) {
+  if (!isHouseholdBuild() && !hasOptedOutTelemetry()) {
     posthog.capture(event, properties);
   }
 };
 
 export const optInTelemetry = () => {
+  if (isHouseholdBuild()) return;
   localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'false');
   setTelemetryDecision('opt-in');
   posthog.opt_in_capturing();
 };
 export const optOutTelemetry = () => {
+  if (isHouseholdBuild()) return;
   localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'true');
   setTelemetryDecision('opt-out');
   posthog.opt_out_capturing();

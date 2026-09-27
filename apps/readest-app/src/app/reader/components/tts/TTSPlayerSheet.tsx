@@ -27,6 +27,8 @@ import { TranslationFunc, useTranslation } from '@/hooks/useTranslation';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { useQuotaStats } from '@/hooks/useQuotaStats';
 import { isTTSCacheAllowed } from '@/utils/access';
+import { isHouseholdBuild } from '@/services/household';
+import { eventDispatcher } from '@/utils/event';
 import { navigateToLogin, navigateToProfile } from '@/utils/nav';
 import { getLanguageName } from '@/utils/lang';
 import { formatPlaybackTime } from '@/utils/time';
@@ -129,12 +131,17 @@ const TTSPlayerSheet = ({
   // a Premium badge that routes to the upgrade page instead of the per-chapter
   // download controls. Mirrors the cloud-sync paywall in IntegrationsPanel.
   const { userProfilePlan } = useQuotaStats();
-  const isDownloadPremium = isTTSCacheAllowed(userProfilePlan ?? 'free');
+  const isDownloadPremium = isHouseholdBuild()
+    ? !!user
+    : isTTSCacheAllowed(userProfilePlan ?? 'free');
   // Only badge users who can't use it yet: signed out (known at once), or a
   // resolved plan without the feature. Suppress it while a signed-in user's
   // plan is still loading so it never flashes at an entitled user.
-  const premiumBadge =
-    !user || (userProfilePlan !== undefined && !isDownloadPremium) ? _('Premium') : undefined;
+  const premiumBadge = isHouseholdBuild()
+    ? undefined
+    : !user || (userProfilePlan !== undefined && !isDownloadPremium)
+      ? _('Premium')
+      : undefined;
 
   // A book can carry a coverImageUrl that no longer resolves (cover never
   // extracted, file pruned). A broken <img> still occupies its h-32 box, so
@@ -234,7 +241,12 @@ const TTSPlayerSheet = ({
   // routed to the upgrade page (or sign-in), the sheet closing first so the
   // navigation isn't hidden behind it.
   const handleOpenDownloads = () => {
-    if (isDownloadPremium) {
+    if (isHouseholdBuild() && !user) {
+      eventDispatcher.dispatch('toast', {
+        type: 'info',
+        message: _('Pair this device with Homebase first'),
+      });
+    } else if (isDownloadPremium) {
       setView('chapters');
     } else if (user) {
       onClose();

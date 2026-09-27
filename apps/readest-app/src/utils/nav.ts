@@ -4,6 +4,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { isPWA, isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
 import { BOOK_IDS_SEPARATOR } from '@/services/constants';
 import { AppService } from '@/types/system';
+import { isHouseholdBuild } from '@/services/household';
 
 let readerWindowsCount = 0;
 const createReaderWindow = (appService: AppService, url: string) => {
@@ -111,6 +112,10 @@ export const navigateToReader = (
 };
 
 export const navigateToLogin = (router: ReturnType<typeof useRouter>) => {
+  if (isHouseholdBuild()) {
+    router.push('/auth');
+    return;
+  }
   const pathname = window.location.pathname;
   const search = window.location.search;
   const currentPath = pathname !== '/auth' ? pathname + search : '/';
@@ -118,7 +123,7 @@ export const navigateToLogin = (router: ReturnType<typeof useRouter>) => {
 };
 
 export const navigateToProfile = (router: ReturnType<typeof useRouter>) => {
-  router.push('/user');
+  router.push(isHouseholdBuild() ? '/auth' : '/user');
 };
 
 export const navigateToLibrary = (

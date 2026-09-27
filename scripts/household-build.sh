@@ -73,6 +73,7 @@ export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 export CARGO_TARGET_DIR="$ROOT/target"            # share the warm 10 GB target
 export CARGO_PROFILE_RELEASE_INCREMENTAL=true      # app crate rebuilds incrementally
 export NEXT_PUBLIC_HOMEBASE_BUILD_ID="$BUILD_ID"
+export NEXT_PUBLIC_HOUSEHOLD_BUILD=1
 export HOMEBASE_BUILD_CPUS="${HOMEBASE_BUILD_CPUS:-8}"   # static export workers; 15 swaps the host
 export NEXT_TELEMETRY_DISABLED=1
 
@@ -81,12 +82,16 @@ pnpm install --frozen-lockfile --prefer-offline --silent
 phase "deps installed"
 
 cd "$BUILD_ROOT/$APP"
-pnpm exec dotenv -v KEEP_SOURCEMAPS=1 -e .env.tauri -- pnpm tauri android build -t aarch64 -- --features devtools
+# Next emits browser maps for static exports; the Tauri pre-build hook
+# (upload-sourcemaps) strips them before APK packaging unless explicitly kept.
+KEEP_MAPS=0
+if [[ "${HOMEBASE_KEEP_SOURCEMAPS:-0}" == 1 ]]; then KEEP_MAPS=1; fi
+pnpm exec dotenv -v KEEP_SOURCEMAPS="$KEEP_MAPS" -e .env.tauri -- pnpm tauri android build -t aarch64 -- --features devtools
 phase "tauri android build done"
 
 APK="$BUILD_ROOT/$APP/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
 mkdir -p "$ARCHIVE"
 OUT="$ARCHIVE/readest-homebase-final-$SHA.apk"
 cp "$APK" "$OUT"
-phase "archived $OUT ($(du -h "$OUT" | cut -f1), md5 $(md5 -q "$OUT"))"
+phase "archived APK $OUT ($(du -h "$OUT" | cut -f1), md5 $(md5 -q "$OUT"))"
 echo "$OUT"

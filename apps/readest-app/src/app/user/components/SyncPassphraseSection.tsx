@@ -7,6 +7,7 @@ import { clearVerificationSample, ensurePassphraseUnlocked } from '@/services/sy
 import { replicaSyncClient } from '@/libs/replicaSyncClient';
 import { isSyncError } from '@/libs/errors';
 import { useSettingsStore } from '@/store/settingsStore';
+import { isHouseholdBuild } from '@/services/household';
 
 type SyncPassphraseStatus = 'loading' | 'unset' | 'set' | 'error';
 
@@ -44,13 +45,13 @@ export function SyncPassphraseSection() {
   };
 
   useEffect(() => {
-    if (!credentialsSync) return;
+    if (!credentialsSync || isHouseholdBuild()) return;
     void refreshStatus();
   }, [credentialsSync]);
 
   // Credentials sync off → no passphrase UI at all (set / enter / forget /
   // status indicator are all hidden).
-  if (!credentialsSync) return null;
+  if (isHouseholdBuild() || !credentialsSync) return null;
   if (status === 'loading') return null;
 
   /**

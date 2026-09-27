@@ -34,6 +34,9 @@ afterEach(() => {
   useAuthMock.mockReset();
   navigateToLoginMock.mockReset();
   useEnvMock.mockReset();
+  routerStub.push.mockReset();
+  vi.unstubAllEnvs();
+  localStorage.clear();
 });
 
 describe('LibraryEmptyState', () => {
@@ -64,6 +67,31 @@ describe('LibraryEmptyState', () => {
 
     expect(screen.getByRole('button', { name: 'Import Books' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Sign in to sync your library' })).toBeNull();
+  });
+
+  it('offers Homebase pairing rather than Readest sign-in on an unpaired household device', () => {
+    vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', '1');
+    useEnvMock.mockReturnValue({ appService: { isMobile: true } });
+    useAuthMock.mockReturnValue({ user: null });
+    render(<LibraryEmptyState onImport={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Sign in to sync your library' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Pair with Homebase' }));
+    expect(routerStub.push).toHaveBeenCalledWith('/auth');
+  });
+
+  it('does not offer pairing once the household device is paired', () => {
+    vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', '1');
+    localStorage.setItem('token', 'paired-device-token');
+    localStorage.setItem(
+      'user',
+      JSON.stringify({ id: 'profile-1', user_metadata: { homebase: true } }),
+    );
+    useEnvMock.mockReturnValue({ appService: { isMobile: true } });
+    useAuthMock.mockReturnValue({ user: { id: 'profile-1' } });
+    render(<LibraryEmptyState onImport={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Pair with Homebase' })).toBeNull();
   });
 
   it('calls onImport when the Import Books button is clicked', () => {

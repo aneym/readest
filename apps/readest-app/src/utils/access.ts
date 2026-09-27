@@ -5,6 +5,7 @@ import { DEFAULT_DAILY_TRANSLATION_QUOTA, DEFAULT_STORAGE_QUOTA } from '@/servic
 import { isWebAppPlatform } from '@/services/environment';
 import { getDailyUsage } from '@/services/translators/utils';
 import { getRuntimeConfig } from '@/services/runtimeConfig';
+import { isHouseholdBuild } from '@/services/household';
 
 interface Token {
   plan: UserPlan;
@@ -73,7 +74,7 @@ export const CLOUD_SYNC_REQUIRES_PREMIUM = true;
  * is on; flipping the switch off ungates every plan.
  */
 export const isCloudSyncAllowed = (plan: UserPlan): boolean =>
-  !CLOUD_SYNC_REQUIRES_PREMIUM || isCloudSyncInPlan(plan);
+  isHouseholdBuild() || !CLOUD_SYNC_REQUIRES_PREMIUM || isCloudSyncInPlan(plan);
 
 /**
  * Plans that include the offline TTS audio cache — pre-downloading a book's
@@ -96,7 +97,7 @@ export const isTTSCacheInPlan = (plan: UserPlan): boolean =>
 export const TTS_CACHE_REQUIRES_PREMIUM = true;
 
 export const isTTSCacheAllowed = (plan: UserPlan): boolean =>
-  !TTS_CACHE_REQUIRES_PREMIUM || isTTSCacheInPlan(plan);
+  isHouseholdBuild() || !TTS_CACHE_REQUIRES_PREMIUM || isTTSCacheInPlan(plan);
 
 export const STORAGE_QUOTA_GRACE_BYTES = 10 * 1024 * 1024; // 10 MB grace
 

@@ -7,7 +7,7 @@ export const PRIVATE_SERVER_UNAVAILABLE =
 
 export const syncErrorMessage = (error: unknown): string => {
   if (error instanceof HomebaseSyncError && error.code === 'AUTH_FAILED') {
-    return 'Sync authorization failed. Sign in again, then try Sync now. Your local books and queued changes are kept.';
+    return 'Homebase no longer accepts this device. Pair it again from the Homebase menu, then try Sync now. Your local books and queued changes are kept.';
   }
   if (error instanceof HomebaseSyncError && error.code === 'NETWORK')
     return PRIVATE_SERVER_UNAVAILABLE;

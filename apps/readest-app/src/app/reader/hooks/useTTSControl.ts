@@ -10,6 +10,7 @@ import { useProofreadStore } from '@/store/proofreadStore';
 import { TransformContext } from '@/services/transformers/types';
 import { proofreadTransformer } from '@/services/transformers/proofread';
 import { useTranslation } from '@/hooks/useTranslation';
+import { isHouseholdBuild } from '@/services/household';
 import {
   ensureSharedAudioContext,
   TTSController,
@@ -342,8 +343,11 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
   useEffect(() => {
     if (!ttsController || !bookKey) return;
     const handleNeedAuth = () => {
+      if (isHouseholdBuild() && user) return;
       eventDispatcher.dispatch('toast', {
-        message: _('Please log in to use advanced TTS features'),
+        message: isHouseholdBuild()
+          ? _('Pair this device with Homebase first')
+          : _('Please log in to use advanced TTS features'),
         type: 'error',
         timeout: 5000,
       });

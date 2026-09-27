@@ -95,10 +95,10 @@ const Slider: React.FC<SliderProps> = ({
     >
       <div className='relative' style={{ height: `${heightPx}px` }}>
         {/* Background track */}
-        <div className='bg-base-300/40 absolute h-full w-full rounded-full'></div>
+        <div className='slider-track bg-base-300/40 absolute h-full w-full rounded-full'></div>
         {/* Filled portion */}
         <div
-          className='bg-base-300 absolute h-full rounded-full'
+          className='slider-fill bg-base-300 absolute h-full rounded-full'
           style={{
             width:
               visualPercentage > 0
@@ -122,7 +122,7 @@ const Slider: React.FC<SliderProps> = ({
           }}
         >
           <div
-            className={`bg-base-200 flex h-full items-center justify-center rounded-full text-xs shadow-md ${bubbleClassName}`}
+            className={`slider-thumb bg-base-200 flex h-full items-center justify-center rounded-full text-xs shadow-md ${bubbleClassName}`}
             style={{ width: `${heightPx}px` }}
           >
             {bubbleElement || bubbleLabel}

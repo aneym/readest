@@ -9,6 +9,10 @@ import { eventDispatcher } from '@/utils/event';
 import { isAudiobook } from '@/utils/audiobook';
 import { getTransferMessages } from './transferMessages';
 import { isBookIntegrityError } from './bookIntegrity';
+import { isHouseholdBuild } from './household';
+
+export const transferAuthMessage = (household: boolean): string =>
+  household ? 'Pair this device with Homebase to transfer books.' : 'Please log in to continue';
 
 const TRANSFER_QUEUE_KEY = 'readest_transfer_queue';
 const RETRY_DELAY_BASE_MS = 2000;
@@ -625,7 +629,7 @@ class TransferManager {
           if (errorMessage.includes('Not authenticated')) {
             eventDispatcher.dispatch('toast', {
               type: 'error',
-              message: _('Please log in to continue'),
+              message: _(transferAuthMessage(isHouseholdBuild())),
             });
           } else if (isQuotaError) {
             this.recordQuotaFailure();

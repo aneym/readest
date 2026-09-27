@@ -17,6 +17,9 @@ import { DOWNLOAD_READEST_URL } from '@/services/constants';
 import { setBackupDialogVisible } from '@/app/library/components/BackupWindow';
 import { setCacheManagerDialogVisible } from '@/app/library/components/CacheManagerWindow';
 import { useAuth } from '@/context/AuthContext';
+import { isHouseholdBuild } from '@/services/household';
+import { readPairedDevice } from '@/services/householdPairing';
+import { useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
 import { useQuotaStats } from '@/hooks/useQuotaStats';
@@ -65,6 +68,9 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
   const router = useRouter();
   const { envConfig, appService } = useEnv();
   const { user } = useAuth();
+  const household = isHouseholdBuild();
+  const pairedDevice = household ? readPairedDevice() : null;
+  const lastHomebaseSyncAt = useHomebaseSyncStatus((s) => s.lastSuccessAt);
   const { userProfilePlan, quotas } = useQuotaStats(true);
   const { themeMode, setThemeMode } = useThemeStore();
   const { settings, setSettingsDialogOpen } = useSettingsStore();
@@ -139,6 +145,7 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
   };
 
   const handleManageSync = () => {
+    if (household) return;
     router.push('/user?section=sync');
     setIsDropdownOpen?.(false);
   };
@@ -326,7 +333,46 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
       onCancel={() => setIsDropdownOpen?.(false)}
     >
       <HomebaseSyncMenu onSync={() => onPullLibrary(true, false)} />
-      {user ? (
+      {household ? (
+        <>
+          <MenuItem
+            label={
+              pairedDevice
+                ? _('Homebase: {{device}}', {
+                    device: pairedDevice.label ?? pairedDevice.deviceId ?? pairedDevice.profileId,
+                  })
+                : _('Pair with Homebase')
+            }
+            description={
+              pairedDevice
+                ? lastHomebaseSyncAt
+                  ? _('Last sync {{time}}', { time: dayjs(lastHomebaseSyncAt).fromNow() })
+                  : _('Not synced yet')
+                : undefined
+            }
+            Icon={pairedDevice ? PiUserCircleCheck : PiUserCircle}
+            onClick={() => {
+              router.push('/auth');
+              setIsDropdownOpen?.(false);
+            }}
+          />
+          <MenuItem
+            label={_('File Transfers')}
+            Icon={MdCloudSync}
+            description={
+              hasActiveTransfers
+                ? _('{{activeCount}} active, {{pendingCount}} pending', {
+                    activeCount: stats.active,
+                    pendingCount: stats.pending,
+                  })
+                : stats.failed > 0
+                  ? _('{{failedCount}} failed', { failedCount: stats.failed })
+                  : ''
+            }
+            onClick={openTransferQueue}
+          />
+        </>
+      ) : user ? (
         <MenuItem
           label={
             userDisplayName
@@ -451,7 +497,7 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
           {appService?.canCustomizeRootDir && (
             <MenuItem label={_('Change Data Location')} onClick={handleSetRootDir} />
           )}
-          {user && <MenuItem label={_('Data Sync')} onClick={handleManageSync} />}
+          {!household && user && <MenuItem label={_('Data Sync')} onClick={handleManageSync} />}
           <MenuItem
             label={_('Refresh Metadata')}
             description={refreshMetadataProgress}
@@ -497,7 +543,7 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
         </ul>
       </MenuItem>
       <hr aria-hidden='true' className='border-base-200 my-1' />
-      {user && userProfilePlan === 'free' && (
+      {!household && user && userProfilePlan === 'free' && (
         <MenuItem label={_('Upgrade to Readest Premium')} onClick={handleUpgrade} />
       )}
       {isWebAppPlatform() && <MenuItem label={_('Download Readest')} onClick={downloadReadest} />}

@@ -9,6 +9,7 @@ import { initReplicaSync } from '@/services/sync/replicaSync';
 import { createSettingsCursorStore } from '@/services/sync/replicaCursorStore';
 import { startReplicaTransferIntegration } from '@/services/sync/replicaTransferIntegration';
 import { enableReplicaAutoPersist } from '@/services/sync/replicaPersist';
+import { isHouseholdBuild } from '@/services/household';
 
 interface EnvContextType {
   envConfig: EnvConfigType;
@@ -22,12 +23,15 @@ export const EnvProvider = ({ children }: { children: ReactNode }) => {
   const [appService, setAppService] = useState<AppService | null>(null);
 
   React.useEffect(() => {
-    bootstrapReplicaAdapters();
-    enableReplicaAutoPersist(envConfig);
+    if (!isHouseholdBuild()) {
+      bootstrapReplicaAdapters();
+      enableReplicaAutoPersist(envConfig);
+    }
     envConfig
       .getAppService()
       .then(async (service) => {
         setAppService(service);
+        if (isHouseholdBuild()) return;
         try {
           const settings = await service.loadSettings();
           if (settings.replicaDeviceId) {

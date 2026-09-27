@@ -6,6 +6,10 @@ import android.view.ActionMode
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.webkit.WebView
+import android.webkit.JavascriptInterface
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.SystemClock
 import android.net.Uri
 import android.util.Log
 import android.content.Intent
@@ -38,6 +42,30 @@ internal fun shouldCaptureNativeLearnKey(keyCode: Int): Boolean = when (keyCode)
     else -> false
 }
 
+class HouseholdBridge(context: android.content.Context) {
+    private val appContext = context.applicationContext
+    private val worker = HandlerThread("household-status").apply { start() }
+    private val handler = Handler(worker.looper)
+    private var lastWrite = 0L
+    private var queued: HouseholdSyncStatus.Status? = null
+    private val flush = Runnable {
+        val status = queued ?: return@Runnable
+        queued = null
+        HouseholdSyncStatus.write(appContext, status)
+        lastWrite = SystemClock.elapsedRealtime()
+    }
+
+    @JavascriptInterface
+    fun setSyncStatus(json: String) {
+        val status = HouseholdSyncStatus.parse(json) ?: return
+        handler.post {
+            queued = status
+            handler.removeCallbacks(flush)
+            handler.postDelayed(flush, (lastWrite + 2000L - SystemClock.elapsedRealtime()).coerceAtLeast(0L))
+        }
+    }
+}
+
 class MainActivity : TauriActivity(), KeyDownInterceptor {
     private var wv: WebView? = null
     private var interceptVolumeKeysEnabled = false
@@ -57,6 +85,7 @@ class MainActivity : TauriActivity(), KeyDownInterceptor {
 
     override fun onWebViewCreate(webView: WebView) {
         wv = webView
+        webView.addJavascriptInterface(HouseholdBridge(this), "HomebaseHousehold")
         // Homebase household build: keep the WebView inspectable so the home
         // server can drive QA and pairing over ADB/CDP (chrome://inspect).
         WebView.setWebContentsDebuggingEnabled(true)

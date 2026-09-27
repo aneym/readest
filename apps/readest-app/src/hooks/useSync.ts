@@ -12,6 +12,7 @@ import { transformBookFromDB } from '@/utils/transform';
 import { DBBook, DBBookConfig, DBBookNote } from '@/types/records';
 import { Book, BookConfig, BookDataRecord, BookNote } from '@/types/book';
 import { navigateToLogin } from '@/utils/nav';
+import { isHouseholdBuild } from '@/services/household';
 import { useReaderStore } from '@/store/readerStore';
 import { recordDiagnostic } from '@/services/sync/homebase/diagnostics';
 import { HomebaseSyncError } from '@/services/sync/homebase';
@@ -195,7 +196,9 @@ export function useSync(bookKey?: string) {
         return;
       }
       const latest = useSettingsStore.getState().settings;
+      // Household builds pair through Homebase; never bounce to a login page.
       if (
+        !isHouseholdBuild() &&
         error instanceof Error &&
         error.message.includes('Not authenticated') &&
         latest.keepLogin

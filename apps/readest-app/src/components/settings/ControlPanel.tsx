@@ -61,6 +61,9 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
   const [animated, setAnimated] = useState(viewSettings.animated);
   const [pageTurnStyle, setPageTurnStyle] = useState(viewSettings.pageTurnStyle || 'push');
   const [isEink, setIsEink] = useState(viewSettings.isEink);
+  const [einkDarkRefreshPages, setEinkDarkRefreshPages] = useState(
+    viewSettings.einkDarkRefreshPages ?? 6,
+  );
   const [isColorEink, setIsColorEink] = useState(viewSettings.isColorEink);
   const [autoScreenBrightness, setAutoScreenBrightness] = useState(settings.autoScreenBrightness);
   const [swipeBrightnessGesture, setSwipeBrightnessGesture] = useState(
@@ -102,6 +105,7 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
       swapClickArea: setSwapClickArea,
       animated: setAnimated,
       isEink: setIsEink,
+      einkDarkRefreshPages: setEinkDarkRefreshPages,
       allowScript: setAllowScript,
       fullscreenClickArea: setFullscreenClickArea,
       disableDoubleClick: setIsDisableDoubleClick,
@@ -241,6 +245,11 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
     applyEinkMode(isEink);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEink]);
+
+  useEffect(() => {
+    saveViewSettings(envConfig, bookKey, 'einkDarkRefreshPages', einkDarkRefreshPages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [einkDarkRefreshPages]);
 
   useEffect(() => {
     saveViewSettings(envConfig, bookKey, 'isColorEink', isColorEink);
@@ -490,6 +499,15 @@ const ControlPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterRes
             checked={isEink}
             onChange={() => setIsEink(!isEink)}
             data-setting-id='settings.control.einkMode'
+          />
+        )}
+        {isEink && (
+          <NumberInput
+            label={_('Full refresh every N pages in dark mode (0 = off)')}
+            value={einkDarkRefreshPages}
+            onChange={setEinkDarkRefreshPages}
+            min={0}
+            max={50}
           />
         )}
         {(appService?.isAndroidApp || appService?.appPlatform === 'web') && (
