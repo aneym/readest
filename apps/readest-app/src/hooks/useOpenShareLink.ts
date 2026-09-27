@@ -11,6 +11,7 @@ import { ShareApiError, confirmDownload, importShare } from '@/libs/share';
 import { ensureSharedBookLocal } from '@/libs/shareImport';
 import { parseShareDeepLink, type ShareDeepLink } from '@/utils/share';
 import { useTranslation } from './useTranslation';
+import { isHouseholdBuild } from '@/services/household';
 
 // Module-scoped flag matches the useOpenAnnotationLink pattern. Tauri's
 // getCurrent() keeps returning the launch URL for the entire app session, so
@@ -50,6 +51,7 @@ export function useOpenShareLink() {
 
   const handleShareLink = useCallback(
     async ({ token }: ShareDeepLink) => {
+      if (isHouseholdBuild()) return;
       if (!user) {
         eventDispatcher.dispatch('toast', {
           type: 'info',
@@ -96,7 +98,7 @@ export function useOpenShareLink() {
   );
 
   useEffect(() => {
-    if (!isTauriAppPlatform() || !appService) return;
+    if (isHouseholdBuild() || !isTauriAppPlatform() || !appService) return;
 
     const handle = (url: string) => {
       const parsed = parseShareDeepLink(url);

@@ -15,6 +15,7 @@ import type { PlanType } from '@/types/quota';
 import { navigateToLibrary } from '@/utils/nav';
 import { eventDispatcher } from '@/utils/event';
 import { isTauriAppPlatform } from '@/services/environment';
+import { isHouseholdBuild } from '@/services/household';
 import { getPlanDetails } from './utils/plan';
 import { Toast } from '@/components/Toast';
 import {
@@ -78,7 +79,11 @@ const ProfilePage = () => {
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
-    if (!mounted) return;
+    if (isHouseholdBuild()) router.replace('/auth');
+  }, [router]);
+
+  useEffect(() => {
+    if (isHouseholdBuild() || !mounted) return;
 
     const isAuthenticated = user && token && appService;
     if (isAuthenticated) return;
@@ -276,7 +281,7 @@ const ProfilePage = () => {
     setShowSyncManager(true);
   };
 
-  if (!mounted) {
+  if (isHouseholdBuild() || !mounted) {
     return null;
   }
 

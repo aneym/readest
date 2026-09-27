@@ -12,6 +12,7 @@ import { transformBookFromDB } from '@/utils/transform';
 import { DBBook, DBBookConfig, DBBookNote } from '@/types/records';
 import { Book, BookConfig, BookDataRecord, BookNote } from '@/types/book';
 import { navigateToLogin } from '@/utils/nav';
+import { isHouseholdBuild } from '@/services/household';
 import { useReaderStore } from '@/store/readerStore';
 
 const transformsFromDB = {
@@ -237,7 +238,7 @@ export function useSync(bookKey?: string) {
       if (err instanceof Error) {
         // Read live store settings, not the stale hook closure (see below).
         const latest = useSettingsStore.getState().settings;
-        if (err.message.includes('Not authenticated') && latest.keepLogin) {
+        if (!isHouseholdBuild() && err.message.includes('Not authenticated') && latest.keepLogin) {
           latest.keepLogin = false;
           setSettings(latest);
           navigateToLogin(router);

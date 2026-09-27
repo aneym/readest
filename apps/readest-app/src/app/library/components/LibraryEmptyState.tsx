@@ -7,6 +7,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAppRouter } from '@/hooks/useAppRouter';
 import { navigateToLogin } from '@/utils/nav';
+import { isHouseholdBuild } from '@/services/household';
+import { readPairedDevice } from '@/services/householdPairing';
 
 interface LibraryEmptyStateProps {
   onImport: (anchor: HTMLElement) => void;
@@ -42,7 +44,7 @@ const LibraryEmptyState: React.FC<LibraryEmptyStateProps> = ({ onImport }) => {
           </button>
           {/* TODO: add a 'Browse free catalogs' secondary action that opens the
               OPDS dialog (handleShowOPDSDialog) once we settle on placement. */}
-          {!user && (
+          {(isHouseholdBuild() ? !readPairedDevice() : !user) && (
             <button
               type='button'
               className={clsx(
@@ -50,9 +52,9 @@ const LibraryEmptyState: React.FC<LibraryEmptyStateProps> = ({ onImport }) => {
                 'underline underline-offset-4',
                 'focus-visible:text-base-content focus-visible:outline-none',
               )}
-              onClick={() => navigateToLogin(router)}
+              onClick={() => (isHouseholdBuild() ? router.push('/auth') : navigateToLogin(router))}
             >
-              {_('Sign in to sync your library')}
+              {isHouseholdBuild() ? _('Pair with Homebase') : _('Sign in to sync your library')}
             </button>
           )}
         </div>

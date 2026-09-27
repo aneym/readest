@@ -113,6 +113,15 @@ describe('ViewMenu right-to-left pages toggle', () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllEnvs();
+  });
+
+  it('does not offer upstream sync sign-in or Readest sharing in household mode', () => {
+    vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', '1');
+    render(<ViewMenu bookKey='book-1' />);
+
+    expect(screen.queryByText('Sign in to Sync')).toBeNull();
+    expect(screen.queryByText('Share Book')).toBeNull();
   });
 
   it('shows the toggle for fixed-layout books', () => {

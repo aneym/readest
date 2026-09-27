@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { isHouseholdBuild } from '@/services/household';
 import { MdUploadFile, MdCheckCircle, MdError, MdLink, MdExtension } from 'react-icons/md';
 import { useEnv } from '@/context/EnvContext';
 import { useAuth } from '@/context/AuthContext';
@@ -31,6 +33,10 @@ interface SendItem {
  * an article URL and it lands in the cloud library, syncing to every device.
  */
 export default function SendPage() {
+  const router = useRouter();
+  useEffect(() => {
+    if (isHouseholdBuild()) router.replace('/library');
+  }, [router]);
   const _ = useTranslation();
   const { envConfig, appService } = useEnv();
   const { user } = useAuth();
@@ -113,6 +119,8 @@ export default function SendPage() {
       });
     }
   }, [url, importResolvedFile, setItem, _]);
+
+  if (isHouseholdBuild()) return null;
 
   if (!user) {
     return (

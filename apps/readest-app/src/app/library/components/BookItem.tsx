@@ -17,6 +17,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { LibraryCoverFitType, LibraryViewModeType } from '@/types/settings';
 import { navigateToLogin } from '@/utils/nav';
+import { isHouseholdBuild } from '@/services/household';
 import { isReadestCloudStorageActive } from '@/services/sync/cloudSyncProvider';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { isAudiobook } from '@/utils/audiobook';
@@ -263,7 +264,11 @@ const BookItem: React.FC<BookItemProps> = ({
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => {
                       if (!user) {
-                        navigateToLogin(router);
+                        if (isHouseholdBuild()) {
+                          router.push('/auth');
+                        } else {
+                          navigateToLogin(router);
+                        }
                         return;
                       }
                       if (!book.uploadedAt) {
