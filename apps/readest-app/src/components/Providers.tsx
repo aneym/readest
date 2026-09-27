@@ -49,6 +49,12 @@ import { cryptoSession } from '@/libs/crypto/session';
 import { useAppLockStore } from '@/store/appLockStore';
 import { initSettingsSync } from '@/services/sync/replicaSettingsSync';
 import { isHouseholdBuild } from '@/services/household';
+import { useHouseholdStatusExport } from '@/hooks/useHouseholdStatusExport';
+
+function HouseholdStatusExport() {
+  useHouseholdStatusExport();
+  return null;
+}
 
 // One-time, on first launch after this feature ships, decide how to handle
 // PostHog telemetry for the current install:
@@ -257,6 +263,7 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
     <AuthProvider>
       <IconContext.Provider value={{ size: `${iconSize}px` }}>
         <SyncProvider>
+          {isHouseholdBuild() && <HouseholdStatusExport />}
           <DropdownProvider>
             <CommandPaletteProvider>
               <div
