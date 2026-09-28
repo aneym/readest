@@ -238,11 +238,13 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
             // stays durable as poisoned so its blocked status survives restart.
             await transaction(async () => {
               const live = await store.read();
+              let poisonedHere = 0;
               await store.write(
                 live.flatMap((entry) => {
                   if (!batch.some((sent) => sameRevision(entry, sent))) return [entry];
                   const reason = rejected.get(recordRejectionKey(entry.channel, entry.record));
                   if (reason === undefined) return [];
+                  poisonedHere += 1;
                   return [
                     {
                       ...entry,
@@ -254,9 +256,9 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
                   ];
                 }),
               );
+              newlyPoisoned += poisonedHere;
             });
             pushed += batch.length - rejectedInBatch;
-            newlyPoisoned += rejectedInBatch;
           } catch (err) {
             stoppedBy =
               err instanceof HomebaseSyncError
@@ -266,24 +268,26 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
                     'NETWORK',
                   );
             const error = stoppedBy;
-            if (isDefiniteRejection(error)) newlyPoisoned += batch.length;
             await transaction(async () => {
               const live = await store.read();
+              const poisons = isDefiniteRejection(error);
+              let poisonedHere = 0;
               await store.write(
-                live.map((entry) =>
-                  batch.some((sent) => sameRevision(entry, sent))
-                    ? {
-                        ...entry,
-                        attempts: entry.attempts + 1,
-                        lastError: error.message,
-                        lastErrorCode: error.code,
-                        // Only an explicit client rejection is terminal. Unknown
-                        // failures and auth pauses retain the durable row.
-                        poisoned: isDefiniteRejection(error),
-                      }
-                    : entry,
-                ),
+                live.map((entry) => {
+                  if (!batch.some((sent) => sameRevision(entry, sent))) return entry;
+                  if (poisons) poisonedHere += 1;
+                  return {
+                    ...entry,
+                    attempts: entry.attempts + 1,
+                    lastError: error.message,
+                    lastErrorCode: error.code,
+                    // Only an explicit client rejection is terminal. Unknown
+                    // failures and auth pauses retain the durable row.
+                    poisoned: poisons,
+                  };
+                }),
               );
+              newlyPoisoned += poisonedHere;
             });
             break;
           }

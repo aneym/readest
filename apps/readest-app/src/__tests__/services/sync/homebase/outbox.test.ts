@@ -167,6 +167,35 @@ describe('flush', () => {
     expect(await outbox.clearPoisoned()).toHaveLength(1);
   });
 
+  test.each([
+    [
+      'declined inside a 200',
+      async () => ({ rejected: [{ family: 'book', id: 'a', reason: 'bad' }] }),
+    ],
+    [
+      'a definite 409',
+      async () => {
+        throw new HomebaseSyncError('conflict', 'CONFLICT', 409);
+      },
+    ],
+  ])('newlyPoisoned counts only rows this flush actually poisoned: %s', async (_label, reject) => {
+    const outbox = makeOutbox();
+    await outbox.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);
+    expect((await outbox.flush(reject)).newlyPoisoned).toBe(1);
+    // An old poisoned row is not re-counted by a later flush.
+    expect((await outbox.flush(reject)).newlyPoisoned).toBe(0);
+
+    // A row edited while its push is in flight keeps the newer revision queued,
+    // so the rejection of the old revision poisons nothing.
+    const edited = makeOutbox();
+    await edited.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);
+    const result = await edited.flush(async (envelope) => {
+      await edited.enqueue('books', [{ book_hash: 'a', updated_at: AUG('02') }]);
+      return reject(envelope);
+    });
+    expect(result).toMatchObject({ newlyPoisoned: 0, poisoned: [], remaining: 1 });
+  });
+
   test('auth and unknown failures stay recoverable; only definite client errors block', async () => {
     const outbox = makeOutbox();
     await outbox.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);
