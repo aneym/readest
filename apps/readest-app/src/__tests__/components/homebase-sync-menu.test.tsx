@@ -14,12 +14,15 @@ vi.mock('@/context/SyncContext', () => ({
   useSyncContext: () => ({ syncClient: context.client }),
 }));
 vi.mock('@/services/sync/homebase/config', () => ({ isHomebaseSyncEnabled: () => true }));
+const household = vi.hoisted(() => ({ value: false }));
+vi.mock('@/services/household', () => ({ isHouseholdBuild: () => household.value }));
 vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => (text: string, args?: Record<string, unknown>) =>
     text.replace(/{{(\w+)}}/g, (_, key) => String(args?.[key] ?? key)),
 }));
 
 beforeEach(() => {
+  household.value = false;
   localStorage.clear();
   useHomebaseSyncStatus.setState({
     active: 0,
@@ -115,6 +118,15 @@ describe('actual sync request receipts and menu', () => {
     expect(screen.getByText('1 changes paused until sign-in')).toBeTruthy();
     expect(screen.getByText('1 blocked changes retained on this device')).toBeTruthy();
     expect(screen.getByText('notes/n1: invalid row')).toBeTruthy();
+  });
+
+  it('words the auth pause as re-pairing in household builds', () => {
+    household.value = true;
+    context.client = {};
+    useHomebaseSyncStatus.setState({ authPaused: 2 });
+    render(<HomebaseSyncMenu onSync={() => {}} />);
+    expect(screen.getByText('2 changes paused until this device is paired again')).toBeTruthy();
+    expect(screen.queryByText(/until sign-in/)).toBeNull();
   });
 
   it('does not erase a failure when a concurrent unrelated request succeeds', async () => {

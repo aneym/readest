@@ -3,6 +3,7 @@ import { useSyncContext } from '@/context/SyncContext';
 import { useHomebaseSyncStatus, reportSyncError } from '@/services/sync/homebase/syncStatus';
 import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
 import { useTranslation } from '@/hooks/useTranslation';
+import { isHouseholdBuild } from '@/services/household';
 
 /** Shared library/reader menu: request receipts, not data-change cursors. */
 export default function HomebaseSyncMenu({ onSync }: { onSync: () => void | Promise<unknown> }) {
@@ -58,7 +59,13 @@ export default function HomebaseSyncMenu({ onSync }: { onSync: () => void | Prom
           <p>{_('{{count}} changes retrying', { count: status.retrying })}</p>
         )}
         {status.authPaused > 0 && (
-          <p>{_('{{count}} changes paused until sign-in', { count: status.authPaused })}</p>
+          <p>
+            {isHouseholdBuild()
+              ? _('{{count}} changes paused until this device is paired again', {
+                  count: status.authPaused,
+                })
+              : _('{{count}} changes paused until sign-in', { count: status.authPaused })}
+          </p>
         )}
         {status.blocked > status.rejectedCount && (
           <p>
