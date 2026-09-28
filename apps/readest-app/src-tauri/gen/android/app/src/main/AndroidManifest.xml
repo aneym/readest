@@ -327,7 +327,7 @@
 
         <provider
           android:name=".HouseholdSyncStatusProvider"
-          android:authorities="com.bilingify.readest.household"
+          android:authorities="${applicationId}.household"
           android:exported="true"
           android:readPermission="com.aneym.household.permission.READ_SYNC_STATUS"
           android:grantUriPermissions="false" />

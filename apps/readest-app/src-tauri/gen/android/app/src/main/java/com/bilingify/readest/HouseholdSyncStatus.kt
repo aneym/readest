@@ -5,7 +5,9 @@ import android.net.Uri
 
 /** Only aggregate sync metadata crosses the WebView/native boundary. */
 object HouseholdSyncStatus {
-    const val AUTHORITY = "com.bilingify.readest.household"
+    // Follows the package, so a side-by-side dev flavor never claims the
+    // production authority (INSTALL_FAILED_CONFLICTING_PROVIDER).
+    const val AUTHORITY = BuildConfig.APPLICATION_ID + ".household"
     val URI: Uri get() = Uri.parse("content://$AUTHORITY/sync-status")
     private const val PREFS = "household_sync_status"
     private val states = setOf("idle", "syncing", "offline", "error", "unpaired")

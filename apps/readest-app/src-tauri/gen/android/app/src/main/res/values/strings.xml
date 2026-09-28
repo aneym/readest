@@ -1,4 +1,5 @@
 <resources>
-    <string name="app_name">Readest</string>
-    <string name="main_activity_title">Readest</string>
+    <string name="app_name">Readest DEV</string>
+    <string name="homebase_api_base_url">https://studio.tailf266ac.ts.net:3163/api/readest</string>
+    <string name="main_activity_title">Readest DEV</string>
 </resources>
