@@ -669,22 +669,23 @@ return { libraryProgress: row.progress || null, progress: cfg.progress || null, 
 JS
 }
 
-# read_displayed <saved-cfi>: what the reader actually shows. Takes the
-# visible foliate-view's own relocate state (lastLocation: section index, page
+# read_displayed <hash> <saved-cfi>: what the reader actually shows. Takes the
+# visible foliate-view of that book (id foliate-view-<hash>-<n>) and its own relocate state (lastLocation: section index, page
 # range, page numbers) and checks that the saved CFI's start lies inside the
 # page on screen, in the same section. Stored progress alone can stay the same
 # while the reader shows another book or page.
 read_displayed() {
-  local cfi_json
-  cfi_json="$("$NODE" -e 'console.log(JSON.stringify({cfi: process.argv[1]}))' "$1")"
-  cdp_eval "$cfi_json" <<'JS'
-const view = [...document.querySelectorAll('foliate-view')].find((v) => v.getBoundingClientRect().width > 0);
-if (!view) return { error: 'no visible foliate-view' };
+  local args_json
+  args_json="$("$NODE" -e 'console.log(JSON.stringify({hash: process.argv[1], cfi: process.argv[2]}))' "$1" "$2")"
+  cdp_eval "$args_json" <<'JS'
+const visible = [...document.querySelectorAll('foliate-view')].filter((v) => v.getBoundingClientRect().width > 0);
+const view = visible.find((v) => v.id.startsWith(`foliate-view-${ARGS.hash}-`));
+if (!view) return { error: 'no visible foliate-view for this book', visibleIds: visible.map((v) => v.id) };
 const ll = view.lastLocation;
 if (!ll?.range) return { error: 'reader has not relocated yet' };
 const t = view.book?.metadata?.title;
 const title = typeof t === 'string' ? t : t && typeof t === 'object' ? Object.values(t)[0] ?? null : null;
-const out = { path: location.pathname + location.search, title, cfi: ll.cfi, index: ll.section?.current ?? null,
+const out = { path: location.pathname + location.search, viewId: view.id, title, cfi: ll.cfi, index: ll.section?.current ?? null,
   page: ll.location ? [ll.location.current + 1, ll.location.total] : null };
 if (!ARGS.cfi) return { ...out, error: 'no saved CFI to compare' };
 let nav;
@@ -696,7 +697,7 @@ let target = typeof nav.anchor === 'function' ? nav.anchor(doc) : null;
 if (target && !(target instanceof doc.defaultView.Range)) { const r = doc.createRange(); r.selectNode(target); target = r; }
 if (!target) return { ...out, error: 'saved CFI has no anchor in the shown section' };
 out.onPage = ll.range.compareBoundaryPoints(Range.START_TO_START, target) <= 0
-  && ll.range.compareBoundaryPoints(Range.END_TO_START, target) >= 0;
+  && ll.range.compareBoundaryPoints(Range.START_TO_END, target) >= 0;
 return out;
 JS
 }
@@ -961,7 +962,9 @@ fi
 
 # --- 5. deep link ----------------------------------------------------------------
 if ui_item 5 75; then
-  if [[ -z "$BOOK_HASH" ]]; then
+  if ! screen_ready; then
+    record 5 FAIL "the panel locked or slept before the deep-link check; nothing was opened"
+  elif [[ -z "$BOOK_HASH" ]]; then
     record 5 FAIL "no downloaded book with saved progress to open"
   elif [[ "$BOOK_ID" == null ]]; then
     record 5 FAIL "no downloaded book carries a calibreId in library.json yet (Homebase sync has not written calibre_id), so a launcher link cannot name one"
@@ -974,13 +977,13 @@ if ui_item 5 75; then
     attach
     p1="$(wait_path /reader 40)"; sleep 8
     first="$(read_position "$BOOK_HASH" 2>&1)"
-    shown1="$(read_displayed "$saved_cfi" 2>&1)"
+    shown1="$(read_displayed "$BOOK_HASH" "$saved_cfi" 2>&1)"
     screencap 5-deeplink-cold >/dev/null
     sh_dev "am start -W -a android.intent.action.VIEW -d '$link'" > "$OUT/5-am-start-2.txt"
     sleep 8
     p2="$(wait_path /reader 10)"
     second="$(read_position "$BOOK_HASH" 2>&1)"
-    shown2="$(read_displayed "$saved_cfi" 2>&1)"
+    shown2="$(read_displayed "$BOOK_HASH" "$saved_cfi" 2>&1)"
     screencap 5-deeplink-warm >/dev/null
     printf 'before %s\nafter-cold %s\nafter-warm %s\nshown-cold %s\nshown-warm %s\npaths %s | %s\n' \
       "$before" "$first" "$second" "$shown1" "$shown2" "$p1" "$p2" > "$OUT/5-positions.txt"
@@ -989,6 +992,8 @@ if ui_item 5 75; then
     title_ok() { local t; t="$(jget "$1" 'v.title || ""' 2>/dev/null)"; [[ -z "$t" || "$t" == "$BOOK_TITLE" ]]; }
     if [[ -z "$saved_cfi" ]]; then
       record 5 FAIL "book $BOOK_HASH has no saved location CFI to open at"
+    elif ! screen_ready; then
+      record 5 FAIL "the panel locked or slept during the deep-link check; a DOM reading is not proof of what is on screen"
     elif [[ "$p1" == *"$BOOK_HASH"* && "$p2" == *"$BOOK_HASH"* ]] && same "$before" "$first" && same "$first" "$second" \
       && on_page "$shown1" && on_page "$shown2" && title_ok "$shown1" \
       && [[ "$(jget "$shown1" 'v.cfi')" == "$(jget "$shown2" 'v.cfi')" ]]; then
