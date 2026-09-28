@@ -128,6 +128,32 @@ describe('offline behaviour at the seam', () => {
     expect(server.rows('notes')).toHaveLength(1);
   });
 
+  test('an outbox drain leaves a diagnostic when it stops and when it delivers', async () => {
+    // Queued offline writes reach the server only through a drain. A drain
+    // that keeps failing on reconnect (a server 500) must be visible in the
+    // diagnostics the device ships home, not only in the pending count.
+    const server = createMemoryHomebaseAdapter();
+    const outbox = createSyncOutbox({ store: createMemoryOutboxStore() });
+    const client = new HomebaseSyncClient({ adapter: server, outbox });
+    const drainEvents = () => readDiagnosticEvents().filter((e) => e.kind === 'sync.drain');
+    const before = drainEvents().length;
+
+    server.failNext(new HomebaseSyncError('Readest sync failed', 'NETWORK', 500), 2);
+    await client.pushChanges({ books: [{ hash: 'd1', updatedAt: AUG('01') }] });
+    await client.flushOutbox();
+    expect(drainEvents().slice(before)).toMatchObject([
+      { level: 'warn', data: { pushed: 0, remaining: 1, code: 'NETWORK', status: 500 } },
+    ]);
+
+    await client.flushOutbox();
+    expect(drainEvents().slice(before + 1)).toMatchObject([
+      { level: 'info', data: { pushed: 1, remaining: 0, poisoned: 0 } },
+    ]);
+
+    await client.flushOutbox();
+    expect(drainEvents()).toHaveLength(before + 2);
+  });
+
   test('auth failure queues without poisoning until sign-in resumes', async () => {
     const server = createMemoryHomebaseAdapter();
     const outbox = createSyncOutbox({ store: createMemoryOutboxStore() });

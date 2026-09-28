@@ -190,7 +190,26 @@ export class HomebaseSyncClient implements RecordSyncClient {
       this.handleRejected(envelope, response.rejected);
       return response;
     });
-    reportOutboxQueue([...(await this.outbox.pending()), ...result.poisoned]);
+    const pending = await this.outbox.pending();
+    reportOutboxQueue([...pending, ...result.poisoned]);
+    // Drains are the only path a queued offline write takes to the server, so
+    // they must leave a trace an operator can read after the device reconnects.
+    // An empty outbox drains on every start and resume; that stays silent.
+    if (result.stoppedBy) {
+      recordDiagnostic('sync.drain', 'warn', `outbox drain stopped: ${result.stoppedBy.message}`, {
+        pushed: result.pushed,
+        remaining: result.remaining,
+        poisoned: result.poisoned.length,
+        code: result.stoppedBy.code,
+        status: result.stoppedBy.status ?? null,
+      });
+    } else if (result.pushed > 0 || result.poisoned.length > 0) {
+      recordDiagnostic('sync.drain', 'info', 'outbox drained', {
+        pushed: result.pushed,
+        remaining: result.remaining,
+        poisoned: result.poisoned.length,
+      });
+    }
     return result;
   }
 }
