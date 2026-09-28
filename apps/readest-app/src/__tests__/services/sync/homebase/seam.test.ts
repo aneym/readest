@@ -128,7 +128,7 @@ describe('offline behaviour at the seam', () => {
     expect(server.rows('notes')).toHaveLength(1);
   });
 
-  test('an outbox drain leaves a diagnostic when it stops and when it delivers', async () => {
+  test('an outbox drain leaves a diagnostic when it pauses, delivers or poisons rows', async () => {
     // Queued offline writes reach the server only through a drain. A drain
     // that keeps failing on reconnect (a server 500) must be visible in the
     // diagnostics the device ships home, not only in the pending count.
@@ -137,21 +137,46 @@ describe('offline behaviour at the seam', () => {
     const client = new HomebaseSyncClient({ adapter: server, outbox });
     const drainEvents = () => readDiagnosticEvents().filter((e) => e.kind === 'sync.drain');
     const before = drainEvents().length;
+    const newEvents = () => drainEvents().slice(before);
 
-    server.failNext(new HomebaseSyncError('Readest sync failed', 'NETWORK', 500), 2);
+    server.failNext(
+      new HomebaseSyncError('Readest sync failed: secret row text', 'NETWORK', 500),
+      2,
+    );
     await client.pushChanges({ books: [{ hash: 'd1', updatedAt: AUG('01') }] });
     await client.flushOutbox();
-    expect(drainEvents().slice(before)).toMatchObject([
-      { level: 'warn', data: { pushed: 0, remaining: 1, code: 'NETWORK', status: 500 } },
+    expect(newEvents()).toMatchObject([
+      {
+        level: 'warn',
+        message: 'outbox drain paused; rows stay queued',
+        data: { pushed: 0, remaining: 1, rejected: 0, code: 'NETWORK', status: 500 },
+      },
     ]);
+    // Server error text can echo row content; it never reaches diagnostics.
+    expect(JSON.stringify(newEvents())).not.toContain('secret row text');
 
     await client.flushOutbox();
-    expect(drainEvents().slice(before + 1)).toMatchObject([
-      { level: 'info', data: { pushed: 1, remaining: 0, poisoned: 0 } },
+    expect(newEvents().slice(1)).toMatchObject([
+      { level: 'info', data: { pushed: 1, remaining: 0, rejected: 0 } },
     ]);
 
+    // A definite 409 poisons the row: a rejection, not a paused drain.
+    server.failNext(new HomebaseSyncError('offline', 'NETWORK'), 1);
+    await client.pushChanges({ books: [{ hash: 'd2', updatedAt: AUG('02') }] });
+    server.failNext(new HomebaseSyncError('conflict', 'CONFLICT', 409), 1);
     await client.flushOutbox();
-    expect(drainEvents()).toHaveLength(before + 2);
+    expect(newEvents().slice(2)).toMatchObject([
+      {
+        level: 'warn',
+        message: 'outbox drain: server rejected rows',
+        data: { pushed: 0, remaining: 0, rejected: 1, code: 'CONFLICT', status: 409 },
+      },
+    ]);
+
+    // Later drains that move nothing (only the old poisoned row) stay silent.
+    await client.flushOutbox();
+    await client.flushOutbox();
+    expect(newEvents()).toHaveLength(3);
   });
 
   test('auth failure queues without poisoning until sign-in resumes', async () => {

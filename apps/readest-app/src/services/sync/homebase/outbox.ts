@@ -45,6 +45,8 @@ export interface FlushResult {
   /** Entries still queued (a retryable failure stopped the drain). */
   remaining: number;
   poisoned: OutboxEntry[];
+  /** Rows this flush poisoned (declined inside a 200, or a definite 4xx). */
+  newlyPoisoned: number;
   /** The failure that stopped this flush, if one did. */
   stoppedBy?: HomebaseSyncError;
 }
@@ -214,6 +216,7 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
         const snapshot = await transaction(() => store.read());
         const queue = snapshot.filter((entry) => !entry.poisoned);
         let pushed = 0,
+          newlyPoisoned = 0,
           stoppedBy: HomebaseSyncError | undefined;
         for (let index = 0; index < queue.length; index += batchSize) {
           const batch = queue.slice(index, index + batchSize);
@@ -253,6 +256,7 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
               );
             });
             pushed += batch.length - rejectedInBatch;
+            newlyPoisoned += rejectedInBatch;
           } catch (err) {
             stoppedBy =
               err instanceof HomebaseSyncError
@@ -262,6 +266,7 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
                     'NETWORK',
                   );
             const error = stoppedBy;
+            if (isDefiniteRejection(error)) newlyPoisoned += batch.length;
             await transaction(async () => {
               const live = await store.read();
               await store.write(
@@ -288,6 +293,7 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
           pushed,
           remaining: live.filter((e) => !e.poisoned).length,
           poisoned: live.filter((e) => e.poisoned),
+          newlyPoisoned,
           ...(stoppedBy ? { stoppedBy } : {}),
         };
       })();
