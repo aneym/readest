@@ -73,16 +73,18 @@ const ShelfFilterBar: React.FC<ShelfFilterBarProps> = ({ value, counts, onChange
               className={clsx(
                 'flex h-11 shrink-0 items-center gap-1.5 rounded-full border px-4 text-base font-medium',
                 active
-                  ? 'border-base-content bg-base-content text-base-100'
+                  ? 'border-base-content bg-base-content text-base-100 eink-inverted'
                   : 'border-base-content/30 bg-base-100 text-base-content',
                 !active && count === 0 && 'opacity-50',
               )}
             >
               <span>{labels[id]}</span>
+              {/* A tint cannot show on e-ink: the ink rules flatten it to a solid
+                  fill the same color as the count. Outline the count there. */}
               <span
                 className={clsx(
-                  'rounded-full px-1.5 text-xs tabular-nums',
-                  active ? 'bg-base-100/20' : 'bg-base-content/10',
+                  'eink:border-current rounded-full px-1.5 text-xs tabular-nums eink:border',
+                  active ? 'not-eink:bg-base-100/20' : 'not-eink:bg-base-content/10',
                 )}
               >
                 {count}

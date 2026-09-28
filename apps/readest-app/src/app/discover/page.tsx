@@ -461,7 +461,7 @@ const DiscoverPage = () => {
                       className={clsx(
                         'h-11 rounded-full border px-4 text-sm font-medium',
                         kind === option
-                          ? 'border-base-content bg-base-content text-base-100'
+                          ? 'border-base-content bg-base-content text-base-100 eink-inverted'
                           : 'border-base-content/20 eink:border-base-content',
                       )}
                     >
