@@ -111,7 +111,9 @@ export const loadRejected = (): RejectedRequest[] =>
     .filter((item) => !!item && typeof item.requestId === 'string')
     .map((item) =>
       // Entries saved before reasons were kept get the reason their status implies.
-      REJECT_REASONS.has(item.reason) ? item : { ...item, reason: rejectReasonFor(item.status, null) },
+      REJECT_REASONS.has(item.reason)
+        ? item
+        : { ...item, reason: rejectReasonFor(item.status, null) },
     );
 
 export const dismissRejected = (): void => writeList(REJECTED_KEY, []);

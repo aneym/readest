@@ -47,6 +47,9 @@
         <meta-data android:name="io.sentry.dsn" android:value="${sentryDsn}" />
         <meta-data android:name="io.sentry.environment" android:value="production" />
         <meta-data android:name="io.sentry.ndk.enable" android:value="false" />
+        <!-- Household reader loads only local and Homebase content; keep the WebView from calling Google services. -->
+        <meta-data android:name="android.webkit.WebView.EnableSafeBrowsing" android:value="false" />
+        <meta-data android:name="android.webkit.WebView.MetricsOptOut" android:value="true" />
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|navigation|screenSize|locale|smallestScreenSize|screenLayout|uiMode"

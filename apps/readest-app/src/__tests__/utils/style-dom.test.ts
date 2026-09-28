@@ -350,10 +350,16 @@ describe('getThemeCode', () => {
   });
 
   it('returns defaults when localStorage is empty', () => {
-    const code = getThemeCode();
-    // auto mode with systemIsDarkMode not set => light
-    expect(code.isDarkMode).toBe(false);
-    expect(code.bg).toBeTruthy();
+    // The default is Scheduled mode (dark 21:00-05:00 on the device clock), so pin noon.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 0, 15, 12, 0));
+      const code = getThemeCode();
+      expect(code.isDarkMode).toBe(false);
+      expect(code.bg).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

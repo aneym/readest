@@ -398,6 +398,8 @@ describe('themeStore', () => {
     test('sets light theme in auto mode when system prefers light', () => {
       localStorage.setItem('themeMode', 'auto');
       localStorage.setItem('themeColor', 'default');
+      // Past the one-time move to Scheduled mode, so auto stays auto at any hour.
+      localStorage.setItem('themeScheduleDefaultApplied', 'true');
       // jsdom matchMedia mock returns matches: false by default (from vitest.setup.ts)
       loadDataTheme();
       expect(document.documentElement.getAttribute('data-theme')).toBe('default-light');

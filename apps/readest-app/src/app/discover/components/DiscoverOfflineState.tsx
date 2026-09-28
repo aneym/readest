@@ -59,7 +59,9 @@ export const WaitingToSendList: React.FC<{
 export const rejectReasonText = (_: TranslationFunc, reason: DiscoverRejectReason): string => {
   switch (reason) {
     case 'title':
-      return _('Homebase could not read the title. Find the book again and request it from its page.');
+      return _(
+        'Homebase could not read the title. Find the book again and request it from its page.',
+      );
     case 'author':
       return _(
         'Homebase could not read the author name. Find the book again and request it from its page.',

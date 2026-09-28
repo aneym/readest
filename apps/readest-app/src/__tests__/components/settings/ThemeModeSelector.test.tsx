@@ -4,11 +4,11 @@ import { render, cleanup, fireEvent, screen } from '@testing-library/react';
 /**
  * Redesign guard for issue #4831 (theme switcher hit targets & spacing).
  *
- * The three theme-mode toggles used to be tiny `btn-circle btn-sm` icons
+ * The original theme-mode toggles used to be tiny `btn-circle btn-sm` icons
  * separated by `gap-4`, so on mobile they were both hard to hit and easy to
- * mis-hit. They are now a segmented control: an ARIA `radiogroup` of three
- * adjacent `radio` segments, each with a comfortable tap target and no dead
- * space between them.
+ * mis-hit. They are now a segmented control: an ARIA `radiogroup` of adjacent
+ * `radio` segments, each with a comfortable tap target and no dead space
+ * between them.
  */
 
 vi.mock('@/hooks/useTranslation', () => ({
@@ -30,12 +30,13 @@ import ThemeModeSelector from '@/components/settings/theme/ThemeModeSelector';
 afterEach(() => cleanup());
 
 describe('ThemeModeSelector segmented control', () => {
-  it('renders the three modes as a radiogroup of radio segments', () => {
+  it('renders the four modes as a radiogroup of radio segments', () => {
     render(<ThemeModeSelector themeMode='light' onThemeModeChange={() => {}} />);
 
     expect(screen.getByRole('radiogroup')).not.toBeNull();
     const segments = screen.getAllByRole('radio');
-    expect(segments).toHaveLength(3);
+    expect(segments).toHaveLength(4);
+    expect(screen.getByRole('radio', { name: 'Scheduled Mode' })).not.toBeNull();
   });
 
   it('adds Ambient Mode when an ambient light sensor is available', () => {
@@ -43,7 +44,7 @@ describe('ThemeModeSelector segmented control', () => {
       <ThemeModeSelector themeMode='ambient' onThemeModeChange={() => {}} hasAmbientLightSensor />,
     );
 
-    expect(screen.getAllByRole('radio')).toHaveLength(4);
+    expect(screen.getAllByRole('radio')).toHaveLength(5);
     expect(screen.getByRole('radio', { name: 'Ambient Mode' }).getAttribute('aria-checked')).toBe(
       'true',
     );
@@ -61,6 +62,14 @@ describe('ThemeModeSelector segmented control', () => {
 
     fireEvent.click(screen.getByRole('radio', { name: 'Ambient Mode' }));
     expect(onThemeModeChange).toHaveBeenCalledWith('ambient');
+  });
+
+  it('switches to Scheduled Mode when that segment is clicked', () => {
+    const onThemeModeChange = vi.fn();
+    render(<ThemeModeSelector themeMode='light' onThemeModeChange={onThemeModeChange} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Scheduled Mode' }));
+    expect(onThemeModeChange).toHaveBeenCalledWith('schedule');
   });
 
   it('marks the active segment via aria-checked', () => {

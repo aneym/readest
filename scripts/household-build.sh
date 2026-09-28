@@ -1,4 +1,4 @@
-#!/bin/zsh -f
+#!/usr/bin/env bash
 # Household Android build for the Readest fork.
 #
 #   scripts/household-build.sh [ref]        # default: HEAD of this checkout
@@ -14,6 +14,7 @@
 #
 # Measured 2026-09-12 (Mac Studio, warm caches): ~5 min end to end.
 set -euo pipefail
+unset SENTRY_DSN
 
 REF="${1:-HEAD}"
 ROOT="$(git rev-parse --show-toplevel)"
@@ -60,6 +61,10 @@ git -C "$BUILD_ROOT" checkout -q -- "$APP/src-tauri/gen/android"
 # them (identical output, seconds instead of a minute).
 rsync -a --delete "$ROOT/$APP/public/vendor/" "$BUILD_ROOT/$APP/public/vendor/"
 cp "$ROOT/$APP/.env.local" "$BUILD_ROOT/$APP/.env.local"
+if grep -qE '^SENTRY_DSN=[^[:space:]]' "$BUILD_ROOT/$APP/.env.local" "$BUILD_ROOT/$APP/.env"; then
+  echo 'household-build: SENTRY_DSN is set in .env.local; household builds ship no crash reporting' >&2
+  exit 3
+fi
 cp "$ROOT/$APP/.env.tauri" "$BUILD_ROOT/$APP/.env.tauri"
 phase "generated android project + env synced"
 
@@ -67,7 +72,8 @@ phase "generated android project + env synced"
 # ~/.local/bin/cc is Claude Code on this host; cargo build scripts need the real compiler.
 SHIM="$(mktemp -d)"; ln -s /usr/bin/cc "$SHIM/cc"; ln -s /usr/bin/c++ "$SHIM/c++"
 export PATH="$SHIM:$HOME/.nvm/versions/node/v24.13.1/bin:$PATH"   # Node 24: vitest/jsdom break on 26
-export JAVA_HOME="$(/usr/libexec/java_home)"
+JAVA_HOME="$(/usr/libexec/java_home)"
+export JAVA_HOME
 export ANDROID_HOME=/Volumes/StudioExt/android/sdk
 export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 export CARGO_TARGET_DIR="$ROOT/target"            # share the warm 10 GB target

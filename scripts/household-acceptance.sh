@@ -2,14 +2,16 @@
 # Household Readest acceptance run on a real BOOX (the Palma).
 #
 #   scripts/household-acceptance.sh --serial <adb-serial> [--out DIR]
-#       [--homebase-host HOST] [--homebase-ip IP]... [--only 1,2,5]
+#       [--homebase-host HOST] [--homebase-ip IP]... [--only 1,2,5,8]
 #       [--lock-wait MINUTES]
 #
 # Prints PASS / FAIL / SKIP per item and exits non-zero on any FAIL:
 #   1 cold start makes no upstream-cloud requests: every socket the app's uid
 #     opens (native tauriFetch and WebView alike, sampled from /proc/net on the
 #     device) goes to the Homebase host, plus CDP Network and logcat; the
-#     window includes a Discover visit so the native discover client runs
+#     window includes a Discover visit so the native discover client runs;
+#     readest.com, posthog, supabase, googleapis, jsdelivr, cdnjs,
+#     onlinewebfonts, sentry and safebrowsing are forbidden
 #   2 no sign-in UI on /library or in the library menu
 #   3 night mode: true-black page and white text measured inside the reader's
 #     own text-line rectangles, again after 10 page turns
@@ -20,6 +22,8 @@
 #   7 offline: quiet library, Discover offline panel with cached shelves, one
 #     request made by tapping "Get ebook" in a cached work's sheet waits in
 #     the queue, then flushes when the network comes back
+#   8 e-ink dark visuals: Discover, Book details audio row and the TTS tab
+#     captured at native width; page background pure black
 #
 # Item 7 sends one real request to Homebase when the network returns. It
 # only ever picks an unowned work first published in 1928 or earlier (public
@@ -44,7 +48,7 @@ PROVIDER_URI=content://com.bilingify.readest.household/sync-status
 LOCK_DIR=/Volumes/StudioExt/repos/homebase-worktrees/_program/palma.lock
 LANE=readest-fork
 PORT=9333
-FORBIDDEN_RE='readest\.com|posthog|supabase|googleapis|jsdelivr|cdnjs|onlinewebfonts'
+FORBIDDEN_RE='readest\.com|posthog|supabase|googleapis|jsdelivr|cdnjs|onlinewebfonts|sentry\.io|ingest\.sentry|safebrowsing'
 LOCAL_HOSTS_RE='^(tauri\.localhost|asset\.localhost|ipc\.localhost|rangefile\.localhost|localhost|127\.0\.0\.1)$'
 
 SERIAL=""
@@ -304,6 +308,44 @@ else:
     print(json.dumps({'changed': round(diff / max(len(a), 1), 4)}))
 PY
 
+cat > "$WORK/8-pixels.py" <<'PY'
+# python3 8-pixels.py <webview bounds or empty> <png>... -> JSON measurements.
+# Corners are inside the WebView rather than the Onyx status/navigation bars.
+import json, os, sys
+from PIL import Image
+
+box = [int(n) for n in sys.argv[1].split() if n.isdigit()]
+results = []
+for path in sys.argv[2:]:
+    result = {'name': path, 'cornersBlack': False, 'bandBlackRatio': 0,
+              'midGrayRatio': 1}
+    try:
+        with Image.open(path) as image:
+            im = image.convert('RGB')
+            w, h = im.size
+            if len(box) == 4 and 0 <= box[0] < box[2] <= w and 0 <= box[1] < box[3] <= h:
+                x0, y0, x1, y1 = box
+                band0, band1 = y0, min(y0 + max(1, int((y1 - y0) * .03)), y1)
+            else:
+                x0, y0, x1, y1 = 0, int(h * .05), w, int(h * .97)
+                band0, band1 = y0, max(y0 + 1, int(h * .08))
+            if x1 - x0 < 24 or y1 - y0 < 24 or band1 > h:
+                raise ValueError('invalid WebView bounds')
+            corners = [im.crop(coords) for coords in (
+                (x0, y0, x0 + 12, y0 + 12),
+                (x1 - 12, y0, x1, y0 + 12),
+                (x0, y1 - 12, x0 + 12, y1),
+                (x1 - 12, y1 - 12, x1, y1))]
+            result['cornersBlack'] = all(all(p == (0, 0, 0) for p in c.getdata()) for c in corners)
+            pixels = list(im.crop((x0, band0, x1, band1)).getdata())
+            result['bandBlackRatio'] = round(sum(p == (0, 0, 0) for p in pixels) / len(pixels), 4)
+            result['midGrayRatio'] = round(sum(all(40 <= v <= 215 for v in p) for p in pixels) / len(pixels), 4)
+    except (OSError, ValueError) as exc:
+        result['error'] = str(exc) if os.path.exists(path) else 'capture missing'
+    results.append(result)
+print(json.dumps(results))
+PY
+
 cat > "$WORK/uix.py" <<'PY'
 # python3 uix.py <uiautomator.xml> <queued title> <cached shelf titles JSON>
 # Reads the offline Discover screen dump: the offline panel, the queued title
@@ -496,7 +538,12 @@ JS
   fi
   adb -s "$SERIAL" forward --remove "tcp:$PORT" >/dev/null 2>&1 || true
   if [[ -n "$WATCHDOG_PID" ]]; then
-    pkill -P "$WATCHDOG_PID" 2>/dev/null; kill "$WATCHDOG_PID" 2>/dev/null
+    # Kill the watchdog subshell before its sleep: killing the sleep first wakes
+    # the subshell, which sends TERM here and turns a clean run into exit 130.
+    local kids
+    kids="$(pgrep -P "$WATCHDOG_PID" 2>/dev/null)"
+    kill "$WATCHDOG_PID" 2>/dev/null
+    [[ -n "$kids" ]] && kill $kids 2>/dev/null
   fi
   if [[ $LOCK_TAKEN == 1 ]]; then
     rm -rf "$LOCK_DIR"
@@ -707,7 +754,7 @@ JS
 SCREEN_OK=1
 if ! screen_ready; then
   SCREEN_OK=0
-  log "screen is off or the keyguard is up: items 2, 3, 4, 5 and 7 need the Palma unlocked; no input is sent into the lock screen"
+  log "screen is off or the keyguard is up: items 2, 3, 4, 5, 7 and 8 need the Palma unlocked; no input is sent into the lock screen"
 fi
 ui_item() { # ui_item <n> <seconds>: item n is wanted, the screen allows it, and it fits the hold
   want "$1" || return 1
@@ -890,7 +937,7 @@ fi
 
 # --- pick a local book for 3, 4, 5 -----------------------------------------
 BOOK_HASH=""; BOOK_ID=""; BOOK_TITLE=""
-if want 3 || want 4 || want 5; then
+if want 3 || want 4 || want 5 || want 8; then
   lib="$(read_library 2>&1)"
   echo "$lib" > "$OUT/library-pick.json"
   if [[ "$lib" == \{* ]] && [[ "$(jget "$lib" 'v.local.length')" != 0 ]]; then
@@ -957,6 +1004,154 @@ JS
     record 4 PASS "TTS tab opens; household audio row: \"$(jget "$r" 'v.audioRowText')\" ($(jget "$r" 'v.audioRowIcons') icons)"
   else
     record 4 FAIL "$(cut -c1-300 <<<"$r")"
+  fi
+fi
+
+# --- 8. e-ink dark surfaces at the Palma's native width -------------------------
+if ui_item 8 120; then
+  captures=("$OUT/8-discover-dark.png" "$OUT/8-details-audio-dark.png" "$OUT/8-tts-dark.png")
+  failure=""
+  while :; do
+    if ! screen_ready; then
+      failure="panel asleep or keyguard up; no input sent"
+      break
+    fi
+    size="$(sh_dev wm size | tail -1)"
+    density="$(sh_dev wm density | tail -1)"
+    if [[ "$size" =~ ([0-9]+)x([0-9]+) && "$density" =~ ([0-9]+) ]]; then
+      read -r px_w px_h < <(sed -nE 's/.*: *([0-9]+)x([0-9]+).*/\1 \2/p' <<<"$size")
+      dpi="$(sed -nE 's/.*: *([0-9]+).*/\1/p' <<<"$density")"
+      dp_w="$(python3 -c 'import sys; print(round(int(sys.argv[1])*160/int(sys.argv[2]), 1))' "$px_w" "$dpi")"
+      dp_h="$(python3 -c 'import sys; print(round(int(sys.argv[1])*160/int(sys.argv[2]), 1))' "$px_h" "$dpi")"
+      printf 'wm size: %s\nwm density: %s\nwindow: %s x %s dp\n' "$size" "$density" "$dp_w" "$dp_h" > "$OUT/8-window.txt"
+    else
+      failure="could not record wm size and density in dp"
+      break
+    fi
+    # Keep the first original: a failed earlier restore leaves THEME_CHANGED=1 and themeMode=dark.
+    if [[ $THEME_CHANGED != 1 ]]; then
+      THEME_ORIGINAL="$(cdp_eval '{}' 2>/dev/null <<'JS' | tr -d '"'
+return localStorage.getItem('themeMode') || 'schedule';
+JS
+)"
+    fi
+    if [[ -z "$THEME_ORIGINAL" ]]; then
+      failure="could not read themeMode"
+      break
+    fi
+    THEME_CHANGED=1
+    if ! cdp_eval '{}' >/dev/null 2>&1 <<'JS'
+localStorage.setItem('themeMode', 'dark'); location.reload(); return true;
+JS
+    then
+      failure="could not set dark themeMode"
+      break
+    fi
+    sleep 3
+    # useEinkMode sets data-eink in an effect after hydration; a slow panel can take a few seconds.
+    eink="$(cdp_eval '{}' 2>/dev/null <<'JS'
+for (let i = 0; i < 20; i++) {
+  if (document.documentElement.getAttribute('data-eink') === 'true') return true;
+  await sleep(500);
+}
+return false;
+JS
+)"
+    if [[ "$eink" != true ]]; then
+      failure="documentElement missing data-eink (got ${eink:-no response})"
+      break
+    fi
+    if ! screen_ready; then failure="panel locked before Discover; no input sent"; break; fi
+    if ! goto /discover || ! discover_rendered; then
+      failure="Discover did not render Back to library"
+      break
+    fi
+    sleep 2
+    screencap 8-discover-dark >/dev/null
+    if ! screen_ready; then failure="panel locked before Book details; no input sent"; break; fi
+    if ! goto /library; then failure="library did not load"; break; fi
+    details="$(cdp_eval "{\"hash\":\"$BOOK_HASH\"}" 2>/dev/null <<'JS'
+const byText = (sel, text) => [...document.querySelectorAll(sel)].find(e => (e.innerText || '').trim() === text);
+const findCell = () => (ARGS.hash && document.querySelector(`[data-book-hash="${ARGS.hash}"]`)) || document.querySelector('[data-book-hash]');
+let cell = findCell();
+for (let i = 0; !cell && i < 20; i++) { await sleep(500); cell = findCell(); }
+if (!cell) return 'no book cell';
+cell.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+await sleep(1200);
+const details = byText('button', 'Details');
+if (!details) return 'no Details button';
+details.click();
+for (let i = 0; i < 12; i++) {
+  if (document.querySelector('section[aria-label="Audio"]')) return 'ready';
+  await sleep(500);
+}
+return 'no Audio section';
+JS
+)"
+    if [[ "$details" != '"ready"' ]]; then failure="Book details: ${details:-no response}"; break; fi
+    screencap 8-details-audio-dark >/dev/null
+    cdp_eval '{}' >/dev/null 2>&1 <<'JS'
+document.querySelector('[aria-label="Close"]')?.click();
+[...document.querySelectorAll('button')].find(e => (e.innerText || '').trim() === 'Cancel')?.click();
+return true;
+JS
+    if ! screen_ready; then failure="panel locked before TTS; no input sent"; break; fi
+    tts="$(cdp_eval '{}' 2>/dev/null <<'JS'
+const byText = (sel, text) => [...document.querySelectorAll(sel)].find(e => (e.innerText || '').trim() === text);
+document.querySelector('[aria-label="Settings Menu"]')?.click();
+await sleep(1000);
+const settings = byText('[role="menuitem"]', 'Settings') || document.querySelector('[role="menuitem"][aria-label^="Settings"]');
+if (!settings) return 'no Settings menu item';
+settings.click();
+await sleep(2000);
+const tab = document.querySelector('button[data-tab="TTS"]');
+if (!tab) return 'no TTS tab';
+tab.click();
+await sleep(1200);
+return tab.classList.contains('btn-active') ? 'ready' : 'TTS tab not active';
+JS
+)"
+    if [[ "$tts" != '"ready"' ]]; then failure="Settings: ${tts:-no response}"; break; fi
+    screencap 8-tts-dark >/dev/null
+    cdp_eval '{}' >/dev/null 2>&1 <<'JS'
+const tab = document.querySelector('button[data-tab="TTS"]');
+const dialog = tab?.closest('[role="dialog"], dialog, .modal-box, .modal');
+const closers = dialog ? dialog.querySelectorAll('[aria-label="Close"]') : document.querySelectorAll('[aria-label="Close"]');
+closers.forEach(e => e.click());
+return true;
+JS
+    box="$(ui wvbox 2>/dev/null | tail -1)"
+    if ! python3 "$WORK/8-pixels.py" "$box" "${captures[@]}" > "$OUT/8-pixels.json"; then
+      failure="pixel measurements failed"
+      break
+    fi
+    failure="$(jget "$(cat "$OUT/8-pixels.json")" '(() => {
+      if (v.length !== 3) return `expected 3 captures, got ${v.length}`;
+      for (const item of v) {
+        if (item.error) return `${item.name}: ${item.error}`;
+        if (!item.cornersBlack) return `${item.name}: cornersBlack=false`;
+        if (item.bandBlackRatio < 0.90) return `${item.name}: bandBlackRatio=${item.bandBlackRatio} < 0.90`;
+        if (item.midGrayRatio > 0.02) return `${item.name}: midGrayRatio=${item.midGrayRatio} > 0.02`;
+      }
+      return "";
+    })()')"
+    break
+  done
+  # Do not clear THEME_CHANGED unless restoration succeeded; EXIT trap retries.
+  if [[ $THEME_CHANGED == 1 ]]; then
+    if cdp_eval "{\"mode\":\"$THEME_ORIGINAL\"}" >/dev/null 2>&1 <<'JS'
+localStorage.setItem('themeMode', ARGS.mode); location.reload(); return true;
+JS
+    then
+      THEME_CHANGED=0
+    else
+      failure="${failure:+$failure; }could not restore themeMode (cleanup will retry)"
+    fi
+  fi
+  if [[ -z "$failure" ]]; then
+    record 8 PASS "e-ink dark at ${dp_w}dp; ${captures[*]}"
+  else
+    record 8 FAIL "$failure; captures: ${captures[*]}"
   fi
 fi
 
@@ -1064,10 +1259,15 @@ if ui_item 3 170; then
     record 3 FAIL "screen is off or the keyguard is up; unlock the Palma first (no input is sent into the lock screen)"
   else
     [[ "$(wait_path /reader 3)" == *"$BOOK_HASH"* ]] || goto "/reader?ids=$BOOK_HASH"
-    THEME_ORIGINAL="$(cdp_eval '{}' <<'JS' | tr -d '"'
+    if [[ $THEME_CHANGED != 1 ]]; then
+      THEME_ORIGINAL="$(cdp_eval '{}' <<'JS' | tr -d '"'
 return localStorage.getItem('themeMode') || 'schedule';
 JS
 )"
+    fi
+    if [[ -z "$THEME_ORIGINAL" ]]; then
+      record 3 FAIL "could not read themeMode; theme left unchanged, no pages turned"
+    else
     start_pos="$(read_position "$BOOK_HASH" 2>&1)"
     THEME_CHANGED=1
     cdp_eval '{}' >/dev/null 2>&1 <<'JS'
@@ -1103,10 +1303,15 @@ JS
     for _ in $(seq 1 10); do turn_prev; sleep 2; done
     sleep 3
     pback="$(progress_of)"
-    cdp_eval "{\"mode\":\"$THEME_ORIGINAL\"}" >/dev/null 2>&1 <<'JS'
+    # Clear THEME_CHANGED only on a successful restore, so the EXIT cleanup retries.
+    if cdp_eval "{\"mode\":\"$THEME_ORIGINAL\"}" >/dev/null 2>&1 <<'JS'
 localStorage.setItem('themeMode', ARGS.mode); location.reload(); return true;
 JS
-    THEME_CHANGED=0
+    then
+      THEME_CHANGED=0
+    else
+      log "WARN: could not restore themeMode $THEME_ORIGINAL; the exit cleanup retries"
+    fi
     sleep 3; wait_path /reader 40 >/dev/null
     printf 'turn00 text-rects %s\nturn00 whole-page %s\nturn10 text-rects %s\nturn10 whole-page %s\nmethod %s screen-changed %s\nprogress start %s after-10 %s after-back %s\nstart position %s\ntheme restored to %s\ngeometry %s %s\n' \
       "$sa" "$wa" "$sb" "$wb" "$METHOD" "$changed" "$p0" "$p10" "$pback" "$start_pos" "$THEME_ORIGINAL" "$ga" "$gb" > "$OUT/3-night.txt"
@@ -1121,6 +1326,7 @@ JS
     fi
     if [[ "$pback" != "$p0" ]]; then
       log "WARN: reading position is $pback after turning back (started at $p0); the start position is in $OUT/3-night.txt"
+    fi
     fi
   fi
 fi
@@ -1359,7 +1565,7 @@ fi
 echo
 echo "== household acceptance $STAMP  $SERIAL  $VERSION"
 fails=0
-for i in 1 2 3 4 5 6 7; do
+for i in 1 2 3 4 5 6 7 8; do
   if [[ -n "${RESULT[$i]:-}" ]]; then
     printf '%-4s %s  %s\n' "${RESULT[$i]}" "$i" "${DETAIL[$i]}"
     [[ "${RESULT[$i]}" == FAIL ]] && fails=$((fails + 1))
