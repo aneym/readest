@@ -49,6 +49,8 @@ export const BACKUP_SETTINGS_BLACKLIST = [
   'lastSyncedAtConfigs',
   'lastSyncedAtNotes',
   'lastSyncedAtReplicas',
+  // Per-device one-time backfill marker: each device needs its own full pull.
+  'homebaseCalibreIdBackfill',
   'readwise.lastSyncedAt',
   'hardcover.lastSyncedAt',
   'googleDrive.deviceId',

@@ -15,6 +15,7 @@ import { navigateToLogin } from '@/utils/nav';
 import { useReaderStore } from '@/store/readerStore';
 import { recordDiagnostic } from '@/services/sync/homebase/diagnostics';
 import { HomebaseSyncError } from '@/services/sync/homebase';
+import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
 import { syncErrorMessage, useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
 
 const transformsFromDB = {
@@ -165,7 +166,9 @@ export function useSync(bookKey?: string) {
     // One-time backfill: rows pulled before the catalogue carried calibre_id
     // only receive it on a full books pull (the merge keeps the server's
     // calibreId). Until one completes, start the books cursor from 0.
-    const calibreIdBackfillDue = settings.homebaseCalibreIdBackfill !== 1;
+    // Only Homebase emits calibre_id; a stock Readest pull must not stamp it.
+    const calibreIdBackfillDue =
+      isHomebaseSyncEnabled() && settings.homebaseCalibreIdBackfill !== 1;
     setLastSyncedAtBooks(
       calibreIdBackfillDue || now - lastSyncedBooksAt > 3 * ONE_DAY_IN_MS
         ? 0
@@ -222,7 +225,7 @@ export function useSync(bookKey?: string) {
       let partialError: unknown;
       const libraryBooksPull = type === 'books' && !bookId && !metaHash;
       if (libraryBooksPull) {
-        if (since === 0) booksBackfillRef.current = true;
+        if (since === 0 && isHomebaseSyncEnabled()) booksBackfillRef.current = true;
         records = await pullBooksPaged(
           async (cursor, limit) => {
             const result = await syncClient.pullChanges(cursor, type, undefined, undefined, limit);
