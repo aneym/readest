@@ -708,8 +708,9 @@ html[data-eink='true'][data-theme$='-dark']
 
 /* A button that draws its own inverted label (base-content fill, base-100
    text: a selected chip, a segmented control) keeps it; the rule above would
-   leave base-content on base-content, a blank pill. */
-[data-eink='true'] :is(button, .btn)[class~='text-base-100'] {
+   leave base-content on base-content, a blank pill. Only on a base-content
+   fill: `btn-warning text-base-100` sits on a light fill and keeps dark ink. */
+[data-eink='true'] :is(button, .btn)[class~='text-base-100'][class~='bg-base-content'] {
   color: theme('colors.base-100') !important;
 }
 

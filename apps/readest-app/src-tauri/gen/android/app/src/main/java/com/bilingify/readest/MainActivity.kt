@@ -317,6 +317,15 @@ class MainActivity : TauriActivity(), KeyDownInterceptor {
 
         handleIncomingIntent(intent)
 
+        // The WebView draws its own day, night and e-ink themes. System
+        // force-dark (and BOOX dark mode riding on it) would invert them a
+        // second time. Set here as well as in values/themes.xml because the
+        // night Theme.readest comes from the untracked Tauri-generated
+        // values-night resource.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.decorView.isForceDarkAllowed = false
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             setTaskDescription(
                 ActivityManager.TaskDescription(
