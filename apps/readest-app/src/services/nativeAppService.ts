@@ -38,6 +38,7 @@ import {
 } from '@/types/system';
 import type { Book } from '@/types/book';
 import { getOSPlatform, isContentURI, isFileURI, isValidURL } from '@/utils/misc';
+import { isHouseholdBuild } from '@/services/household';
 import { getDirPath, getFilename } from '@/utils/path';
 import { NativeFile, RemoteFile } from '@/utils/file';
 import {
@@ -585,6 +586,7 @@ export class NativeAppService extends BaseAppService {
   override hasHaptics = OS_TYPE === 'ios' || OS_TYPE === 'android';
   override hasUpdater =
     OS_TYPE !== 'ios' &&
+    !isHouseholdBuild() &&
     !process.env['NEXT_PUBLIC_DISABLE_UPDATER'] &&
     !window.__READEST_UPDATER_DISABLED;
   // orientation lock is not supported on iPad
