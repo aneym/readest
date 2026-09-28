@@ -169,7 +169,12 @@ describe('Discover request queue', () => {
     expect(outcome.jobs.map((job) => job.id)).toEqual(['job-Accepted']);
     expect(loadQueue()).toEqual([]);
     expect(loadRejected()).toEqual([
-      expect.objectContaining({ title: 'Invalid', status: 400, want: 'ebook', reason: 'unreadable' }),
+      expect.objectContaining({
+        title: 'Invalid',
+        status: 400,
+        want: 'ebook',
+        reason: 'unreadable',
+      }),
     ]);
     expect(JSON.stringify(loadRejected())).not.toContain('server text');
   });
