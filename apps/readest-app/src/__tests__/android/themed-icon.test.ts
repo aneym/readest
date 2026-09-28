@@ -46,4 +46,22 @@ describe('Android themed (monochrome) launcher icon', () => {
     );
     expect(missing, `missing tracked monochrome mipmaps for: ${missing.join(', ')}`).toEqual([]);
   });
+
+  it('ships a tracked foreground, legacy and round mipmap for every density, plus the background colour', () => {
+    const NAMES = [
+      'ic_launcher_foreground.png',
+      'ic_launcher_monochrome.png',
+      'ic_launcher.png',
+      'ic_launcher_round.png',
+    ];
+    const missing = DENSITIES.flatMap((d) =>
+      NAMES.filter((n) => !existsSync(resolve(resRoot, `mipmap-${d}`, n))).map(
+        (n) => `mipmap-${d}/${n}`,
+      ),
+    );
+    if (!existsSync(resolve(resRoot, 'values/ic_launcher_background.xml'))) {
+      missing.push('values/ic_launcher_background.xml');
+    }
+    expect(missing, `missing launcher icon resources: ${missing.join(', ')}`).toEqual([]);
+  });
 });
