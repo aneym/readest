@@ -53,8 +53,8 @@ const LISTEN_MODES = ['readaloud', 'tts', 'skip'];
 export class UsageError extends Error {}
 
 export function parseArgs(argv) {
-  const opts = { listen: 'readaloud', pages: 12, selfTest: false, skipLockCheck: false, lockOwner: DEFAULT_LOCK_OWNER };
-  const takesValue = new Set(['--serial', '--server', '--book', '--out', '--listen', '--pages', '--lock-owner']);
+  const opts = { listen: 'readaloud', pages: 12, selfTest: false, skipLockCheck: false, lockOwner: DEFAULT_LOCK_OWNER, package: PACKAGE, pinSource: 'none' };
+  const takesValue = new Set(['--serial', '--server', '--book', '--out', '--listen', '--pages', '--lock-owner', '--package', '--pin-source']);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--self-test') { opts.selfTest = true; continue; }
@@ -63,9 +63,11 @@ export function parseArgs(argv) {
     if (!takesValue.has(arg)) throw new UsageError(`unknown argument: ${arg}`);
     const value = argv[++i];
     if (value === undefined || value.startsWith('--')) throw new UsageError(`${arg} needs a value`);
-    const key = arg === '--lock-owner' ? 'lockOwner' : arg.slice(2);
+    const key = arg === '--lock-owner' ? 'lockOwner' : arg === '--pin-source' ? 'pinSource' : arg.slice(2);
     opts[key] = value;
   }
+  if (!/^[A-Za-z0-9._]+$/.test(opts.package)) throw new UsageError('--package must be an Android package ID (letters, digits, dots, underscores)');
+  if (!['keychain', 'none'].includes(opts.pinSource)) throw new UsageError('--pin-source must be keychain or none');
   if (opts.help || opts.selfTest) return opts;
   for (const required of ['serial', 'server', 'book']) {
     if (!opts[required]) throw new UsageError(`--${required} is required`);
@@ -118,6 +120,7 @@ export function createJsonlWriter(path, { now = () => new Date() } = {}) {
     path,
     addSecret(secret) { if (typeof secret === 'string' && secret.length > 0) secrets.add(secret); },
     get refusals() { return refusals; },
+    refuse() { refusals++; },
     guardText,
     write(step, event, data = {}) {
       const line = JSON.stringify({ ts: now().toISOString(), step, event, ...data });
@@ -406,7 +409,12 @@ const norm = (url) => (typeof url === 'string' ? url.replace(/\/+$/, '') : url);
  */
 export function evaluateRun(obs, { listen = 'readaloud', drainTimeoutMs = DRAIN_TIMEOUT_MS } = {}) {
   const checks = [];
-  const add = (id, pass, detail) => checks.push({ id, status: pass ? 'PASS' : 'FAIL', detail });
+  const phases = ['preflight', 'baseline', 'airplane', 'read', 'annotate', 'listen', 'offline', 'kill', 'reboot', 'drain', 'server'];
+  const blocked = obs.pinSource === 'none' && ['preflight', 'listen', 'reboot'].includes(obs.lockedAt);
+  const blockedCheck = (id) => blocked && (id === 'run.steps_completed' ||
+    (phases.indexOf(id.split('.')[0]) >= phases.indexOf(obs.lockedAt) &&
+      !['preflight.pin_available', 'preflight.adb_state', 'preflight.usb_serial', 'preflight.app_installed'].includes(id)));
+  const add = (id, pass, detail) => checks.push({ id, status: blockedCheck(id) ? 'SKIP' : pass ? 'PASS' : 'FAIL', detail: blockedCheck(id) && detail === 'not reached' ? 'secure keyguard; --pin-source none' : detail });
   const skip = (id, detail) => checks.push({ id, status: 'SKIP', detail });
   const nr = 'not reached';
 
@@ -414,7 +422,14 @@ export function evaluateRun(obs, { listen = 'readaloud', drainTimeoutMs = DRAIN_
   add('preflight.adb_state', p.adbState === 'device', `adb get-state: ${p.adbState ?? nr}`);
   add('preflight.usb_serial', typeof p.serial === 'string' && !p.serial.includes(':'),
     p.serial ? (p.serial.includes(':') ? `${p.serial} is a network serial; airplane mode would drop it` : `${p.serial} (USB)`) : nr);
-  add('preflight.app_installed', p.packageInstalled === true, p.packageInstalled == null ? nr : `${PACKAGE} installed: ${p.packageInstalled}`);
+  add('preflight.app_installed', p.packageInstalled === true, p.packageInstalled == null ? nr : `${obs.package ?? PACKAGE} installed: ${p.packageInstalled}`);
+  add('preflight.pin_available', obs.pinSource === 'none' || p.pinAvailable === true,
+    obs.pinSource === 'none' ? '--pin-source none; PIN entry disabled' : p.pinAvailable === false ? 'keychain item homebase.PALMA_PIN is missing' : p.pinAvailable === true ? 'keychain item available' : nr);
+  for (const attempt of obs.unlocks ?? []) {
+    const detail = `keyguard ${attempt.field ?? 'unknown'}; ${attempt.unlocked ? 'unlocked' : attempt.skipped ? 'secure keyguard; --pin-source none' : 'still locked after 20 s'}`;
+    if (attempt.skipped) skip('unlock.ok', detail);
+    else add('unlock.ok', attempt.unlocked === true, detail);
+  }
   add('preflight.cdp', p.cdpConnected === true, p.cdpConnected == null ? nr : p.cdpDetail ?? `connected: ${p.cdpConnected}`);
   add('preflight.paired', p.tokenPresent === true && p.clientIdPresent === true,
     p.tokenPresent == null ? nr : `token present: ${p.tokenPresent}; client id present: ${p.clientIdPresent}`);
@@ -473,6 +488,7 @@ export function evaluateRun(obs, { listen = 'readaloud', drainTimeoutMs = DRAIN_
     const s = obs[phase];
     if (phase === 'reboot') {
       add('reboot.boot_completed', s?.bootCompleted === true, s ? `sys.boot_completed: ${s.bootCompleted}` : nr);
+      add('reboot.user_unlocked', s?.userUnlocked === true, s ? `credential storage ${s.userSignal ?? 'unknown'}: ${s.userUnlocked}` : nr);
       add('reboot.airplane_still_on', s?.airplaneOn === true, s ? `airplane_mode_on after boot: ${s.airplaneOn}` : nr);
     }
     add(`${phase}.cfi_persisted`, Boolean(offlineCfi) && s?.cfi === offlineCfi, s ? `persisted ${s.cfi ?? 'none'}; offline ${offlineCfi ?? 'none'}` : nr);
@@ -499,14 +515,14 @@ export function evaluateRun(obs, { listen = 'readaloud', drainTimeoutMs = DRAIN_
     !Array.isArray(obs.queued) ? nr : leftover === null ? 'post-drain outbox not read' :
       leftover.length ? `still queued after the drain: ${leftover.join(', ')}` : `${obs.queued.length} queued rows left the outbox`);
 
-  checks.push(...diffServerReadback({
+  for (const check of diffServerReadback({
     baseline: b,
     offline: { cfi: offlineCfi, highlightId, bookHash: obs.book ?? null },
     queued: obs.queued,
     afterDrain,
     server: obs.server,
     preDrain: obs.preDrain,
-  }));
+  })) add(check.id, check.status === 'PASS', check.detail);
 
   const rs = obs.restore;
   add('restore.airplane_off', rs?.airplaneOff === true, rs ? `airplane off: ${rs.airplaneOff}` : nr);
@@ -580,7 +596,7 @@ export async function runSteps(steps, { deadline, now = Date.now, record = () =>
 
 /** A jsonl record call that can never throw into the run. */
 function safeRecorder(log) {
-  return (step, event, data) => { try { return log.write(step, event, data); } catch (e) { console.error(`proof.jsonl write failed: ${e?.message ?? e}`); return false; } };
+  return (step, event, data) => { try { return log.write(step, event, data); } catch { console.error('proof.jsonl write failed'); return false; } };
 }
 
 /**
@@ -591,7 +607,12 @@ export function finishRun({ obs, log, out, listen, meta = {} }) {
   const result = evaluateRun(obs, { listen });
   let written = false;
   try { written = log.writeJson(join(out, 'summary.json'), { ...result, ...meta, finishedAt: new Date().toISOString() }); }
-  catch (e) { result.summaryError = String(e?.message ?? e); }
+  catch { result.summaryError = 'summary write failed'; }
+  if (log.refusals > 0 && result.verdict !== 'FAIL') {
+    result.verdict = 'FAIL';
+    const check = result.checks.find((c) => c.id === 'safety.no_token_leak');
+    check.status = 'FAIL'; check.detail = `${log.refusals} line(s) refused because they carried a secret`;
+  }
   if (!written) result.verdict = 'FAIL';
   result.summaryWritten = written;
   safeRecorder(log)('summary', 'verdict', { verdict: result.verdict, summaryWritten: written });
@@ -626,9 +647,38 @@ export async function executeRun({ steps, restore, deadline, abort, log, obs, ou
 // while restore runs.
 const abortedError = () => new Error('run aborted');
 
-async function adb(serial, args, { timeoutMs = 60_000, encoding = 'utf8', signal } = {}) {
+export function redactAdbArgv(argv, pin) {
+  return argv.map((arg) => typeof pin === 'string' && pin.length > 0 && arg === pin ? '<pin>' : arg);
+}
+export function packageAdbArgs(packageId, action, deepLink) {
+  const commands = {
+    installed: `pm list packages ${packageId}`,
+    pid: `pidof ${packageId}`,
+    launch: `monkey -p ${packageId} -c android.intent.category.LAUNCHER 1`,
+    stop: `am force-stop ${packageId}`,
+    open: `am start -a android.intent.action.VIEW -d '${deepLink}' ${packageId}`,
+  };
+  return ['shell', commands[action]];
+}
+export async function readPin({ exec = execFile } = {}) {
+  try {
+    const { stdout } = await exec('security', ['find-generic-password', '-s', 'homebase.PALMA_PIN', '-w'], { encoding: 'utf8' });
+    const pin = stdout.trim();
+    if (!pin) throw new Error('empty item');
+    return pin;
+  } catch { throw new Error('keychain item homebase.PALMA_PIN is missing'); }
+}
+// Reads the PIN and registers it with the log guard before anything else can
+// log it. runDevice uses only this path, so the self-test covers the wiring.
+export async function loadPin({ log, exec = execFile }) {
+  const pin = await readPin({ exec });
+  log.addSecret(pin);
+  return pin;
+}
+async function adb(serial, args, { timeoutMs = 60_000, encoding = 'utf8', signal, exec = execFile } = {}) {
   if (signal?.aborted) throw abortedError();
-  const { stdout } = await execFile('adb', ['-s', serial, ...args], { timeout: timeoutMs, encoding, maxBuffer: 64 * 1024 * 1024, signal });
+  // Keep each argument separate: the PIN must never enter a shell command string.
+  const { stdout } = await exec('adb', ['-s', serial, ...args], { timeout: timeoutMs, encoding, maxBuffer: 64 * 1024 * 1024, signal });
   return encoding === 'buffer' ? stdout : stdout.trim();
 }
 const shell = (serial, cmd, opts) => adb(serial, ['shell', cmd], opts);
@@ -650,6 +700,66 @@ async function waitFor(fn, { timeoutMs, intervalMs = 1000, label, signal }) {
     await sleep(intervalMs, signal);
   }
   throw new Error(`timed out after ${Math.round(timeoutMs / 1000)} s waiting for ${label}`);
+}
+
+// Keyguard state is deliberately checked immediately before any PIN entry:
+// a PIN typed when unlocked would go into whichever app field has focus.
+export function keyguardState(output) {
+  const fields = [...output.matchAll(/\b(mDreamingLockscreen|isKeyguardShowing|mShowingLockscreen)\s*[=:]\s*(true|false)\b/gi)];
+  const match = fields.find((entry) => entry[2].toLowerCase() === 'true') ?? fields[0];
+  return { field: match?.[1] ?? 'unreported', showing: match ? match[2].toLowerCase() === 'true' : null };
+}
+export async function unlockDevice({ serial, pin, pinSource, signal, exec = execFile, record = () => {}, phase, pinAttempts = { failures: 0 } }) {
+  const cmd = (args) => adb(serial, ['shell', ...args], { signal, exec });
+  const state = async () => keyguardState(await cmd(['dumpsys', 'window']));
+  let keyguard = await state();
+  const observation = { phase, field: keyguard.field, unlocked: false };
+  if (keyguard.showing === false) { observation.unlocked = true; record(phase, 'unlock', observation); return observation; }
+  if (keyguard.showing === null) { record(phase, 'unlock', observation); throw new Error('keyguard state unavailable; refusing PIN entry'); }
+  if (pinSource === 'none') { observation.skipped = true; record(phase, 'unlock', observation); return observation; }
+  if (typeof pin !== 'string' || !pin) { record(phase, 'unlock', observation); throw new Error('PIN unavailable'); }
+  // Successful unlocks do not consume the shared failure budget. Retry only
+  // once per unlock, and never submit after two failed entries in this run.
+  let entriesThisUnlock = 0;
+  while (pinAttempts.failures < 2 && entriesThisUnlock < 2) {
+    if (signal?.aborted) throw abortedError();
+    await cmd(['input', 'keyevent', '224']);
+    await cmd(['input', 'swipe', '500', '1500', '500', '400', '350']);
+    keyguard = await state();
+    observation.field = keyguard.field;
+    if (keyguard.showing === false) { observation.unlocked = true; break; }
+    if (keyguard.showing !== true) break;
+    // execFile argv, no shell interpolation and no command text in logs.
+    entriesThisUnlock++;
+    // Reserve a failure before entry; an abort or adb error must not allow
+    // another submission later. Release it only after a confirmed unlock.
+    pinAttempts.failures++;
+    record(phase, 'command', { argv: redactAdbArgv(['adb', '-s', serial, 'shell', 'input', 'text', pin], pin) });
+    try { await cmd(['input', 'text', pin]); }
+    catch { record(phase, 'unlock', observation); throw new Error('PIN entry command failed'); }
+    try { await cmd(['input', 'keyevent', '66']); }
+    catch { record(phase, 'unlock', observation); throw new Error('unlock submit failed'); }
+    const start = Date.now();
+    while (Date.now() - start < 20_000) {
+      await sleep(500, signal);
+      keyguard = await state();
+      observation.field = keyguard.field;
+      if (keyguard.showing === false) { observation.unlocked = true; break; }
+      if (keyguard.showing === null) break;
+    }
+    if (observation.unlocked) { pinAttempts.failures--; break; }
+    if (keyguard.showing !== true) break;
+  }
+  record(phase, 'unlock', observation);
+  if (!observation.unlocked) throw new Error(pinAttempts.failures >= 2 ? 'secure keyguard still locked; PIN failure limit reached' : 'secure keyguard still locked after 20 s');
+  return observation;
+}
+
+export function userStorageState(dump, property) {
+  if (property === '1' || property === 'true') return { unlocked: true, signal: 'sys.user.0.ce_available' };
+  const match = dump.match(/(?:UserInfo\{0\b[^\n]*|User\s*0\b[^\n]*)(?:RUNNING_UNLOCKED|unlocked=true)\b/i);
+  if (match) return { unlocked: true, signal: 'dumpsys user' };
+  return { unlocked: false, signal: property === '0' || property === 'false' ? 'sys.user.0.ce_available' : 'dumpsys user' };
 }
 
 // ---------------------------------------------------------------------------
@@ -703,8 +813,8 @@ class Cdp {
   close() { try { this.#ws.close(); } catch { /* already closed */ } }
 }
 
-async function connectCdp(serial, port, signal) {
-  const pid = await waitFor(async () => (await shell(serial, `pidof ${PACKAGE}`, { signal })).split(/\s+/)[0] || null, { timeoutMs: 30_000, label: 'app process', signal });
+async function connectCdp(serial, port, packageId, signal) {
+  const pid = await waitFor(async () => (await adb(serial, packageAdbArgs(packageId, 'pid'), { signal })).split(/\s+/)[0] || null, { timeoutMs: 30_000, label: 'app process', signal });
   const socket = `webview_devtools_remote_${pid}`;
   await waitFor(async () => (await shell(serial, 'cat /proc/net/unix', { signal })).includes(`@${socket}`), { timeoutMs: 30_000, label: `WebView devtools socket ${socket} (is WebView debugging enabled in this build?)`, signal });
   await adb(serial, ['forward', `tcp:${port}`, `localabstract:${socket}`], { signal });
@@ -805,8 +915,22 @@ async function readLine(prompt, timeoutMs, signal) {
 async function runDevice(opts) {
   mkdirSync(opts.out, { recursive: true });
   const log = createJsonlWriter(join(opts.out, 'proof.jsonl'));
-  const say = (text) => { if (log.guardText(text)) console.log(text); else console.log('[redacted line]'); };
-  const obs = { book: opts.book };
+  const say = (text) => { if (log.guardText(text)) console.log(text); else { log.refuse(); console.log('[redacted line]'); } };
+  const obs = { book: opts.book, package: opts.package, pinSource: opts.pinSource, unlocks: [] };
+  let pin = null;
+  if (opts.pinSource === 'keychain') {
+    try { pin = await loadPin({ log }); }
+    catch {
+      obs.preflight = { serial: opts.serial, serverArg: opts.server, pinAvailable: false };
+      obs.run = { budgetExhausted: false, stoppedAt: 'preflight', error: 'keychain item homebase.PALMA_PIN is missing', completed: [] };
+      obs.restore = { airplaneOff: false, screenOn: false };
+      obs.safety = { redactionRefusals: log.refusals };
+      finishRun({ obs, log, out: opts.out, listen: opts.listen });
+      console.error('preflight.pin_available FAIL: keychain item homebase.PALMA_PIN is missing');
+      return 1;
+    }
+  }
+  const pinAttempts = { failures: 0 };
   const serial = opts.serial;
   const port = 9300 + Math.floor(Math.random() * 500);
   const configPath = `${DATA_PREFIX}/Books/${opts.book}/config.json`;
@@ -838,7 +962,7 @@ async function runDevice(opts) {
   };
   const reconnect = async (step) => {
     cdp?.close();
-    const c = await connectCdp(serial, port, sig);
+    const c = await connectCdp(serial, port, opts.package, sig);
     // An abandoned step must not hand restore a fresh socket to leak.
     if (sig.aborted) { c.cdp.close(); throw abortedError(); }
     cdp = c.cdp;
@@ -855,16 +979,21 @@ async function runDevice(opts) {
   const pending = async () => cdp.evaluate(js.pendingProbe);
   const airplaneOn = async () => (await sh('settings get global airplane_mode_on')) === '1';
   const screenAwake = async () => /mWakefulness=Awake/.test(await sh('dumpsys power'));
-  const wake = async () => { if (!(await screenAwake())) await sh('input keyevent 224'); await sh('wm dismiss-keyguard').catch(() => {}); };
-  const launch = async () => { await sh(`monkey -p ${PACKAGE} -c android.intent.category.LAUNCHER 1`); };
+  const wake = async (phase) => {
+    if (!(await screenAwake())) await sh('input keyevent 224');
+    const state = await unlockDevice({ serial, pin, pinSource: opts.pinSource, signal: sig, phase, pinAttempts,
+      record: (step, event, data) => { if (event === 'unlock') obs.unlocks.push(data); record(step, event, data); } });
+    if (state.skipped) { obs.lockedKeyguard = true; obs.lockedAt = phase; throw new Error('secure keyguard; --pin-source none'); }
+  };
+  const launch = async () => { await ad(packageAdbArgs(opts.package, 'launch')); };
   const waitReader = async () => wait(async () => cdp.evaluate(js.liveCfi), { timeoutMs: 45_000, label: 'reader location' });
   const openBook = async (step) => {
     let via = 'cdp-navigation';
     const deepLink = `palma-readest://open?book=${opts.book}`;
     const resolved = await sh(`cmd package query-activities --brief -a android.intent.action.VIEW -d '${deepLink}'`).catch(() => '');
-    if (resolved.includes(PACKAGE)) {
+    if (resolved.includes(opts.package)) {
       via = 'deep-link';
-      await sh(`am start -a android.intent.action.VIEW -d '${deepLink}' ${PACKAGE}`);
+      await ad(packageAdbArgs(opts.package, 'open', deepLink));
     } else {
       await cdp.evaluate(`location.href = '/reader?ids=' + encodeURIComponent(${JSON.stringify(opts.book)}); true`).catch(() => {});
       await nap(2000);
@@ -921,14 +1050,14 @@ async function runDevice(opts) {
 
   const steps = [
     ['preflight', async () => {
-      const p = (obs.preflight = { serial, serverArg: opts.server });
+      const p = (obs.preflight = { serial, serverArg: opts.server, pinAvailable: opts.pinSource === 'keychain' ? Boolean(pin) : null });
       p.adbState = await ad(['get-state']).catch((e) => `error: ${e.message.split('\n')[0]}`);
       if (p.adbState !== 'device') throw new Error(`adb state ${p.adbState}`);
       if (serial.includes(':')) throw new Error('network serial: airplane mode would drop adb. Use the USB serial.');
-      p.packageInstalled = (await sh(`pm list packages ${PACKAGE}`)).split('\n').some((l) => l.trim() === `package:${PACKAGE}`);
-      if (!p.packageInstalled) throw new Error(`${PACKAGE} not installed`);
-      if (!(await sh(`pidof ${PACKAGE}`).catch(() => ''))) { await launch(); }
-      await wake();
+      p.packageInstalled = (await ad(packageAdbArgs(opts.package, 'installed'))).split('\n').some((l) => l.trim() === `package:${opts.package}`);
+      if (!p.packageInstalled) throw new Error(`${opts.package} not installed`);
+      await wake('preflight');
+      if (!(await ad(packageAdbArgs(opts.package, 'pid')).catch(() => ''))) { await launch(); }
       try { const c = await reconnect('preflight'); p.cdpConnected = true; p.cdpDetail = c.detail; }
       catch (e) { p.cdpConnected = false; p.cdpDetail = e.message; throw e; }
       token = await cdp.evaluate(js.readToken);
@@ -1022,7 +1151,7 @@ async function runDevice(opts) {
       const screenOff = !(await screenAwake());
       record('listen', 'screen_off', { screenOffCfi, screenOff });
       await nap(LISTEN_SCREEN_OFF_MS);
-      await wake();
+      await wake('listen');
       await nap(2000);
       const afterCfi = await cdp.evaluate(js.liveCfi);
       obs.listen = { mode, started, state, beforeCfi, screenOffCfi, screenOff, afterCfi };
@@ -1047,7 +1176,7 @@ async function runDevice(opts) {
       record('offline', 'observed', obs.offline);
     }],
     ['kill', async () => {
-      await sh(`am force-stop ${PACKAGE}`);
+      await ad(packageAdbArgs(opts.package, 'stop'));
       record('kill', 'force_stopped', {});
       await nap(2000);
       await launch();
@@ -1063,16 +1192,27 @@ async function runDevice(opts) {
       record('reboot', 'rebooting', {});
       await nap(10_000);
       await ad(['wait-for-device'], { timeoutMs: 180_000 });
-      const bootCompleted = await wait(async () => (await sh('getprop sys.boot_completed')) === '1', { timeoutMs: 180_000, intervalMs: 3000, label: 'sys.boot_completed' }).then(() => true).catch(() => false);
+      const bootCompleted = await wait(async () => (await sh('getprop sys.boot_completed')) === '1', { timeoutMs: 180_000, intervalMs: 3000, label: 'sys.boot_completed' }).then(() => true).catch((e) => { if (sig.aborted) throw e; return false; });
+      obs.reboot = { bootCompleted };
+      if (!bootCompleted) throw new Error('sys.boot_completed did not reach 1');
       const stillOn = await airplaneOn();
+      obs.reboot.airplaneOn = stillOn;
       if (!stillOn) await sh('cmd connectivity airplane-mode enable');
-      await wake();
+      await wake('reboot');
+      const storage = await wait(async () => {
+        const observed = userStorageState(await sh('dumpsys user'), await sh('getprop sys.user.0.ce_available'));
+        return observed.unlocked ? observed : null;
+      }, { timeoutMs: 20_000, intervalMs: 1000, label: 'credential storage unlocked' }).catch((e) => { if (sig.aborted) throw e; return null; });
+      obs.reboot.userUnlocked = storage?.unlocked === true;
+      obs.reboot.userSignal = storage?.signal ?? 'dumpsys user / sys.user.0.ce_available';
+      record('reboot', 'credential_storage', { unlocked: obs.reboot.userUnlocked, signal: obs.reboot.userSignal });
+      if (!obs.reboot.userUnlocked) throw new Error('credential storage still locked after 20 s');
       await nap(5000);
       await launch();
       await reconnect('reboot');
       await openBook('reboot').catch((e) => record('reboot', 'reopen_failed', { error: e.message }));
       await nap(2000);
-      obs.reboot = { bootCompleted, airplaneOn: stillOn, ...(await localState('reboot')) };
+      Object.assign(obs.reboot, await localState('reboot'));
       await screenshot('reboot-relaunched');
     }],
     ['drain', async () => {
@@ -1122,9 +1262,11 @@ async function runDevice(opts) {
     try {
       const awake = async () => /mWakefulness=Awake/.test(await rsh('dumpsys power'));
       if (!(await awake())) await rsh('input keyevent 224');
-      await rsh('wm dismiss-keyguard').catch(() => {});
       r.screenOn = await awake();
-    } catch (e) { r.screenOn = false; r.error = e.message; }
+      // Restoration must not enter a PIN: the run-wide two-entry limit also
+      // covers failed unlocks before the budget expired.
+      r.keyguard = keyguardState(await rsh('dumpsys window'));
+    } catch { r.screenOn = false; r.error = 'screen restore failed'; }
     await screenshot('restore', { raw: true });
     cdp?.close();
     await adb(serial, ['forward', '--remove', `tcp:${port}`], { timeoutMs: 15_000 }).catch(() => {});
@@ -1162,8 +1304,8 @@ const QUEUED_KEYS = [`configs:${BOOK}`, `notes:${BOOK}:n-new-offline`, `statPage
 
 function passingTranscript() {
   return {
-    book: BOOK,
-    preflight: { adbState: 'device', serial: '82d5c0a8', serverArg: 'https://studio.example.ts.net:3148/api/readest', packageInstalled: true, cdpConnected: true, cdpDetail: 'pid 4242', tokenPresent: true, clientIdPresent: true, deviceBaseUrl: 'https://studio.example.ts.net:3148/api/readest', deviceBaseSources: ['resource-timing', 'bundle'], deviceBaseConflict: null, deviceRouteOk: true },
+    book: BOOK, package: PACKAGE, pinSource: 'keychain', unlocks: [],
+    preflight: { pinAvailable: true, adbState: 'device', serial: '82d5c0a8', serverArg: 'https://studio.example.ts.net:3148/api/readest', packageInstalled: true, cdpConnected: true, cdpDetail: 'pid 4242', tokenPresent: true, clientIdPresent: true, deviceBaseUrl: 'https://studio.example.ts.net:3148/api/readest', deviceBaseSources: ['resource-timing', 'bundle'], deviceBaseConflict: null, deviceRouteOk: true },
     baseline: { ok: true, location: CFI.base, noteIds: ['n-old-1', 'n-old-2'], maxReceiptMs: Date.parse('2026-09-27T20:00:00Z') },
     airplane: { enabled: true, fetchFailed: true },
     read: { opened: true, via: 'cdp-navigation', startCfi: CFI.readStart, endCfi: CFI.readEnd, pagesTurned: 12 },
@@ -1171,7 +1313,7 @@ function passingTranscript() {
     listen: { mode: 'tts', started: true, beforeCfi: CFI.readEnd, screenOffCfi: CFI.screenOff, screenOff: true, afterCfi: CFI.listenEnd },
     offline: { cfi: CFI.final, liveCfi: CFI.final, queuedKeys: QUEUED_KEYS },
     kill: { cfi: CFI.final, noteIds: ['n-old-1', 'n-old-2', 'n-new-offline'], pending: 4, pendingSource: 'outbox-file', queuedKeys: QUEUED_KEYS },
-    reboot: { bootCompleted: true, airplaneOn: true, cfi: CFI.final, noteIds: ['n-old-1', 'n-old-2', 'n-new-offline'], pending: 4, pendingSource: 'outbox-file', queuedKeys: QUEUED_KEYS },
+    reboot: { bootCompleted: true, userUnlocked: true, userSignal: 'dumpsys user', airplaneOn: true, cfi: CFI.final, noteIds: ['n-old-1', 'n-old-2', 'n-new-offline'], pending: 4, pendingSource: 'outbox-file', queuedKeys: QUEUED_KEYS },
     queued: [
       { key: `configs:${BOOK}`, channel: 'configs', bookHash: BOOK, id: null, poisoned: false },
       { key: `notes:${BOOK}:n-new-offline`, channel: 'notes', bookHash: BOOK, id: 'n-new-offline', poisoned: false },
@@ -1222,6 +1364,52 @@ async function selfTest() {
       expect(`parseArgs rejects ${JSON.stringify(bad)}`, (() => { try { parseArgs(bad); return false; } catch (e) { return e instanceof UsageError; } })());
     }
     expect('parseArgs: --lock-owner', parseArgs(['--serial', 's', '--server', 'http://h', '--book', 'b', '--lock-owner', 'lane-x']).lockOwner === 'lane-x');
+    const flavor = parseArgs(['--serial', 's', '--server', 'http://h', '--book', 'b', '--package', 'com.bilingify.readest.dev', '--pin-source', 'none']);
+    expect('package flavor honored in adb argv for install, pid, launch, stop and open',
+      flavor.package === 'com.bilingify.readest.dev' && ['installed', 'pid', 'launch', 'stop', 'open'].every((action) => {
+        const argv = packageAdbArgs(flavor.package, action, 'palma-readest://open?book=b');
+        return argv.join(' ').includes(flavor.package) && !argv.join(' ').includes('com.bilingify.readest ');
+      }));
+    expect('package and PIN source defaults', (() => { const defaults = parseArgs(['--serial', 's', '--server', 'http://h', '--book', 'b']); return defaults.package === PACKAGE && defaults.pinSource === 'none' && flavor.pinSource === 'none'; })());
+    for (const invalid of ['com.foo;id', 'com.foo/id', '']) {
+      expect('invalid package rejected', (() => { try { parseArgs(['--serial', 's', '--server', 'http://h', '--book', 'b', '--package', invalid]); return false; } catch (e) { return e instanceof UsageError; } })());
+    }
+    expect('invalid PIN source rejected', (() => { try { parseArgs(['--serial', 's', '--server', 'http://h', '--book', 'b', '--pin-source', 'prompt']); return false; } catch (e) { return e instanceof UsageError; } })());
+    const pinCalls = [];
+    const fakeSecurity = async (file, argv) => { pinCalls.push([file, ...argv]); throw new Error('not found'); };
+    expect('missing keychain item fails preflight.pin_available without adb', await (async () => {
+      let missing = false;
+      try { await readPin({ exec: fakeSecurity }); } catch (e) { missing = e.message === 'keychain item homebase.PALMA_PIN is missing'; }
+      const obs = passingTranscript(); obs.preflight.pinAvailable = false;
+      return missing && pinCalls.length === 1 && pinCalls[0].join(' ') === 'security find-generic-password -s homebase.PALMA_PIN -w' &&
+        evaluateRun(obs).checks.find((c) => c.id === 'preflight.pin_available').status === 'FAIL';
+    })());
+    expect('keyguard signal and credential storage signal', keyguardState('isKeyguardShowing=true').showing === true &&
+      userStorageState('UserInfo{0:Owner:13} serialNo=0 state=RUNNING_UNLOCKED', '').signal === 'dumpsys user');
+    const pinArgv = [];
+    const fakeAdb = async (file, argv) => {
+      pinArgv.push([file, ...argv]);
+      if (argv.includes('dumpsys')) return { stdout: pinArgv.length > 5 ? 'isKeyguardShowing=false' : 'isKeyguardShowing=true' };
+      return { stdout: '' };
+    };
+    await unlockDevice({ serial: 'fake-usb', pin: '73+81', pinSource: 'keychain', phase: 'preflight', exec: fakeAdb });
+    expect('PIN entry uses separate adb execFile argv, never a shell string', pinArgv.some((argv) => argv.join('|').includes('shell|input|text|73+81')));
+    expect('adb command argv redacts PIN', redactAdbArgv(pinArgv.find((argv) => argv.includes('73+81')), '73+81').includes('<pin>'));
+    const noEntry = [];
+    await unlockDevice({ serial: 'fake-usb', pin: '73+81', pinSource: 'keychain', phase: 'listen', exec: async (file, argv) => { noEntry.push(argv); return { stdout: 'isKeyguardShowing=false' }; } });
+    expect('no PIN typed when keyguard is already gone', !noEntry.some((argv) => argv.includes('text')));
+    const sharedAttempts = { failures: 0 };
+    let unlocked = false;
+    const repeatedAdb = async (file, argv) => {
+      if (argv.includes('dumpsys')) return { stdout: `isKeyguardShowing=${!unlocked}` };
+      if (argv.includes('66')) unlocked = true;
+      return { stdout: '' };
+    };
+    for (const phase of ['preflight', 'listen', 'reboot']) {
+      unlocked = false;
+      await unlockDevice({ serial: 'fake-usb', pin: '73+81', pinSource: 'keychain', phase, pinAttempts: sharedAttempts, exec: repeatedAdb });
+    }
+    expect('successful preflight and listen entries do not block reboot unlock', sharedAttempts.failures === 0 && unlocked);
     expect('lockRefusal: own lock passes', lockRefusal('reader-sync\n', 'reader-sync') === null);
     expect('lockRefusal: missing lock refuses', /does not exist/.test(lockRefusal(null, 'reader-sync') ?? ''));
     expect('lockRefusal: another lane\'s lock refuses', /held by "boox-launcher"/.test(lockRefusal('boox-launcher\n', 'reader-sync') ?? ''));
@@ -1388,6 +1576,8 @@ async function selfTest() {
       { name: 'row lost during the reboot', obs: (() => { const o = passingTranscript(); o.reboot.queuedKeys = QUEUED_KEYS.slice(1); return o; })(), verdict: 'FAIL', failing: ['reboot.queue_intact'] },
       { name: 'no outbox snapshot before the kill', obs: (() => { const o = passingTranscript(); o.offline.queuedKeys = null; return o; })(), verdict: 'FAIL', failing: ['kill.queue_intact', 'reboot.queue_intact'] },
       { name: 'outbox unreadable after reboot', obs: (() => { const o = passingTranscript(); o.reboot.queuedKeys = null; return o; })(), verdict: 'FAIL', failing: ['reboot.queue_intact'] },
+      { name: 'credential storage remains locked after reboot', obs: (() => { const o = passingTranscript(); o.reboot.userUnlocked = false; return o; })(), verdict: 'FAIL', failing: ['reboot.user_unlocked'] },
+      { name: 'unlock timed out', obs: (() => { const o = passingTranscript(); o.unlocks.push({ phase: 'reboot', field: 'isKeyguardShowing', unlocked: false }); return o; })(), verdict: 'FAIL', failing: ['unlock.ok'] },
       { name: 'drain timeout', obs: (() => { const o = passingTranscript(); o.drain.samples = [5, 30, 60, 90, 120].map((s) => ({ t: s * 1000, pending: 2 })); return o; })(), verdict: 'FAIL', failing: ['drain.pending_zero'] },
     ];
 
@@ -1414,8 +1604,49 @@ async function selfTest() {
     expect('token leak: clean lines still written', jsonl.split('\n').filter(Boolean).length === 4);
     expect('token leak: summary written and clean', summaryWritten && !summaryText.includes(TOKEN));
     expect('token leak: JSON file carrying the token refused', leakSummaryRefused && !existsSync(join(leakOut, 'leak.json')));
+    // The keychain read path (loadPin, the only path runDevice uses) must
+    // register the PIN with a fresh writer, so a PIN in a logged command is
+    // refused and safety.no_token_leak fails. Drop the addSecret in loadPin
+    // and this case fails.
+    const pinSecret = '73+81';
+    const pinLog = createJsonlWriter(join(dir, 'pin.jsonl'));
+    const keychainCalls = [];
+    const stubSecurity = async (file, argv) => { keychainCalls.push([file, ...argv]); return { stdout: `${pinSecret}\n` }; };
+    const loadedPin = await loadPin({ log: pinLog, exec: stubSecurity });
+    const pinRefusalsBefore = pinLog.refusals;
+    const leakedPin = pinLog.write('unlock', 'command', { argv: ['adb', '-s', 'fake-usb', 'shell', 'input', 'text', pinSecret] });
+    const leakedPinEncoded = pinLog.write('unlock', 'command', { argv: `pin=${encodeURIComponent(pinSecret)}` });
+    const pinObs = passingTranscript(); pinObs.safety.redactionRefusals = pinLog.refusals;
+    const pinJsonl = readFileSync(join(dir, 'pin.jsonl'), 'utf8');
+    expect('keychain PIN registered by loadPin: logged PIN refused; safety.no_token_leak fails',
+      loadedPin === pinSecret && keychainCalls.length === 1 && pinRefusalsBefore === 0 &&
+      !leakedPin && !leakedPinEncoded && pinLog.refusals === 2 && !pinJsonl.includes(pinSecret) &&
+      !pinJsonl.includes(encodeURIComponent(pinSecret)) &&
+      evaluateRun(pinObs).checks.find((c) => c.id === 'safety.no_token_leak').status === 'FAIL');
     expect('guard ignores empty secret', (() => { const w = createJsonlWriter(join(dir, 'empty.jsonl')); w.addSecret(''); return w.write('x', 'y', { a: 'b' }) && w.refusals === 0; })());
 
+    // A locked keyguard stops the runner: downstream observations are absent,
+    // not populated from a passing run. All blocked server checks must SKIP.
+    for (const phase of ['preflight', 'listen', 'reboot']) {
+      const locked = passingTranscript();
+      locked.pinSource = 'none'; locked.lockedAt = phase; locked.lockedKeyguard = true;
+      locked.unlocks.push({ phase, field: 'isKeyguardShowing', unlocked: false, skipped: true });
+      const downstream = phase === 'preflight'
+        ? ['baseline', 'airplane', 'read', 'annotate', 'listen', 'offline', 'kill', 'reboot', 'queued', 'preDrain', 'drain', 'afterDrain', 'server']
+        : phase === 'listen' ? ['listen', 'offline', 'kill', 'reboot', 'queued', 'preDrain', 'drain', 'afterDrain', 'server']
+          : ['reboot', 'queued', 'preDrain', 'drain', 'afterDrain', 'server'];
+      for (const key of downstream) delete locked[key];
+      if (phase === 'preflight') {
+        for (const key of ['cdpConnected', 'tokenPresent', 'clientIdPresent', 'deviceBaseUrl', 'deviceBaseSources', 'deviceRouteOk']) delete locked.preflight[key];
+      }
+      locked.run = { budgetExhausted: false, stoppedAt: phase, error: 'secure keyguard; --pin-source none', completed: [] };
+      const lockedResult = evaluateRun(locked);
+      expect(`--pin-source none stopped at ${phase}: PARTIAL (exit 3), unlock/server SKIP`, lockedResult.verdict === 'PARTIAL' &&
+        (lockedResult.verdict === 'PASS' ? 0 : lockedResult.verdict === 'PARTIAL' ? 3 : 1) === 3 &&
+        lockedResult.checks.find((c) => c.id === 'unlock.ok').status === 'SKIP' &&
+        lockedResult.checks.filter((c) => c.id.startsWith('server.')).every((c) => c.status === 'SKIP'),
+      lockedResult.checks.filter((c) => c.status === 'FAIL').map((c) => c.id).join(', '));
+    }
     // --listen skip: listen checks SKIP and the run can still pass.
     const skipObs = passingTranscript(); delete skipObs.listen;
     const skipRes = evaluateRun(skipObs, { listen: 'skip' });
@@ -1457,6 +1688,7 @@ async function selfTest() {
 // ---------------------------------------------------------------------------
 
 const USAGE = `usage: node scripts/homebase-offline-proof.mjs --serial <adb serial> --server <homebase base url> --book <fileHash>
+         [--package com.bilingify.readest] [--pin-source none|keychain]  (default none; keychain only with Alex's yes)
          [--out <dir>] [--listen readaloud|tts|skip] [--pages 12] [--lock-owner reader-sync] [--skip-lock-check]
        node scripts/homebase-offline-proof.mjs --self-test`;
 
