@@ -96,7 +96,8 @@ export const resolveRecordSyncClient = (
     adapter,
     outbox,
     onQueued: (count, error) =>
-      recordDiagnostic('sync.queued', 'warn', `push queued: ${error.message}`, {
+      // Fixed text: server error messages can echo row content.
+      recordDiagnostic('sync.queued', 'warn', 'push queued; rows stay in the outbox', {
         count,
         code: error.code,
         status: error.status ?? null,

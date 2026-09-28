@@ -10,8 +10,9 @@ import {
   type StockClientConformsToSeam,
 } from '@/services/sync/homebase/recordSyncClient';
 import { resolveRecordSyncClient } from '@/services/sync/homebase';
-import { useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
+import { reportOutboxQueue, useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
 import { readDiagnosticEvents } from '@/services/sync/homebase/diagnostics';
+import { createFileOutboxStore, type OutboxFs } from '@/services/sync/homebase/persistence';
 
 /**
  * The seam. Everything else in the spike is machinery; this file is the claim:
@@ -127,6 +128,57 @@ describe('offline behaviour at the seam', () => {
     expect(server.rows('notes')).toHaveLength(1);
   });
 
+  test('an outbox drain leaves a diagnostic when it pauses, delivers or poisons rows', async () => {
+    // Queued offline writes reach the server only through a drain. A drain
+    // that keeps failing on reconnect (a server 500) must be visible in the
+    // diagnostics the device ships home, not only in the pending count.
+    const server = createMemoryHomebaseAdapter();
+    const outbox = createSyncOutbox({ store: createMemoryOutboxStore() });
+    const client = new HomebaseSyncClient({ adapter: server, outbox });
+    const drainEvents = () => readDiagnosticEvents().filter((e) => e.kind === 'sync.drain');
+    const before = drainEvents().length;
+    const newEvents = () => drainEvents().slice(before);
+
+    server.failNext(
+      new HomebaseSyncError('Readest sync failed: secret row text', 'NETWORK', 500),
+      2,
+    );
+    await client.pushChanges({ books: [{ hash: 'd1', updatedAt: AUG('01') }] });
+    await client.flushOutbox();
+    expect(newEvents()).toMatchObject([
+      {
+        level: 'warn',
+        message: 'outbox drain paused; rows stay queued',
+        data: { pushed: 0, remaining: 1, rejected: 0, code: 'NETWORK', status: 500 },
+      },
+    ]);
+    // Server error text can echo row content; it never reaches diagnostics.
+    expect(JSON.stringify(newEvents())).not.toContain('secret row text');
+
+    await client.flushOutbox();
+    expect(newEvents().slice(1)).toMatchObject([
+      { level: 'info', data: { pushed: 1, remaining: 0, rejected: 0 } },
+    ]);
+
+    // A definite 409 poisons the row: a rejection, not a paused drain.
+    server.failNext(new HomebaseSyncError('offline', 'NETWORK'), 1);
+    await client.pushChanges({ books: [{ hash: 'd2', updatedAt: AUG('02') }] });
+    server.failNext(new HomebaseSyncError('conflict', 'CONFLICT', 409), 1);
+    await client.flushOutbox();
+    expect(newEvents().slice(2)).toMatchObject([
+      {
+        level: 'warn',
+        message: 'outbox drain: server rejected rows',
+        data: { pushed: 0, remaining: 0, rejected: 1, code: 'CONFLICT', status: 409 },
+      },
+    ]);
+
+    // Later drains that move nothing (only the old poisoned row) stay silent.
+    await client.flushOutbox();
+    await client.flushOutbox();
+    expect(newEvents()).toHaveLength(3);
+  });
+
   test('auth failure queues without poisoning until sign-in resumes', async () => {
     const server = createMemoryHomebaseAdapter();
     const outbox = createSyncOutbox({ store: createMemoryOutboxStore() });
@@ -182,18 +234,36 @@ describe('offline behaviour at the seam', () => {
       blocked: 0,
     };
     useHomebaseSyncStatus.setState(reset);
-    const store = createMemoryOutboxStore();
+    const files = new Map<string, string>();
+    const fs: OutboxFs = {
+      readText: async (path) => files.get(path) ?? null,
+      writeText: async (path, text) => {
+        files.set(path, text);
+      },
+      rename: async (from, to) => {
+        files.set(to, files.get(from)!);
+        files.delete(from);
+      },
+      remove: async (path) => {
+        files.delete(path);
+      },
+    };
+    const store = () => createFileOutboxStore({ fs, legacy: null });
     const sent: string[][] = [];
     let online = false;
+    let reject = true;
     const adapter = {
       ...createMemoryHomebaseAdapter(),
       push: async (envelope: { notes?: { id?: string }[] | null }) => {
         if (!online) throw new HomebaseSyncError('offline', 'NETWORK');
         sent.push((envelope.notes ?? []).map((note) => note.id ?? ''));
-        return { rejected: [{ family: 'note', id: 'bad', reason: 'invalid row' }] };
+        return reject ? { rejected: [{ family: 'note', id: 'bad', reason: 'invalid row' }] } : {};
       },
     };
-    const client = new HomebaseSyncClient({ adapter, outbox: createSyncOutbox({ store }) });
+    const client = new HomebaseSyncClient({
+      adapter,
+      outbox: createSyncOutbox({ store: store() }),
+    });
     await client.pushChanges({
       notes: [
         { bookHash: 'a', id: 'ok', updatedAt: AUG('01') },
@@ -203,17 +273,38 @@ describe('offline behaviour at the seam', () => {
     online = true;
     const flushed = await client.flushOutbox();
     expect(flushed).toMatchObject({ pushed: 1, remaining: 0 });
-    expect(await store.read()).toMatchObject([
+    expect(await store().read()).toMatchObject([
       { key: 'notes:a:bad', poisoned: true, lastError: 'invalid row', lastErrorCode: 'REJECTED' },
     ]);
     expect(useHomebaseSyncStatus.getState()).toMatchObject({ blocked: 1, rejectedCount: 1 });
 
-    // Restart: in-memory rejection state is gone, the durable queue is not.
+    // Restart: rebuild the store over the same file, then lose the in-memory rejection state.
     useHomebaseSyncStatus.setState(reset);
-    const restarted = new HomebaseSyncClient({ adapter, outbox: createSyncOutbox({ store }) });
+    const restartedStore = store();
+    reportOutboxQueue(await restartedStore.read());
+    const restarted = new HomebaseSyncClient({
+      adapter,
+      outbox: createSyncOutbox({ store: restartedStore }),
+    });
     await restarted.flushOutbox();
     expect(sent).toEqual([['ok', 'bad']]);
     expect(useHomebaseSyncStatus.getState()).toMatchObject({ blocked: 1, pending: 0 });
+
+    online = false;
+    await restarted.pushChanges({ notes: [{ bookHash: 'a', id: 'next', updatedAt: AUG('02') }] });
+    const queuedAndPoisoned = await store().read();
+    expect(queuedAndPoisoned).toHaveLength(2);
+    reportOutboxQueue(queuedAndPoisoned);
+    expect(useHomebaseSyncStatus.getState()).toMatchObject({ blocked: 1, pending: 1 });
+
+    online = true;
+    reject = false;
+    await restarted.pushChanges({ notes: [{ bookHash: 'a', id: 'bad', updatedAt: AUG('02') }] });
+    const remaining = await store().read();
+    expect(remaining.map(({ key }) => key)).toEqual(['notes:a:next']);
+    expect(remaining[0]?.poisoned).not.toBe(true);
+    reportOutboxQueue(remaining);
+    expect(useHomebaseSyncStatus.getState()).toMatchObject({ blocked: 0, pending: 1 });
     useHomebaseSyncStatus.setState(reset);
   });
 

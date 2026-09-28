@@ -45,6 +45,8 @@ export interface FlushResult {
   /** Entries still queued (a retryable failure stopped the drain). */
   remaining: number;
   poisoned: OutboxEntry[];
+  /** Rows this flush poisoned (declined inside a 200, or a definite 4xx). */
+  newlyPoisoned: number;
   /** The failure that stopped this flush, if one did. */
   stoppedBy?: HomebaseSyncError;
 }
@@ -214,6 +216,7 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
         const snapshot = await transaction(() => store.read());
         const queue = snapshot.filter((entry) => !entry.poisoned);
         let pushed = 0,
+          newlyPoisoned = 0,
           stoppedBy: HomebaseSyncError | undefined;
         for (let index = 0; index < queue.length; index += batchSize) {
           const batch = queue.slice(index, index + batchSize);
@@ -235,11 +238,13 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
             // stays durable as poisoned so its blocked status survives restart.
             await transaction(async () => {
               const live = await store.read();
+              let poisonedHere = 0;
               await store.write(
                 live.flatMap((entry) => {
                   if (!batch.some((sent) => sameRevision(entry, sent))) return [entry];
                   const reason = rejected.get(recordRejectionKey(entry.channel, entry.record));
                   if (reason === undefined) return [];
+                  poisonedHere += 1;
                   return [
                     {
                       ...entry,
@@ -251,6 +256,7 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
                   ];
                 }),
               );
+              newlyPoisoned += poisonedHere;
             });
             pushed += batch.length - rejectedInBatch;
           } catch (err) {
@@ -264,21 +270,24 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
             const error = stoppedBy;
             await transaction(async () => {
               const live = await store.read();
+              const poisons = isDefiniteRejection(error);
+              let poisonedHere = 0;
               await store.write(
-                live.map((entry) =>
-                  batch.some((sent) => sameRevision(entry, sent))
-                    ? {
-                        ...entry,
-                        attempts: entry.attempts + 1,
-                        lastError: error.message,
-                        lastErrorCode: error.code,
-                        // Only an explicit client rejection is terminal. Unknown
-                        // failures and auth pauses retain the durable row.
-                        poisoned: isDefiniteRejection(error),
-                      }
-                    : entry,
-                ),
+                live.map((entry) => {
+                  if (!batch.some((sent) => sameRevision(entry, sent))) return entry;
+                  if (poisons) poisonedHere += 1;
+                  return {
+                    ...entry,
+                    attempts: entry.attempts + 1,
+                    lastError: error.message,
+                    lastErrorCode: error.code,
+                    // Only an explicit client rejection is terminal. Unknown
+                    // failures and auth pauses retain the durable row.
+                    poisoned: poisons,
+                  };
+                }),
               );
+              newlyPoisoned += poisonedHere;
             });
             break;
           }
@@ -288,6 +297,7 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
           pushed,
           remaining: live.filter((e) => !e.poisoned).length,
           poisoned: live.filter((e) => e.poisoned),
+          newlyPoisoned,
           ...(stoppedBy ? { stoppedBy } : {}),
         };
       })();

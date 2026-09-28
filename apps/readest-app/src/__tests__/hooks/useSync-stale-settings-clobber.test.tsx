@@ -153,6 +153,8 @@ describe('Homebase book pull watermark', () => {
     h.storeState.settings = {
       ...h.baseSettings(),
       lastSyncedAtBooks: watermark + 24 * 60 * 60 * 1000,
+      // The one-time calibre_id full pull is already done on this device.
+      homebaseCalibreIdBackfill: 1,
     };
     syncClientMock.pullChanges.mockImplementation(async (since: number) => ({
       books:

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useEnv } from '@/context/EnvContext';
 import { useSyncContext } from '@/context/SyncContext';
@@ -16,6 +16,7 @@ import { isHouseholdBuild } from '@/services/household';
 import { useReaderStore } from '@/store/readerStore';
 import { recordDiagnostic } from '@/services/sync/homebase/diagnostics';
 import { HomebaseSyncError } from '@/services/sync/homebase';
+import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
 import { syncErrorMessage, useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
 
 const transformsFromDB = {
@@ -143,6 +144,10 @@ export function useSync(bookKey?: string) {
   const [syncedNotes, setSyncedNotes] = useState<BookNote[] | null>(null);
 
   const { syncClient } = useSyncContext();
+  // True while a library books pull chain that started at since=0 has not
+  // completed yet. A partial pull resumes from its persisted cursor, so the
+  // one-time calibre_id backfill is only done when that chain finishes.
+  const booksBackfillRef = useRef(false);
 
   useEffect(() => {
     if (!bookKey) return;
@@ -159,8 +164,16 @@ export function useSync(bookKey?: string) {
     const lastSyncedConfigsAt = config?.lastSyncedAtConfig ?? settings.lastSyncedAtConfigs ?? 0;
     const lastSyncedNotesAt = config?.lastSyncedAtNotes ?? settings.lastSyncedAtNotes ?? 0;
     const now = Date.now();
+    // One-time backfill: rows pulled before the catalogue carried calibre_id
+    // only receive it on a full books pull (the merge keeps the server's
+    // calibreId). Until one completes, start the books cursor from 0.
+    // Only Homebase emits calibre_id; a stock Readest pull must not stamp it.
+    const calibreIdBackfillDue =
+      isHomebaseSyncEnabled() && settings.homebaseCalibreIdBackfill !== 1;
     setLastSyncedAtBooks(
-      now - lastSyncedBooksAt > 3 * ONE_DAY_IN_MS ? 0 : lastSyncedBooksAt - ONE_DAY_IN_MS,
+      calibreIdBackfillDue || now - lastSyncedBooksAt > 3 * ONE_DAY_IN_MS
+        ? 0
+        : lastSyncedBooksAt - ONE_DAY_IN_MS,
     );
     setLastSyncedAtConfigs(
       now - lastSyncedConfigsAt > 3 * ONE_DAY_IN_MS ? 0 : lastSyncedConfigsAt - ONE_DAY_IN_MS,
@@ -213,7 +226,9 @@ export function useSync(bookKey?: string) {
       let records: BookDataRecord[] | null | undefined;
       let partialReason: string | null = null;
       let partialError: unknown;
-      if (type === 'books' && !bookId && !metaHash) {
+      const libraryBooksPull = type === 'books' && !bookId && !metaHash;
+      if (libraryBooksPull) {
+        if (since === 0 && isHomebaseSyncEnabled()) booksBackfillRef.current = true;
         records = await pullBooksPaged(
           async (cursor, limit) => {
             const result = await syncClient.pullChanges(cursor, type, undefined, undefined, limit);
@@ -250,6 +265,12 @@ export function useSync(bookKey?: string) {
         // onPage already persisted the last completed page. Never advance to
         // now or infer a new watermark from an incomplete discovery.
         return countSyncedRecords(type, records);
+      }
+      if (libraryBooksPull && booksBackfillRef.current) {
+        booksBackfillRef.current = false;
+        const latest = useSettingsStore.getState().settings;
+        latest.homebaseCalibreIdBackfill = 1;
+        setSettings(latest);
       }
       if (since > 1000 && !records?.length) return 0;
       // For since <= 1000, we set lastSyncedAt to now if no records returned
