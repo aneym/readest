@@ -15,7 +15,6 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
-    <permission android:name="com.aneym.household.permission.READ_SYNC_STATUS" android:protectionLevel="normal" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -329,7 +328,6 @@
           android:name=".HouseholdSyncStatusProvider"
           android:authorities="com.bilingify.readest.household"
           android:exported="true"
-          android:readPermission="com.aneym.household.permission.READ_SYNC_STATUS"
           android:grantUriPermissions="false" />
 
         <provider

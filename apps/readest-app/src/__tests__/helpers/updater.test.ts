@@ -555,3 +555,36 @@ describe('resolveNightlyUpdate — harness scenarios', () => {
     expect(r).toBeNull();
   });
 });
+
+describe('household build', () => {
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', '1');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  test('never fetches the upstream Android update manifest', async () => {
+    mockOsType.mockReturnValue('android');
+    mockTauriFetch.mockResolvedValue({
+      json: async () => ({ version: '99.0.0', platforms: { 'android-arm64': {} } }),
+    });
+
+    await expect(checkForAppUpdates(dummyTranslate, true)).resolves.toBe(false);
+    await expect(checkForAppUpdates(dummyTranslate, false)).resolves.toBe(false);
+
+    expect(mockTauriFetch).not.toHaveBeenCalled();
+    expect(mockSetUpdaterWindowVisible).not.toHaveBeenCalled();
+  });
+
+  test('never fetches upstream release notes', async () => {
+    mockIsTauriAppPlatform = true;
+    setLastShownReleaseNotesVersion('0.9.0');
+    mockTauriFetch.mockResolvedValue({ ok: true });
+
+    await expect(checkAppReleaseNotes(true)).resolves.toBe(false);
+    await expect(checkAppReleaseNotes(false)).resolves.toBe(false);
+
+    expect(mockTauriFetch).not.toHaveBeenCalled();
+  });
+});
