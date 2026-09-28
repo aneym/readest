@@ -1023,10 +1023,13 @@ if ui_item 8 120; then
       failure="could not record wm size and density in dp"
       break
     fi
-    THEME_ORIGINAL="$(cdp_eval '{}' 2>/dev/null <<'JS' | tr -d '"'
+    # Keep the first original: a failed earlier restore leaves THEME_CHANGED=1 and themeMode=dark.
+    if [[ $THEME_CHANGED != 1 ]]; then
+      THEME_ORIGINAL="$(cdp_eval '{}' 2>/dev/null <<'JS' | tr -d '"'
 return localStorage.getItem('themeMode') || 'schedule';
 JS
 )"
+    fi
     if [[ -z "$THEME_ORIGINAL" ]]; then
       failure="could not read themeMode"
       break
@@ -1040,8 +1043,13 @@ JS
       break
     fi
     sleep 3
+    # useEinkMode sets data-eink in an effect after hydration; a slow panel can take a few seconds.
     eink="$(cdp_eval '{}' 2>/dev/null <<'JS'
-return document.documentElement.getAttribute('data-eink') === 'true';
+for (let i = 0; i < 20; i++) {
+  if (document.documentElement.getAttribute('data-eink') === 'true') return true;
+  await sleep(500);
+}
+return false;
 JS
 )"
     if [[ "$eink" != true ]]; then
@@ -1059,7 +1067,9 @@ JS
     if ! goto /library; then failure="library did not load"; break; fi
     details="$(cdp_eval "{\"hash\":\"$BOOK_HASH\"}" 2>/dev/null <<'JS'
 const byText = (sel, text) => [...document.querySelectorAll(sel)].find(e => (e.innerText || '').trim() === text);
-const cell = (ARGS.hash && document.querySelector(`[data-book-hash="${ARGS.hash}"]`)) || document.querySelector('[data-book-hash]');
+const findCell = () => (ARGS.hash && document.querySelector(`[data-book-hash="${ARGS.hash}"]`)) || document.querySelector('[data-book-hash]');
+let cell = findCell();
+for (let i = 0; !cell && i < 20; i++) { await sleep(500); cell = findCell(); }
 if (!cell) return 'no book cell';
 cell.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
 await sleep(1200);
@@ -1244,10 +1254,12 @@ if ui_item 3 170; then
     record 3 FAIL "screen is off or the keyguard is up; unlock the Palma first (no input is sent into the lock screen)"
   else
     [[ "$(wait_path /reader 3)" == *"$BOOK_HASH"* ]] || goto "/reader?ids=$BOOK_HASH"
-    THEME_ORIGINAL="$(cdp_eval '{}' <<'JS' | tr -d '"'
+    if [[ $THEME_CHANGED != 1 ]]; then
+      THEME_ORIGINAL="$(cdp_eval '{}' <<'JS' | tr -d '"'
 return localStorage.getItem('themeMode') || 'schedule';
 JS
 )"
+    fi
     start_pos="$(read_position "$BOOK_HASH" 2>&1)"
     THEME_CHANGED=1
     cdp_eval '{}' >/dev/null 2>&1 <<'JS'
