@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import tinycolor from 'tinycolor2';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { PiSun, PiMoon } from 'react-icons/pi';
 import { TbSunMoon } from 'react-icons/tb';
@@ -36,6 +37,13 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
   const { settings } = useSettingsStore();
   const { getScreenBrightness, setScreenBrightness } = useDeviceControlStore();
   const { themeMode, themeColor, isDarkMode, setThemeMode, setThemeColor } = useThemeStore();
+  // A monochrome panel greys every palette, so a swatch label in its theme's
+  // own mid-tone (Solarized) drops under 7:1; e-ink labels go pure ink or paper.
+  const isEink =
+    typeof document !== 'undefined' &&
+    document.documentElement.getAttribute('data-eink') === 'true';
+  const swatchLabelColor = (bg: string, fg: string) =>
+    isEink ? (tinycolor(bg).isDark() ? '#ffffff' : '#000000') : fg;
 
   const [screenBrightnessValue, setScreenBrightnessValue] = useState(
     settings.screenBrightness >= 0 ? settings.screenBrightness : SCREEN_BRIGHTNESS_LIMITS.DEFAULT,
@@ -137,25 +145,33 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
           className='flex gap-3 overflow-x-auto p-2'
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {themes.map(({ name, label, colors }) => (
-            <button
-              key={name}
-              onClick={() => setThemeColor(name)}
-              className={clsx(
-                'flex flex-shrink-0 flex-col items-center justify-center rounded-lg p-3 transition-all',
-                'h-[40px] min-w-[80px]',
-                themeColor === name
-                  ? 'ring-primary ring-offset-base-200 ring-2 ring-offset-2'
-                  : 'hover:opacity-80',
-              )}
-              style={{
-                backgroundColor: isDarkMode ? colors.dark['base-100'] : colors.light['base-100'],
-                color: isDarkMode ? colors.dark['base-content'] : colors.light['base-content'],
-              }}
-            >
-              <span className='text-xs font-medium'>{_(label)}</span>
-            </button>
-          ))}
+          {themes.map(({ name, label, colors }) => {
+            const palette = isDarkMode ? colors.dark : colors.light;
+            return (
+              <button
+                key={name}
+                onClick={() => setThemeColor(name)}
+                className={clsx(
+                  'flex flex-shrink-0 flex-col items-center justify-center rounded-lg p-3 transition-all',
+                  'h-[40px] min-w-[80px]',
+                  themeColor === name
+                    ? 'ring-primary ring-offset-base-200 ring-2 ring-offset-2'
+                    : 'hover:opacity-80',
+                )}
+                style={{ backgroundColor: palette['base-100'] }}
+              >
+                {/* The label carries its own color: e-ink forces every button's
+                  color to the app's base-content, which a swatch drawn in
+                  another theme's palette does not share. */}
+                <span
+                  className='text-xs font-medium'
+                  style={{ color: swatchLabelColor(palette['base-100'], palette['base-content']) }}
+                >
+                  {_(label)}
+                </span>
+              </button>
+            );
+          })}
           <button
             onClick={() => cycleThemeMode()}
             className={clsx(
@@ -168,22 +184,28 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
             style={{
               backgroundColor: (themes.find((t) => t.name === themeColor) || themes[0]!).colors
                 .dark['base-100'],
-              color: (themes.find((t) => t.name === themeColor) || themes[0]!).colors.dark[
-                'base-content'
-              ],
             }}
           >
-            {themeMode === 'light' ? (
-              <PiSun size={20} />
-            ) : themeMode === 'dark' ? (
-              <PiMoon size={20} />
-            ) : themeMode === 'ambient' ? (
-              <MdOutlineSensors size={20} />
-            ) : themeMode === 'schedule' ? (
-              <MdOutlineSchedule size={20} />
-            ) : (
-              <TbSunMoon size={20} />
-            )}
+            <span
+              className='flex'
+              style={{
+                color: (themes.find((t) => t.name === themeColor) || themes[0]!).colors.dark[
+                  'base-content'
+                ],
+              }}
+            >
+              {themeMode === 'light' ? (
+                <PiSun size={20} />
+              ) : themeMode === 'dark' ? (
+                <PiMoon size={20} />
+              ) : themeMode === 'ambient' ? (
+                <MdOutlineSensors size={20} />
+              ) : themeMode === 'schedule' ? (
+                <MdOutlineSchedule size={20} />
+              ) : (
+                <TbSunMoon size={20} />
+              )}
+            </span>
           </button>
         </div>
       </div>

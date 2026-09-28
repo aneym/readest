@@ -206,15 +206,17 @@ const BookDetailEdit: React.FC<BookDetailEditProps> = ({
               disabled={isCoverLocked}
               className={clsx(
                 'flex w-1/2 min-w-0 items-center justify-center gap-1 rounded p-1 sm:w-3/5',
-                'text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 sm:text-xs',
-                isCoverLocked ? '!text-base-content bg-base-200' : 'bg-gray-100 !text-gray-500',
+                'hover:bg-base-300 text-sm disabled:cursor-not-allowed disabled:opacity-50 sm:text-xs',
+                isCoverLocked
+                  ? '!text-base-content bg-base-200'
+                  : 'bg-base-200 !text-base-content/70',
               )}
               title={_('Change cover image')}
             >
               <MdEdit
                 className={clsx(
                   'h-5 w-5 flex-shrink-0 sm:h-4 sm:w-4',
-                  isCoverLocked ? 'fill-base-content' : 'fill-gray-600',
+                  isCoverLocked ? 'fill-base-content' : 'fill-current',
                 )}
               />
               <span className='hidden truncate sm:inline'>{_('Replace')}</span>
@@ -231,8 +233,8 @@ const BookDetailEdit: React.FC<BookDetailEditProps> = ({
               className={clsx(
                 'flex w-1/4 items-center justify-center rounded p-1 sm:w-1/5',
                 'disabled:cursor-not-allowed disabled:opacity-50',
-                'text-red-500 hover:bg-red-50 hover:text-red-600',
-                isCoverLocked ? '!text-base-content bg-base-200' : 'bg-gray-100',
+                'hover:bg-base-300 text-red-600 theme-dark:text-red-400',
+                isCoverLocked ? '!text-base-content bg-base-200' : 'bg-base-200',
               )}
               title={_('Remove cover image')}
             >
@@ -242,10 +244,10 @@ const BookDetailEdit: React.FC<BookDetailEditProps> = ({
             <button
               onClick={() => onToggleFieldLock('coverImageUrl')}
               className={clsx(
-                'flex w-1/4 items-center justify-center rounded p-1 hover:bg-gray-50 sm:w-1/5',
+                'hover:bg-base-300 flex w-1/4 items-center justify-center rounded p-1 sm:w-1/5',
                 isCoverLocked
-                  ? 'bg-green-100 text-green-500 hover:bg-green-200'
-                  : 'bg-gray-100 text-gray-500',
+                  ? 'bg-base-300 text-base-content'
+                  : 'bg-base-200 text-base-content/70',
               )}
               title={isCoverLocked ? _('Unlock cover') : _('Lock cover')}
             >
@@ -322,7 +324,7 @@ const BookDetailEdit: React.FC<BookDetailEditProps> = ({
           <button
             onClick={onAutoRetrieve}
             disabled={searchLoading}
-            className='flex items-center gap-2 rounded-md bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 disabled:opacity-50'
+            className='border-base-content/30 text-base-content hover:bg-base-200 flex items-center gap-2 rounded-md border px-4 py-2 text-sm disabled:opacity-50'
             title={_('Auto-Retrieve Metadata')}
           >
             {searchLoading ? (
@@ -342,7 +344,7 @@ const BookDetailEdit: React.FC<BookDetailEditProps> = ({
               className={clsx(
                 'hover:bg-base-200 flex items-center gap-1 rounded px-2 py-1 text-sm',
                 'disabled:cursor-not-allowed disabled:opacity-80',
-                'text-yellow-600 hover:text-yellow-700',
+                'text-yellow-700 theme-dark:text-yellow-400',
               )}
               title={_('Unlock all fields')}
             >
@@ -355,7 +357,7 @@ const BookDetailEdit: React.FC<BookDetailEditProps> = ({
               className={clsx(
                 'hover:bg-base-200 flex items-center gap-1 rounded px-2 py-1 text-sm',
                 'disabled:cursor-not-allowed disabled:opacity-80',
-                'text-green-600 hover:text-green-700',
+                'text-green-700 theme-dark:text-green-400',
               )}
               title={_('Lock all fields')}
             >
@@ -381,7 +383,7 @@ const BookDetailEdit: React.FC<BookDetailEditProps> = ({
           <button
             onClick={onSave}
             disabled={fieldErrors && Object.keys(fieldErrors).length > 0}
-            className='rounded-md bg-green-500 px-4 py-2 text-white hover:bg-green-600 disabled:opacity-50'
+            className='btn-contrast rounded-md px-4 py-2 disabled:opacity-50'
           >
             {_('Save')}
           </button>

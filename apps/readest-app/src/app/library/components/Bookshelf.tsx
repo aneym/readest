@@ -942,7 +942,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
               onClick={(event) => handleImportBooks(event.currentTarget)}
             >
               <div className='flex items-center justify-center'>
-                <PiPlus className='size-10' color='gray' />
+                <PiPlus className='text-base-content/60 size-10' />
               </div>
             </button>
           </div>

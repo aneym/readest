@@ -527,12 +527,21 @@ html[data-eink='true'][data-theme$='-dark'] {
   --n: 0% 0 0;
   --bc: 100% 0 0;
   --nc: 100% 0 0;
-  --fallback-b1: #000;
-  --fallback-b2: #000;
-  --fallback-b3: #000;
-  --fallback-n: #000;
-  --fallback-bc: #fff;
-  --fallback-nc: #fff;
+}
+
+/* daisyUI paints `var(--fallback-bc, oklch(var(--bc) / 0.1))`: once a
+   fallback is defined it wins and the alpha is gone, so every tint (menu focus,
+   badges, disabled buttons) turned solid white under white text. Define the
+   fallbacks only where oklch is missing, as daisyUI does itself. */
+@supports not (color: oklch(0% 0 0)) {
+  html[data-eink='true'][data-theme$='-dark'] {
+    --fallback-b1: #000;
+    --fallback-b2: #000;
+    --fallback-b3: #000;
+    --fallback-n: #000;
+    --fallback-bc: #fff;
+    --fallback-nc: #fff;
+  }
 }
 
 html[data-eink='true'][data-theme$='-dark']
@@ -551,15 +560,18 @@ html[data-eink='true'][data-theme$='-dark']
   border: 1px solid oklch(var(--bc));
 }
 
+/* The row's own child is listed too: daisyUI's `.menu li > *:focus` paints it
+   base-content, which put white text on the selected row's white fill. */
 html[data-eink='true'][data-theme$='-dark']
-  :is(
-    .btn-active,
-    .btn-ghost.btn-active,
-    .menu li > *:active,
-    .dropdown-content .active,
-    [role='option'][aria-selected='true'],
-    [role='menuitem'][aria-selected='true']
-  ) {
+:is(
+  .btn-active,
+  .btn-ghost.btn-active,
+  .menu li > *:active,
+  .dropdown-content .active,
+  [role='option'][aria-selected='true'],
+  [role='option'][aria-selected='true'] > *,
+  [role='menuitem'][aria-selected='true']
+) {
   background-color: oklch(var(--bc)) !important;
   color: oklch(var(--b1)) !important;
 }
@@ -692,6 +704,36 @@ html[data-eink='true'][data-theme$='-dark']
 [data-eink='true'] button,
 [data-eink='true'] .btn {
   color: theme('colors.base-content') !important;
+}
+
+/* A button that draws its own inverted label (base-content fill, base-100
+   text: a selected chip, a segmented control) keeps it; the rule above would
+   leave base-content on base-content, a blank pill. */
+[data-eink='true'] :is(button, .btn)[class~='text-base-100'] {
+  color: theme('colors.base-100') !important;
+}
+
+/* A 30-50% wash dithers into a grey the panel barely shows, so muted and
+   disabled controls lose their labels. Keep them lighter than their neighbours
+   but readable. Exact tokens only: `hover:opacity-50` and friends stay. */
+[data-eink='true']
+  :is([class~='opacity-30'], [class~='opacity-40'], [class~='opacity-50']):not(img, video, canvas) {
+  opacity: 0.75 !important;
+}
+
+[data-eink='true'] :is(.select:disabled, .select-disabled) {
+  color: theme('colors.base-content');
+  opacity: 0.75;
+}
+
+[data-eink='true'] :is(.radio, .checkbox, .toggle):disabled {
+  opacity: 0.75;
+}
+
+/* daisyUI draws the unchecked ring at base-content/20, a pale grey the panel
+   loses entirely; give it full ink. */
+[data-eink='true'] :is(.radio, .checkbox) {
+  border-color: theme('colors.base-content');
 }
 
 /* btn-contrast — a solid, high-contrast CTA: base-content background with a

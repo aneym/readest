@@ -126,7 +126,7 @@ const FormField: React.FC<FormFieldProps> = ({
               inputBaseStyles,
               inputBackgroundStyles,
               lockable && 'pe-10',
-              isLocked ? 'cursor-not-allowed' : 'bg-gray-100 text-gray-500',
+              isLocked ? 'cursor-not-allowed' : 'bg-base-200 text-base-content/80',
               error && 'border-red-500 focus:ring-red-500',
               className,
             )}
@@ -142,7 +142,7 @@ const FormField: React.FC<FormFieldProps> = ({
               inputBaseStyles,
               inputBackgroundStyles,
               lockable && 'pe-10',
-              isLocked ? 'cursor-not-allowed' : 'bg-gray-100 text-gray-500',
+              isLocked ? 'cursor-not-allowed' : 'bg-base-200 text-base-content/80',
               error && 'border-red-500 focus:ring-red-500',
               className,
             )}
