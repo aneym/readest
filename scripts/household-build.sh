@@ -31,6 +31,17 @@ phase() { printf '[%s +%4ds] %s\n' "$(date +%H:%M:%S)" "$(( $(date +%s) - T0 ))"
 
 phase "build $BUILD_ID from $FULL"
 
+# --- one build at a time ------------------------------------------------------
+# BUILD_ROOT and CARGO_TARGET_DIR are shared; a second build would re-checkout
+# the tree under the first one and ship a mislabelled APK.
+LOCK="$BUILD_ROOT.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "another household build holds $LOCK ($(cat "$LOCK/owner" 2>/dev/null)); refusing" >&2
+  exit 1
+fi
+echo "$$ $BUILD_ID $(date -u +%FT%TZ)" > "$LOCK/owner"
+trap 'rm -rf "$LOCK"' EXIT
+
 # --- clean worktree -----------------------------------------------------------
 if [[ ! -d "$BUILD_ROOT/.git" && ! -f "$BUILD_ROOT/.git" ]]; then
   git -C "$ROOT" worktree add --detach "$BUILD_ROOT" "$FULL"
