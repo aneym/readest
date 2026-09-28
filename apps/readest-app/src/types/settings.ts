@@ -478,6 +478,12 @@ export interface SystemSettings {
   lastSyncedAtBooks: number;
   lastSyncedAtConfigs: number;
   lastSyncedAtNotes: number;
+  /**
+   * 1 once a complete library books pull from since=0 has run after the
+   * Homebase catalogue started emitting calibre_id. Books pulled earlier only
+   * gain calibreId on a full pull, because the books cursor is the file mtime.
+   */
+  homebaseCalibreIdBackfill?: number;
 
   /**
    * App-lock PIN. When `pinCodeEnabled` is true, the user must enter
