@@ -189,9 +189,9 @@ describe('flush', () => {
     // so the rejection of the old revision poisons nothing.
     const edited = makeOutbox();
     await edited.enqueue('books', [{ book_hash: 'a', updated_at: AUG('01') }]);
-    const result = await edited.flush(async (envelope) => {
+    const result = await edited.flush(async () => {
       await edited.enqueue('books', [{ book_hash: 'a', updated_at: AUG('02') }]);
-      return reject(envelope);
+      return reject();
     });
     expect(result).toMatchObject({ newlyPoisoned: 0, poisoned: [], remaining: 1 });
   });
