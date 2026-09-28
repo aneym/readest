@@ -538,7 +538,12 @@ JS
   fi
   adb -s "$SERIAL" forward --remove "tcp:$PORT" >/dev/null 2>&1 || true
   if [[ -n "$WATCHDOG_PID" ]]; then
-    pkill -P "$WATCHDOG_PID" 2>/dev/null; kill "$WATCHDOG_PID" 2>/dev/null
+    # Kill the watchdog subshell before its sleep: killing the sleep first wakes
+    # the subshell, which sends TERM here and turns a clean run into exit 130.
+    local kids
+    kids="$(pgrep -P "$WATCHDOG_PID" 2>/dev/null)"
+    kill "$WATCHDOG_PID" 2>/dev/null
+    [[ -n "$kids" ]] && kill $kids 2>/dev/null
   fi
   if [[ $LOCK_TAKEN == 1 ]]; then
     rm -rf "$LOCK_DIR"
