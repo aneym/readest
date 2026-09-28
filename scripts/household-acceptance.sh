@@ -1260,6 +1260,9 @@ return localStorage.getItem('themeMode') || 'schedule';
 JS
 )"
     fi
+    if [[ -z "$THEME_ORIGINAL" ]]; then
+      record 3 FAIL "could not read themeMode; theme left unchanged, no pages turned"
+    else
     start_pos="$(read_position "$BOOK_HASH" 2>&1)"
     THEME_CHANGED=1
     cdp_eval '{}' >/dev/null 2>&1 <<'JS'
@@ -1295,10 +1298,15 @@ JS
     for _ in $(seq 1 10); do turn_prev; sleep 2; done
     sleep 3
     pback="$(progress_of)"
-    cdp_eval "{\"mode\":\"$THEME_ORIGINAL\"}" >/dev/null 2>&1 <<'JS'
+    # Clear THEME_CHANGED only on a successful restore, so the EXIT cleanup retries.
+    if cdp_eval "{\"mode\":\"$THEME_ORIGINAL\"}" >/dev/null 2>&1 <<'JS'
 localStorage.setItem('themeMode', ARGS.mode); location.reload(); return true;
 JS
-    THEME_CHANGED=0
+    then
+      THEME_CHANGED=0
+    else
+      log "WARN: could not restore themeMode $THEME_ORIGINAL; the exit cleanup retries"
+    fi
     sleep 3; wait_path /reader 40 >/dev/null
     printf 'turn00 text-rects %s\nturn00 whole-page %s\nturn10 text-rects %s\nturn10 whole-page %s\nmethod %s screen-changed %s\nprogress start %s after-10 %s after-back %s\nstart position %s\ntheme restored to %s\ngeometry %s %s\n' \
       "$sa" "$wa" "$sb" "$wb" "$METHOD" "$changed" "$p0" "$p10" "$pback" "$start_pos" "$THEME_ORIGINAL" "$ga" "$gb" > "$OUT/3-night.txt"
@@ -1313,6 +1321,7 @@ JS
     fi
     if [[ "$pback" != "$p0" ]]; then
       log "WARN: reading position is $pback after turning back (started at $p0); the start position is in $OUT/3-night.txt"
+    fi
     fi
   fi
 fi
