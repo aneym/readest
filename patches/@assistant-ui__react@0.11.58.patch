@@ -1,0 +1,28 @@
+diff --git a/dist/legacy-runtime/runtime-cores/remote-thread-list/RemoteThreadListHookInstanceManager.js b/dist/legacy-runtime/runtime-cores/remote-thread-list/RemoteThreadListHookInstanceManager.js
+index ed6746709955e59997f79709526c2f3c4aa243dd..7dffaaa2ff9c0afa8ebe99638b08b7b97b042ca4 100644
+--- a/dist/legacy-runtime/runtime-cores/remote-thread-list/RemoteThreadListHookInstanceManager.js
++++ b/dist/legacy-runtime/runtime-cores/remote-thread-list/RemoteThreadListHookInstanceManager.js
+@@ -79,7 +79,8 @@ export class RemoteThreadListHookInstanceManager extends BaseSubscribable {
+             const runtimeCore = threadBinding.getState();
+             const setGetInitializePromise = runtimeCore["__internal_setGetInitializePromise"];
+             if (typeof setGetInitializePromise === "function") {
+-                setGetInitializePromise(() => initPromiseRef.current);
++                // Called unbound it loses `this` and throws on mount (0.11.58).
++                setGetInitializePromise.call(runtimeCore, () => initPromiseRef.current);
+             }
+         }, [threadBinding]);
+         useEffect(() => {
+diff --git a/src/legacy-runtime/runtime-cores/remote-thread-list/RemoteThreadListHookInstanceManager.tsx b/src/legacy-runtime/runtime-cores/remote-thread-list/RemoteThreadListHookInstanceManager.tsx
+index 969328d75ec3a7e1f72b23b1ea2aae3a777d594d..d165f4574ca0136541da82b495cf14244c05098c 100644
+--- a/src/legacy-runtime/runtime-cores/remote-thread-list/RemoteThreadListHookInstanceManager.tsx
++++ b/src/legacy-runtime/runtime-cores/remote-thread-list/RemoteThreadListHookInstanceManager.tsx
+@@ -112,7 +112,8 @@ export class RemoteThreadListHookInstanceManager extends BaseSubscribable {
+         "__internal_setGetInitializePromise"
+       ];
+       if (typeof setGetInitializePromise === "function") {
+-        setGetInitializePromise(() => initPromiseRef.current);
++        // Called unbound it loses `this` and throws on mount (0.11.58).
++        setGetInitializePromise.call(runtimeCore, () => initPromiseRef.current);
+       }
+     }, [threadBinding]);
+ 
