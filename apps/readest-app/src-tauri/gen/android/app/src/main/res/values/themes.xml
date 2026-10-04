@@ -5,6 +5,10 @@
     <!-- The WebView draws its own day, night and e-ink themes; system force-dark
          (and BOOX E-Ink Center dark mode riding on it) would invert them again. -->
     <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
+    <!-- Native pickers and dialogs mark the selection in ink, like the page does,
+         instead of Material teal. -->
+    <item name="colorSecondary">@color/household_ink</item>
+    <item name="colorAccent">@color/household_ink</item>
     <item name="android:windowBackground">@drawable/splash_background</item>
     <item name="android:statusBarColor">@android:color/transparent</item>
     <item name="android:navigationBarColor">@android:color/transparent</item>
