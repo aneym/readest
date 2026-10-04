@@ -48,6 +48,13 @@ const cases: Array<{
     provider: 'ollama',
   },
   {
+    name: 'reader picked their own model on localhost Ollama',
+    stored: { enabled: true, provider: 'ollama', ollamaModel: 'qwen3:8b' },
+    homebase: true,
+    enabled: true,
+    provider: 'ollama',
+  },
+  {
     name: 'reader turned it off after the default applied',
     stored: { enabled: false, provider: 'homebase', homebaseDefaultVersion: 1 },
     homebase: true,

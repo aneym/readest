@@ -26,28 +26,35 @@ export class HomebaseProvider implements AIProvider {
   requiresAuth = false;
 
   private baseUrl: string;
-  private token: string;
   private httpFetch: typeof fetch;
   private client: ReturnType<typeof createAnthropic>;
 
+  // Never throws: the AI tab builds the provider while it renders, so an
+  // unpaired device or a build without a server fails on the request instead.
   constructor() {
-    const base = getHomebaseBaseUrl();
-    if (!base) {
-      throw new Error('This build has no Homebase server');
-    }
-    this.baseUrl = `${base}/ai`;
-    this.token = readPairedToken();
-    if (!this.token) {
-      throw new Error('Pair this device with Homebase to use the assistant');
-    }
+    this.baseUrl = `${getHomebaseBaseUrl()}/ai`;
     this.httpFetch = getAIFetch();
     this.client = createAnthropic({
       baseURL: `${this.baseUrl}/v1`,
-      authToken: this.token,
-      fetch: this.httpFetch,
+      // Selects Bearer auth; pairedFetch swaps in the current token per request.
+      authToken: 'paired-device',
+      fetch: this.pairedFetch,
     });
     aiLogger.provider.init('homebase', HOMEBASE_DEFAULT_MODEL);
   }
+
+  private pairedFetch: typeof fetch = (input, init) => {
+    if (!getHomebaseBaseUrl()) {
+      return Promise.reject(new Error('This build has no Homebase server'));
+    }
+    const token = readPairedToken();
+    if (!token) {
+      return Promise.reject(new Error('Pair this device with Homebase to use the assistant'));
+    }
+    const headers = new Headers(init?.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    return this.httpFetch(input, { ...init, headers });
+  };
 
   getModel(): LanguageModel {
     // The server overrides the model; the id only labels the request.
@@ -75,9 +82,8 @@ export class HomebaseProvider implements AIProvider {
 
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await this.httpFetch(`${this.baseUrl}/health`, {
+      const response = await this.pairedFetch(`${this.baseUrl}/health`, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${this.token}` },
         signal: AbortSignal.timeout(AI_TIMEOUTS.HEALTH_CHECK),
       });
       if (!response.ok) {

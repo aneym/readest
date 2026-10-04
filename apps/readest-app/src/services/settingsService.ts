@@ -123,15 +123,19 @@ const HOMEBASE_AI_DEFAULT_VERSION = 1;
 
 /**
  * Household builds turn the assistant on with the Homebase provider, once.
- * Only the stock provider is switched: Ollama at its localhost default, which
- * no household reader runs, whether or not the assistant was switched on. A
- * provider the reader configured, or a later change, is left alone.
+ * Only the stock provider is switched: Ollama at its localhost default URL and
+ * models, which no household reader runs, whether or not the assistant was
+ * switched on. A provider or model the reader configured, or a later change,
+ * is left alone.
  */
 export function applyHomebaseAIDefault(ai: AISettings, homebaseEnabled: boolean): void {
   if (!homebaseEnabled || (ai.homebaseDefaultVersion ?? 0) >= HOMEBASE_AI_DEFAULT_VERSION) return;
   const stockOllama =
     ai.provider === 'ollama' &&
-    (!ai.ollamaBaseUrl || ai.ollamaBaseUrl === DEFAULT_AI_SETTINGS.ollamaBaseUrl);
+    (!ai.ollamaBaseUrl || ai.ollamaBaseUrl === DEFAULT_AI_SETTINGS.ollamaBaseUrl) &&
+    (!ai.ollamaModel || ai.ollamaModel === DEFAULT_AI_SETTINGS.ollamaModel) &&
+    (!ai.ollamaEmbeddingModel ||
+      ai.ollamaEmbeddingModel === DEFAULT_AI_SETTINGS.ollamaEmbeddingModel);
   if (stockOllama) {
     ai.enabled = true;
     ai.provider = 'homebase';

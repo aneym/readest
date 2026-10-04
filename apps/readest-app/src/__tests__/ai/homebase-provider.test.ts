@@ -72,6 +72,27 @@ describe('Homebase AI provider', () => {
     expect(seen[0]!.body['stream']).toBe(true);
   });
 
+  it('builds on an unpaired device and fails only when asked', async () => {
+    localStorage.removeItem('token');
+    const before = seen.length;
+    try {
+      const appService = { openDatabase: () => new Promise(() => {}) } as unknown as AppService;
+      expect(() => new ReedyBackend(appService, settings)).not.toThrow();
+      const result = streamText({
+        model: getAIProvider(settings).getModel(),
+        messages: [{ role: 'user', content: 'Hi' }],
+      });
+      const errors: string[] = [];
+      for await (const part of result.fullStream) {
+        if (part.type === 'error') errors.push((part.error as Error).message);
+      }
+      expect(errors).toEqual(['Pair this device with Homebase to use the assistant']);
+      expect(seen).toHaveLength(before);
+    } finally {
+      localStorage.setItem('token', 'paired-device-token');
+    }
+  });
+
   it('lets the AI tab build its retrieval backend; only embedding itself fails', async () => {
     const appService = { openDatabase: () => new Promise(() => {}) } as unknown as AppService;
     expect(() => new ReedyBackend(appService, settings)).not.toThrow();
