@@ -1,6 +1,6 @@
 import type { LanguageModel, EmbeddingModel } from 'ai';
 
-export type AIProviderName = 'ollama' | 'ai-gateway' | 'openrouter';
+export type AIProviderName = 'ollama' | 'ai-gateway' | 'openrouter' | 'homebase';
 
 export interface AIProvider {
   id: AIProviderName;
@@ -33,6 +33,10 @@ export interface AISettings {
   openrouterBaseUrl?: string;
   openrouterModel?: string;
   openrouterEmbeddingModel?: string;
+
+  // Homebase builds only: set once the household default has been applied, so turning the
+  // assistant off later sticks.
+  homebaseDefaultApplied?: boolean;
 
   spoilerProtection: boolean;
   maxContextChunks: number;

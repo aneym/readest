@@ -25,6 +25,8 @@ import {
   DEFAULT_VIEW_SETTINGS_CONFIG,
 } from './constants';
 import { DEFAULT_AI_SETTINGS } from './ai/constants';
+import type { AISettings } from './ai/types';
+import { isHomebaseSyncEnabled } from './sync/homebase/config';
 import { getTargetLang, isCJKEnv } from '@/utils/misc';
 import { safeLoadJSON, safeSaveJSON } from './persistence';
 
@@ -117,6 +119,20 @@ export function migrateLibraryThenSort(settings: SystemSettings): void {
   delete legacy.librarySortBy2;
 }
 
+/**
+ * Household builds turn the assistant on with the Homebase provider, once. Only
+ * an assistant still at the stock default (off, Ollama) is switched; a choice
+ * the reader already made, or a later "off", is left alone.
+ */
+export function applyHomebaseAIDefault(ai: AISettings, homebaseEnabled: boolean): void {
+  if (!homebaseEnabled || ai.homebaseDefaultApplied) return;
+  if (!ai.enabled && ai.provider === 'ollama') {
+    ai.enabled = true;
+    ai.provider = 'homebase';
+  }
+  ai.homebaseDefaultApplied = true;
+}
+
 export async function loadSettings(ctx: Context): Promise<SystemSettings> {
   const defaultSettings: SystemSettings = {
     ...DEFAULT_SYSTEM_SETTINGS,
@@ -161,6 +177,7 @@ export async function loadSettings(ctx: Context): Promise<SystemSettings> {
     ...DEFAULT_AI_SETTINGS,
     ...settings.aiSettings,
   };
+  applyHomebaseAIDefault(settings.aiSettings, isHomebaseSyncEnabled());
 
   settings.localBooksDir = await ctx.fs.getPrefix('Books');
 

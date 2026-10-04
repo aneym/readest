@@ -429,8 +429,9 @@ const LegacyAIAssistant = ({ bookKey }: AIAssistantProps) => {
   // Not indexed is not a wall: the chat still works from the visible page
   // and the model's own knowledge (see prompts.ts). Indexing is offered
   // in a compact row above the chat so book-wide search stays one tap away.
+  // Homebase serves chat only (no embeddings), so there is nothing to index.
   const indexBanner =
-    !indexed && !isIndexing ? (
+    !indexed && !isIndexing && aiSettings.provider !== 'homebase' ? (
       <div className='eink-bordered flex items-center justify-between gap-2 border-b px-3 py-2'>
         <p className='text-muted-foreground text-xs'>
           {_('Answers use the current page. Index the book to search all of it.')}

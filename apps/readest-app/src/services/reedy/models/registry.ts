@@ -1,5 +1,6 @@
 import { embed, embedMany } from 'ai';
 import { getAIProvider } from '@/services/ai/providers';
+import { HOMEBASE_DEFAULT_MODEL } from '@/services/ai/providers/HomebaseProvider';
 import type { AISettings } from '@/services/ai/types';
 import type { ChatModel } from './ChatModel';
 import type { EmbeddingModel } from './EmbeddingModel';
@@ -120,6 +121,8 @@ function chatModelIdFor(settings: AISettings): string {
       );
     case 'openrouter':
       return settings.openrouterModel || 'openai/gpt-4o-mini';
+    case 'homebase':
+      return HOMEBASE_DEFAULT_MODEL;
   }
 }
 
@@ -173,5 +176,7 @@ function embeddingModelIdFor(settings: AISettings): string {
       return settings.aiGatewayEmbeddingModel || 'openai/text-embedding-3-small';
     case 'openrouter':
       return settings.openrouterEmbeddingModel || 'openai/text-embedding-3-small';
+    case 'homebase':
+      return 'none';
   }
 }

@@ -14,6 +14,7 @@ import { DEFAULT_AI_SETTINGS, GATEWAY_MODELS, MODEL_PRICING } from '@/services/a
 import type { AISettings, AIProviderName } from '@/services/ai/types';
 import { exportReedyMetricsBundle } from '@/services/reedy/instrumentation';
 import { isTauriAppPlatform } from '@/services/environment';
+import { getHomebaseBaseUrl } from '@/services/sync/homebase/config';
 import { BoxedList, SettingLabel, SettingsRow, SettingsSwitchRow } from './primitives';
 
 type ConnectionStatus = 'idle' | 'testing' | 'success' | 'error';
@@ -392,7 +393,9 @@ const AIPanel: React.FC = () => {
         setErrorMessage(
           provider === 'ollama'
             ? _("Couldn't connect to Ollama. Is it running?")
-            : _('Invalid API key or connection failed'),
+            : provider === 'homebase'
+              ? _("Couldn't reach Homebase. Check the device is paired and online.")
+              : _('Invalid API key or connection failed'),
         );
       }
     } catch (error) {
@@ -414,6 +417,18 @@ const AIPanel: React.FC = () => {
       </BoxedList>
 
       <BoxedList title={_('Provider')} className={disabledSection}>
+        {(provider === 'homebase' || getHomebaseBaseUrl()) && (
+          <SettingsRow label={_('Homebase (Claude)')} asLabel>
+            <input
+              type='radio'
+              name='ai-provider'
+              className='radio'
+              checked={provider === 'homebase'}
+              onChange={() => setProvider('homebase')}
+              disabled={!enabled}
+            />
+          </SettingsRow>
+        )}
         <SettingsRow label={_('Ollama (Local)')} asLabel>
           <input
             type='radio'
