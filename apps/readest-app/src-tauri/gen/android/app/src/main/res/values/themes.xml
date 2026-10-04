@@ -9,6 +9,7 @@
          instead of Material teal. -->
     <item name="colorSecondary">@color/household_ink</item>
     <item name="colorAccent">@color/household_ink</item>
+    <item name="android:alertDialogTheme">@style/Theme.Household.AlertDialog</item>
     <item name="android:windowBackground">@drawable/splash_background</item>
     <item name="android:statusBarColor">@android:color/transparent</item>
     <item name="android:navigationBarColor">@android:color/transparent</item>

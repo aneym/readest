@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <color name="household_ink">#FF000000</color>
+  <!-- Framework alert dialogs (the WebView's select picker among them) take their
+       accent from here, not from the app theme. -->
+  <style name="Theme.Household.AlertDialog" parent="@android:style/Theme.DeviceDefault.Light.Dialog.Alert">
+    <item name="android:colorAccent">@color/household_ink</item>
+  </style>
 </resources>
