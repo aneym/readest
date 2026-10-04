@@ -19,7 +19,11 @@ vi.mock('@tauri-apps/plugin-cli', () => ({
   getMatches: () => mockGetMatches(),
 }));
 
-import { parseOpenWithFiles, shouldOpenTransient } from '@/helpers/openWith';
+import {
+  filterOpenWithFilePaths,
+  parseOpenWithFiles,
+  shouldOpenTransient,
+} from '@/helpers/openWith';
 
 // Helper type matching the AppService subset used in openWith
 interface MockAppService {
@@ -275,6 +279,30 @@ describe('parseOpenWithFiles', () => {
 
       expect(result).toEqual(['/intent-file.epub']);
     });
+  });
+});
+
+describe('filterOpenWithFilePaths', () => {
+  // Regression: the Palma launcher's Resume link reached the file-import path,
+  // which reloaded the library over the book the deep link had opened.
+  test('keeps files and drops app links, including the Palma launcher link', () => {
+    expect(
+      filterOpenWithFilePaths([
+        'file:///path/to/my%20book.epub',
+        'content://com.example/book.epub',
+        '/plain/path.pdf',
+        'https://example.com/book.epub',
+        'readest://book/0123456789abcdef0123456789abcdef',
+        'palma-readest://open?calibreId=140',
+        'PALMA-READEST://open?calibreId=60&mode=listen',
+      ]),
+    ).toEqual(['/path/to/my book.epub', 'content://com.example/book.epub', '/plain/path.pdf']);
+  });
+
+  test('keeps the file:// prefix on iOS', () => {
+    expect(filterOpenWithFilePaths(['file:///path/to/book.epub'], true)).toEqual([
+      'file:///path/to/book.epub',
+    ]);
   });
 });
 

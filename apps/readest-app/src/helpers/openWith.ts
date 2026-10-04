@@ -71,6 +71,26 @@ const parseIntentOpenWithFiles = async (appService: AppService | null) => {
 };
 
 /**
+ * Keep the incoming URLs that name a file (file://, content:// or a plain
+ * path) for the "Open with" import path. App links (https, readest://, and
+ * the Palma launcher's palma-readest://open) belong to the deep-link
+ * consumers; treating one as a file navigates to the library over the book
+ * the deep link just opened.
+ */
+export const filterOpenWithFilePaths = (urls: string[], isIOSApp = false): string[] => {
+  const filePaths: string[] = [];
+  for (let url of urls) {
+    if (url.startsWith('file://')) {
+      url = isIOSApp ? decodeURI(url) : decodeURI(url.replace('file://', ''));
+    }
+    if (!/^(https?:|data:|blob:|readest:|palma-readest:)/i.test(url)) {
+      filePaths.push(url);
+    }
+  }
+  return filePaths;
+};
+
+/**
  * Decide whether an "Open with" file intent should open as a transient book
  * (straight to the reader, no library write) or be imported into the library.
  *

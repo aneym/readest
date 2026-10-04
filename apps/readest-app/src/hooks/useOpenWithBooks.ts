@@ -7,14 +7,14 @@ import { isTauriAppPlatform } from '@/services/environment';
 import { navigateToLibrary, navigateToReader, showLibraryWindow } from '@/utils/nav';
 import { eventDispatcher } from '@/utils/event';
 import { partialMD5 } from '@/utils/md5';
-import { shouldOpenTransient } from '@/helpers/openWith';
+import { filterOpenWithFilePaths, shouldOpenTransient } from '@/helpers/openWith';
 
 /**
  * Handle "Open with Readest" file imports. Consumes the `app-incoming-url`
  * event published by `useAppUrlIngress`, filters URLs that look like a file
  * (file://, content://, or plain path), and routes them to the library.
  *
- * Non-file URL shapes (https, readest://, data:, blob:) are skipped here
+ * Non-file URL shapes (https, readest://, palma-readest://, data:, blob:) are skipped here
  * — other consumers (e.g. `useOpenAnnotationLink`) act on those.
  *
  * Mount this hook alongside `useAppUrlIngress` so the ingress dispatcher is
@@ -56,19 +56,6 @@ export function useOpenWithBooks() {
       const currentWindow = getCurrentWindow();
       const sortedWindows = allWindows.sort((a, b) => a.label.localeCompare(b.label));
       return sortedWindows[0]?.label === currentWindow.label;
-    };
-
-    const normalizeUrls = (urls: string[]): string[] => {
-      const filePaths: string[] = [];
-      for (let url of urls) {
-        if (url.startsWith('file://')) {
-          url = appService?.isIOSApp ? decodeURI(url) : decodeURI(url.replace('file://', ''));
-        }
-        if (!/^(https?:|data:|blob:|readest:)/i.test(url)) {
-          filePaths.push(url);
-        }
-      }
-      return filePaths;
     };
 
     const openTransient = async (filePaths: string[]) => {
@@ -155,7 +142,7 @@ export function useOpenWithBooks() {
     };
 
     const handle = async (urls: string[], action?: 'VIEW' | 'SEND') => {
-      const filePaths = normalizeUrls(urls);
+      const filePaths = filterOpenWithFilePaths(urls, appService?.isIOSApp);
       if (filePaths.length === 0) return;
 
       // Read the persisted setting from disk rather than the settings store:
