@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.ActionMode
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import android.webkit.JavascriptInterface
 import android.os.Handler
@@ -125,6 +126,22 @@ class MainActivity : TauriActivity(), KeyDownInterceptor {
             hasWindowFocus = true
             ensureInitialPaint()
         }
+    }
+
+    // The IME belongs to the focused window, not the activity, so a keyboard
+    // opened in Readest otherwise stays drawn over the launcher after Home.
+    // Blur the page's field too, or the WebView reopens it on resume.
+    override fun onPause() {
+        val webView = wv
+        if (webView != null) {
+            getSystemService(InputMethodManager::class.java)
+                ?.hideSoftInputFromWindow(webView.windowToken, 0)
+            webView.evaluateJavascript(
+                """try { document.activeElement && document.activeElement.blur && document.activeElement.blur(); } catch (_) {}""",
+                null
+            )
+        }
+        super.onPause()
     }
 
     private val keyEventMap = mapOf(
