@@ -22,6 +22,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Node 25+ defines a global localStorage that is undefined unless
+    // --localstorage-file is given, and it shadows jsdom's Storage.
+    execArgv: ['--no-experimental-webstorage'],
     silent: 'passed-only',
     setupFiles: ['./vitest.setup.ts'],
     exclude: [
