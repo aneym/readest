@@ -145,6 +145,29 @@ describe('startDiagnosticsReporter', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
+  it('does not buffer repeated benign ResizeObserver notifications but keeps real errors', () => {
+    // Exercise the browser event boundary and durable buffer, not a private filter.
+    const stop = startDiagnosticsReporter({ clientId: 'c', getToken: async () => null });
+    try {
+      for (let i = 0; i < 100; i++) {
+        window.dispatchEvent(
+          new ErrorEvent('error', {
+            message: 'ResizeObserver loop completed with undelivered notifications.',
+          }),
+        );
+      }
+      expect(readDiagnosticEvents()).toEqual([]);
+      window.dispatchEvent(
+        new ErrorEvent('error', { message: 'ResizeObserver failed to initialize' }),
+      );
+      expect(readDiagnosticEvents()).toMatchObject([
+        { kind: 'error.unhandled', level: 'error', message: 'ResizeObserver failed to initialize' },
+      ]);
+    } finally {
+      stop();
+    }
+  });
+
   it('captures unhandled errors into the buffer', () => {
     const stop = startDiagnosticsReporter({ clientId: 'c', getToken: async () => null });
     window.dispatchEvent(

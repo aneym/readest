@@ -227,6 +227,9 @@ export const startDiagnosticsReporter = (deps: DiagnosticsReporterDeps): (() => 
     if (doc.visibilityState === 'visible') flush();
   };
   const onError = (event: ErrorEvent) => {
+    // The browser defers these resize notifications to the next frame; this
+    // benign layout notice must not crowd real failures out of the buffer.
+    if (event.message === 'ResizeObserver loop completed with undelivered notifications.') return;
     recordDiagnostic('error.unhandled', 'error', String(event.message ?? 'error'), {
       source: event.filename ? `${event.filename}:${event.lineno}:${event.colno}` : undefined,
     });
