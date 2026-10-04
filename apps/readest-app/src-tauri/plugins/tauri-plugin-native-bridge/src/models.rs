@@ -94,8 +94,10 @@ pub struct InstallPackageResponse {
 pub struct SetSystemUIVisibilityRequest {
     pub visible: bool,
     pub dark_mode: bool,
-    #[serde(default)]
-    pub follow_system: bool,
+    /// Android native widget night mode: Some(true) follows the system,
+    /// Some(false) pins it to dark_mode, None leaves it as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub follow_system: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

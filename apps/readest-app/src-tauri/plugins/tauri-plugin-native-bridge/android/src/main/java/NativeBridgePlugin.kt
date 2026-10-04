@@ -96,7 +96,8 @@ class InstallPackageRequestArgs {
 class SetSystemUIVisibilityRequestArgs {
     var visible: Boolean? = false
     var darkMode: Boolean? = false
-    var followSystem: Boolean? = false
+    // Absent leaves the native night mode alone; only the theme hook sends it.
+    var followSystem: Boolean? = null
 }
 
 @InvokeArg
@@ -789,9 +790,10 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
             // activity's night mode, not the page's theme. Pin it to Readest's mode
             // so a light page never opens a dark picker (and the reverse); the
             // manifest handles uiMode, so this updates in place without a recreate.
-            (activity as? AppCompatActivity)?.delegate?.let { delegate ->
+            val followSystem = args.followSystem
+            (activity as? AppCompatActivity)?.delegate?.takeIf { followSystem != null }?.let { delegate ->
                 val nightMode = when {
-                    args.followSystem == true -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+                    followSystem == true -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
                     isDarkMode -> AppCompatDelegate.MODE_NIGHT_YES
                     else -> AppCompatDelegate.MODE_NIGHT_NO
                 }
