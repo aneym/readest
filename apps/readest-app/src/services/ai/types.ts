@@ -34,9 +34,9 @@ export interface AISettings {
   openrouterModel?: string;
   openrouterEmbeddingModel?: string;
 
-  // Homebase builds only: set once the household default has been applied, so turning the
-  // assistant off later sticks.
-  homebaseDefaultApplied?: boolean;
+  // Homebase builds only: the household default revision already applied, so
+  // a reader's later change sticks.
+  homebaseDefaultVersion?: number;
 
   spoilerProtection: boolean;
   maxContextChunks: number;
