@@ -44,6 +44,8 @@ export interface InstallPackageResponse {
 export interface SetSystemUIVisibilityRequest {
   visible: boolean;
   darkMode: boolean;
+  /** Android: native pickers and dialogs follow the system night mode instead of darkMode. */
+  followSystem?: boolean;
 }
 
 export interface SetSystemUIVisibilityResponse {

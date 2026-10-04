@@ -38,6 +38,8 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.fonts.SystemFonts
 import android.graphics.fonts.Font
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.WindowCompat
 import androidx.core.app.ActivityCompat
 import androidx.core.content.FileProvider
@@ -94,6 +96,7 @@ class InstallPackageRequestArgs {
 class SetSystemUIVisibilityRequestArgs {
     var visible: Boolean? = false
     var darkMode: Boolean? = false
+    var followSystem: Boolean? = false
 }
 
 @InvokeArg
@@ -782,6 +785,18 @@ class NativeBridgePlugin(private val activity: Activity): Plugin(activity) {
             window.statusBarColor = Color.TRANSPARENT
             @Suppress("DEPRECATION")
             window.navigationBarColor = Color.TRANSPARENT
+            // Native widgets the WebView draws (select pickers, dialogs) take the
+            // activity's night mode, not the page's theme. Pin it to Readest's mode
+            // so a light page never opens a dark picker (and the reverse); the
+            // manifest handles uiMode, so this updates in place without a recreate.
+            (activity as? AppCompatActivity)?.delegate?.let { delegate ->
+                val nightMode = when {
+                    args.followSystem == true -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+                    isDarkMode -> AppCompatDelegate.MODE_NIGHT_YES
+                    else -> AppCompatDelegate.MODE_NIGHT_NO
+                }
+                if (delegate.localNightMode != nightMode) delegate.localNightMode = nightMode
+            }
             ret.put("success", true)
         } catch (e: Exception) {
             ret.put("success", false)

@@ -94,6 +94,8 @@ pub struct InstallPackageResponse {
 pub struct SetSystemUIVisibilityRequest {
     pub visible: bool,
     pub dark_mode: bool,
+    #[serde(default)]
+    pub follow_system: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

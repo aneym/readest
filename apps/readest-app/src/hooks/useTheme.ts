@@ -25,6 +25,7 @@ export const useTheme = ({
   const highlightOpacity = settings?.globalViewSettings?.highlightOpacity ?? 0.4;
   const {
     themeColor,
+    themeMode,
     isDarkMode,
     showSystemUI,
     dismissSystemUI,
@@ -60,14 +61,18 @@ export const useTheme = ({
       } else {
         dismissSystemUI();
       }
-      setSystemUIVisibility({ visible, darkMode: isDarkMode }).then(() => {
+      setSystemUIVisibility({
+        visible,
+        darkMode: isDarkMode,
+        followSystem: themeMode === 'auto',
+      }).then(() => {
         if (updateInsets) {
           onUpdateInsets();
         }
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [appService, isDarkMode, systemUIVisible],
+    [appService, isDarkMode, themeMode, systemUIVisible],
   );
 
   useEffect(() => {
