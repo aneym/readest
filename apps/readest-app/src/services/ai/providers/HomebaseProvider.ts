@@ -54,8 +54,19 @@ export class HomebaseProvider implements AIProvider {
     return this.client(HOMEBASE_DEFAULT_MODEL);
   }
 
+  // The retrieval backends build their embedding model when the AI tab
+  // mounts, so this must not throw until something actually embeds.
   getEmbeddingModel(): EmbeddingModel {
-    throw new Error('Homebase does not serve embeddings');
+    return {
+      specificationVersion: 'v3',
+      modelId: 'none',
+      provider: 'homebase',
+      maxEmbeddingsPerCall: 1,
+      supportsParallelCalls: false,
+      async doEmbed() {
+        throw new Error('Homebase does not serve embeddings');
+      },
+    } as EmbeddingModel;
   }
 
   async isAvailable(): Promise<boolean> {
