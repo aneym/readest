@@ -4,6 +4,7 @@ import { RiBookmarkLine, RiBookmarkFill } from 'react-icons/ri';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
+import { isHouseholdBuild } from '@/services/household';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useEnv } from '@/context/EnvContext';
 import { BookNote } from '@/types/book';
@@ -54,7 +55,8 @@ const BookmarkToggler: React.FC<BookmarkTogglerProps> = ({ bookKey }) => {
         updatedAt: Date.now(),
       };
       const existingBookmark = bookmarks.find(
-        (item) => item.type === 'bookmark' && item.hbKind !== 'page-note' && item.cfi === cfi,
+        (item) =>
+          item.type === 'bookmark' && (!isHouseholdBuild() || !item.note) && item.cfi === cfi,
       );
       if (existingBookmark) {
         existingBookmark.deletedAt = null;
@@ -73,7 +75,7 @@ const BookmarkToggler: React.FC<BookmarkTogglerProps> = ({ bookKey }) => {
       bookmarks.forEach((item) => {
         if (
           item.type === 'bookmark' &&
-          item.hbKind !== 'page-note' &&
+          (!isHouseholdBuild() || !item.note) &&
           isCfiInLocation(item.cfi, cfi)
         ) {
           item.deletedAt = Date.now();
@@ -107,7 +109,9 @@ const BookmarkToggler: React.FC<BookmarkTogglerProps> = ({ bookKey }) => {
     const locationBookmarked = booknotes
       .filter(
         (booknote) =>
-          booknote.type === 'bookmark' && booknote.hbKind !== 'page-note' && !booknote.deletedAt,
+          booknote.type === 'bookmark' &&
+          (!isHouseholdBuild() || !booknote.note) &&
+          !booknote.deletedAt,
       )
       .some((item) => isCfiInLocation(item.cfi, cfi));
     setIsBookmarked(locationBookmarked);

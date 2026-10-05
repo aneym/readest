@@ -1,7 +1,7 @@
 /** Integration: real reader stores, translation, page-note hook and event dispatcher.
  * Only network and the Next router boundary are substituted; reader collaborators are real.
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRef } from 'react';
 import { CaptureSheets } from '@/app/reader/components/capture/CaptureSheets';
@@ -25,6 +25,7 @@ import type { BookDoc } from '@/libs/document';
 import FooterBar from '@/app/reader/components/footerbar/FooterBar';
 import ProgressBar from '@/app/reader/components/ProgressBar';
 import { usePagination } from '@/app/reader/hooks/usePagination';
+import { usePageNotes } from '@/app/reader/hooks/usePageNotes';
 import type { FoliateView } from '@/types/view';
 
 vi.mock('next/navigation', () => ({
@@ -37,6 +38,22 @@ const cfi = 'epubcfi(/6/2!/4/2/1:0)';
 const insets = { top: 0, bottom: 0, left: 0, right: 0 };
 const listeners: Array<[string, (event: CustomEvent) => void]> = [];
 const received: Array<{ event: string; detail: unknown }> = [];
+// Mirrors Homebase server/reader/readest-sync.ts noteToAnnotation (651–697)
+// and annotationToNote (494–529): bookmark type/note survive; hbKind does not.
+function homebaseBookmarkRoundTrip(wire: ReturnType<typeof transformBookNoteToDB>) {
+  return {
+    id: wire.id,
+    book_hash: wire.book_hash,
+    user_id: wire.user_id,
+    type: wire.type,
+    cfi: wire.cfi,
+    text: wire.text || undefined,
+    note: wire.note || '',
+    created_at: wire.created_at,
+    updated_at: wire.updated_at,
+    deleted_at: wire.deleted_at ?? null,
+  };
+}
 function observe(name: string) {
   const listener = (event: CustomEvent) => {
     received.push({ event: name, detail: event.detail });
@@ -324,7 +341,6 @@ describe('household reading thumb bar', () => {
         type: 'bookmark',
         cfi,
         note: `Thought ${index}`,
-        hbKind: 'page-note',
         createdAt: index + 1,
         updatedAt: 1,
       })),
@@ -365,7 +381,6 @@ describe('household reading thumb bar', () => {
         {
           id: 'page-note',
           type: 'bookmark',
-          hbKind: 'page-note',
           cfi,
           note: 'Keep this page thought',
           createdAt: 1,
@@ -382,17 +397,18 @@ describe('household reading thumb bar', () => {
   });
   it('keeps synced page notes out of desktop bookmarks and preserves them when removing a real bookmark', () => {
     const pageNote = transformBookNoteFromDB(
-      transformBookNoteToDB(
-        {
-          id: 'page-note',
-          type: 'bookmark',
-          hbKind: 'page-note',
-          cfi,
-          note: 'Keep this page thought',
-          createdAt: 1,
-          updatedAt: 1,
-        },
-        'household',
+      homebaseBookmarkRoundTrip(
+        transformBookNoteToDB(
+          {
+            id: 'page-note',
+            type: 'bookmark',
+            cfi,
+            note: 'Keep this page thought',
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          'household',
+        ),
       ),
     );
     useBookDataStore.getState().setConfig(bookKey, { booknotes: [pageNote] });
@@ -406,6 +422,10 @@ describe('household reading thumb bar', () => {
     );
     expect(screen.getByRole('button', { name: 'Add Bookmark' })).toBeTruthy();
     expect(screen.getByText('No Bookmarks')).toBeTruthy();
+    const hook = renderHook(() => usePageNotes(bookKey));
+    expect(hook.result.current.notesOnCurrentPage.map((note) => note.text)).toEqual([
+      'Keep this page thought',
+    ]);
     fireEvent.click(screen.getByRole('button', { name: 'Add Bookmark' }));
     expect(useBookDataStore.getState().getConfig(bookKey)!.booknotes).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'Remove Bookmark' }));

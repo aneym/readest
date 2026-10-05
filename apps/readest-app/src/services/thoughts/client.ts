@@ -14,6 +14,7 @@ export interface ThoughtInput {
   capturedAt?: number;
 }
 interface PendingThought {
+  attempts?: number;
   body: string;
   captureId: string;
   capturedAt: number;
@@ -138,10 +139,19 @@ export function flushThoughtsQueue(): Promise<void> {
   flushing = (async () => {
     for (const item of readQueue()) {
       const result = await send('', JSON.stringify(item), { 'Content-Type': 'application/json' });
-      if (!result.ok) break;
+      if (!result.ok && result.reason === 'offline') break;
+      const attempts = (item.attempts ?? 0) + 1;
       localStorage.setItem(
         QUEUE_KEY,
-        JSON.stringify(readQueue().filter((entry) => entry.captureId !== item.captureId)),
+        JSON.stringify(
+          readQueue().flatMap((entry) =>
+            entry.captureId !== item.captureId
+              ? [entry]
+              : !result.ok && attempts < 5
+                ? [{ ...entry, attempts }]
+                : [],
+          ),
+        ),
       );
     }
     for (const take of await readVoiceQueue().catch(() => [])) {

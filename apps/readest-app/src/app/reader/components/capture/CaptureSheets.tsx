@@ -81,12 +81,10 @@ export function CaptureSheets() {
       const result = await postVoiceThought(pending.audio, pending.id, pending.recordedAt);
       if (result.ok) {
         pendingVoice.current = null;
-        if (session.kind !== 'voice' && result.transcript) {
-          setText((previous) => [previous, result.transcript].filter(Boolean).join('\n'));
-          setMessage(_('Transcript added. Save to keep your note.'));
-        } else {
-          setSession(null);
+        if (session.kind === 'page-note' && result.transcript) {
+          await savePageNote(result.transcript);
         }
+        setSession(null);
       } else if (result.reason === 'offline' && result.queued) {
         pendingVoice.current = null;
         setSession(null);
@@ -199,6 +197,31 @@ export function CaptureSheets() {
     };
   }, []);
 
+  const savePageNote = async (content: string) => {
+    if (!session) return;
+    const store = useBookDataStore.getState();
+    const config = store.getConfig(session.bookKey);
+    if (!config || !session.cfi) throw new Error('Missing page');
+    const previous = config.booknotes?.find((note) => note.id === session.id);
+    const note: BookNote = {
+      ...previous,
+      id: session.id,
+      type: 'bookmark',
+      cfi: session.cfi,
+      page: session.page,
+      note: content,
+      createdAt: previous?.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+      deletedAt: null,
+    };
+    const updated = store.updateBooknotes(session.bookKey, [
+      ...(config.booknotes ?? []).filter((item) => item.id !== session.id),
+      note,
+    ]);
+    if (!updated) throw new Error('Missing book');
+    await store.saveConfig(envConfig, session.bookKey, updated, settings);
+  };
+
   const save = async () => {
     if (!session || !text.trim() || savingRef.current) return;
     savingRef.current = true;
@@ -207,28 +230,7 @@ export function CaptureSheets() {
     try {
       let body = text;
       if (session.kind === 'page-note') {
-        const store = useBookDataStore.getState();
-        const config = store.getConfig(session.bookKey);
-        if (!config || !session.cfi) throw new Error('Missing page');
-        const previous = config.booknotes?.find((note) => note.id === session.id);
-        const note: BookNote = {
-          ...previous,
-          id: session.id,
-          type: 'bookmark',
-          hbKind: 'page-note',
-          cfi: session.cfi,
-          page: session.page,
-          note: text,
-          createdAt: previous?.createdAt ?? Date.now(),
-          updatedAt: Date.now(),
-          deletedAt: null,
-        };
-        const updated = store.updateBooknotes(session.bookKey, [
-          ...(config.booknotes ?? []).filter((item) => item.id !== session.id),
-          note,
-        ]);
-        if (!updated) throw new Error('Missing book');
-        await store.saveConfig(envConfig, session.bookKey, updated, settings);
+        await savePageNote(text);
         if (session.existing) {
           setSession(null);
           return;
@@ -341,34 +343,36 @@ export function CaptureSheets() {
             </p>
           )}
           <div className='flex gap-2'>
-            <button
-              type='button'
-              disabled={saving || !!pendingVoice.current}
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                event.currentTarget.setPointerCapture?.(event.pointerId);
-                beginVoice();
-              }}
-              onPointerUp={() => void finishVoice()}
-              onPointerCancel={() => void finishVoice(true)}
-              onLostPointerCapture={() => void finishVoice(true)}
-              onKeyDown={(event) => {
-                if ([' ', 'Enter'].includes(event.key)) {
-                  event.preventDefault();
-                  if (!event.repeat) beginVoice();
-                }
-              }}
-              onKeyUp={(event) => {
-                if ([' ', 'Enter'].includes(event.key)) {
-                  event.preventDefault();
-                  void finishVoice();
-                }
-              }}
-              onBlur={() => void finishVoice(true)}
-              className='min-h-11 touch-none select-none border-2 border-current px-3'
-            >
-              {_('Hold to talk')}
-            </button>
+            {!session.existing && (
+              <button
+                type='button'
+                disabled={saving || !!pendingVoice.current}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  event.currentTarget.setPointerCapture?.(event.pointerId);
+                  beginVoice();
+                }}
+                onPointerUp={() => void finishVoice()}
+                onPointerCancel={() => void finishVoice(true)}
+                onLostPointerCapture={() => void finishVoice(true)}
+                onKeyDown={(event) => {
+                  if ([' ', 'Enter'].includes(event.key)) {
+                    event.preventDefault();
+                    if (!event.repeat) beginVoice();
+                  }
+                }}
+                onKeyUp={(event) => {
+                  if ([' ', 'Enter'].includes(event.key)) {
+                    event.preventDefault();
+                    void finishVoice();
+                  }
+                }}
+                onBlur={() => void finishVoice(true)}
+                className='min-h-11 touch-none select-none border-2 border-current px-3'
+              >
+                {_('Hold to talk')}
+              </button>
+            )}
             {pendingVoice.current && !recording && (
               <button
                 type='button'
@@ -390,6 +394,7 @@ export function CaptureSheets() {
               </button>
             )}
           </div>
+          {!session.existing && <p className='mt-2 text-sm'>{_('Sends when you let go.')}</p>}
           {message && (
             <p role='status' className='mt-2 text-sm'>
               {message}

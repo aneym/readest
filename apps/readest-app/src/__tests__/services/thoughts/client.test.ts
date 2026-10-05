@@ -86,6 +86,24 @@ describe('Thoughts device client', () => {
     http.mockResolvedValueOnce(new Response('', { status: 403 }));
     expect(await captureThought({ body: 'Refused' })).toEqual({ ok: false, reason: 'unpaired' });
   });
+  test('a rejected queued item does not block later captures and expires after five attempts', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await captureThought({ body: 'Invalid', captureId: 'bad', capturedAt: 1 });
+    await captureThought({ body: 'Valid', captureId: 'good', capturedAt: 2 });
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    http.mockImplementation(async (_url, request) => {
+      const input = JSON.parse(String(request?.body));
+      return input.captureId === 'bad' ? new Response('', { status: 400 }) : reply(input.captureId);
+    });
+    await flushThoughtsQueue();
+    expect(http).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(localStorage.getItem('homebase-thoughts-pending-v1')!)).toEqual([
+      { body: 'Invalid', captureId: 'bad', capturedAt: 1, attempts: 1 },
+    ]);
+    for (let attempt = 2; attempt <= 5; attempt++) await flushThoughtsQueue();
+    expect(JSON.parse(localStorage.getItem('homebase-thoughts-pending-v1')!)).toEqual([]);
+    expect(http).toHaveBeenCalledTimes(6);
+  });
   test('voice uses raw audio and required intent and recorded-at headers', async () => {
     http.mockResolvedValue(
       new Response(JSON.stringify({ thought: { captureId: 'voice-1', body: 'Spoken thought' } })),

@@ -112,6 +112,7 @@ test('page note persists a bookmark, is page scoped, and reopens for editing', a
     hook.result.current.openPageNote(note.id);
   });
   expect(screen.getByRole<HTMLTextAreaElement>('textbox').value).toBe('Consistency compounds');
+  expect(screen.queryByRole('button', { name: 'Hold to talk' })).toBeNull();
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited thought' } });
   fireEvent.click(screen.getByText('Save'));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -119,7 +120,7 @@ test('page note persists a bookmark, is page scoped, and reopens for editing', a
   expect(hook.result.current.notesOnCurrentPage[0]?.text).toBe('Edited thought');
   expect(useBookDataStore.getState().getConfig(key)!.booknotes![0]!.id).toBe(note.id);
   expect(capture).toHaveBeenCalledOnce();
-  expect(useBookDataStore.getState().getConfig(key)!.booknotes![0]!.hbKind).toBe('page-note');
+  expect(useBookDataStore.getState().getConfig(key)!.booknotes![0]!.hbKind).toBeUndefined();
 });
 
 test('offline save closes with honest copy; an unpaired save keeps the draft', async () => {

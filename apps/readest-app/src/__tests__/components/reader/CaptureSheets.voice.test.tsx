@@ -2,6 +2,9 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CaptureSheets } from '@/app/reader/components/capture/CaptureSheets';
 import { eventDispatcher } from '@/utils/event';
+import { useBookDataStore } from '@/store/bookDataStore';
+import { setBookProgress } from '@/store/readerProgressStore';
+import type { Book, BookConfig, BookProgress } from '@/types/book';
 
 vi.mock('@/services/household', () => ({ isHouseholdBuild: () => true }));
 vi.mock('@/services/environment', () => ({ isTauriAppPlatform: () => false }));
@@ -48,15 +51,37 @@ beforeEach(() => {
   audioCallback = null;
   stopTrack.mockReset();
   microphone.mockReset().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
-  network.mockReset().mockResolvedValue(
-    new Response(
-      JSON.stringify({
-        thought: { captureId: 'voice-id', body: 'Remember this idea' },
-      }),
-    ),
-  );
+  network
+    .mockReset()
+    .mockImplementation((url: string) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify(
+            url.includes('/api/thoughts')
+              ? { thought: { captureId: 'voice-id', body: 'Remember this idea' } }
+              : {},
+          ),
+        ),
+      ),
+    );
+  useBookDataStore.setState({
+    booksData: {
+      voice: {
+        id: 'voice',
+        book: { hash: 'voice', title: 'Book', author: 'Author' } as Book,
+        file: null,
+        config: { booknotes: [] } as unknown as BookConfig,
+        bookDoc: null,
+        isFixedLayout: false,
+      },
+    },
+    saveConfig: async () => {},
+  });
+  setBookProgress('voice-book', { location: 'epubcfi(/6/2!/4/2/1:0)', page: 12 } as BookProgress);
   vi.stubGlobal('AudioContext', BrowserAudioContext);
-  vi.stubGlobal('fetch', network);
+  vi.stubGlobal('fetch', (url: string, request?: RequestInit) =>
+    url.includes('/api/thoughts') ? network(url, request) : Promise.resolve(new Response('{}')),
+  );
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     value: { getUserMedia: microphone },
@@ -106,15 +131,19 @@ test('hold records static status; release posts WAV with device auth and closes 
 test.each([
   'note',
   'page-note',
-])('transcript inserts into %s without losing typed draft', async (kind) => {
+])('release in new %s sends only the voice Thought and closes', async (kind) => {
   await open(kind);
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Typed draft' } });
+  expect(screen.getByText('Sends when you let go.')).toBeTruthy();
   await hold();
   fireEvent.keyUp(screen.getByRole('button', { name: 'Hold to talk' }), { key: ' ' });
-  await waitFor(() =>
-    expect(screen.getByRole<HTMLTextAreaElement>('textbox').value).toBe(
-      'Typed draft\nRemember this idea',
-    ),
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  const posts = network.mock.calls.filter(([, request]) => request?.method === 'POST');
+  expect(posts).toHaveLength(1);
+  expect(posts[0]![0]).toBe('https://studio.tailf266ac.ts.net:3148/api/thoughts/voice');
+  expect(useBookDataStore.getState().getConfig('voice-book')!.booknotes).toEqual(
+    kind === 'page-note'
+      ? [expect.objectContaining({ type: 'bookmark', note: 'Remember this idea', page: 12 })]
+      : [],
   );
 });
 test('permission denied displays settings guidance and does not post', async () => {
