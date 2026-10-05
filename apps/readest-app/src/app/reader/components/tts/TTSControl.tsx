@@ -10,6 +10,7 @@ import { Insets } from '@/types/misc';
 import { eventDispatcher } from '@/utils/event';
 import TTSMiniPlayer from './TTSMiniPlayer';
 import TTSPlayerSheet from './TTSPlayerSheet';
+import NarrationStatusSheet from './NarrationStatusSheet';
 import { useMiniPlayerAutoHide } from './useMiniPlayerAutoHide';
 
 interface TTSControlProps {
@@ -75,6 +76,7 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
 
   return (
     <>
+      <NarrationStatusSheet bookKey={bookKey} onSyntheticStart={() => setShowPlayerSheet(true)} />
       {shouldMountBackButton && (
         <div
           className={clsx(
@@ -138,6 +140,8 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
           onSetVoice={tts.handleSetVoice}
           onGetVoiceId={tts.handleGetVoiceId}
           onSelectTimeout={tts.handleSelectTimeout}
+          onPreviousChapter={tts.handlePreviousChapter}
+          onNextChapter={tts.handleNextChapter}
           onSeek={tts.handleSeekTo}
           onSeekPreview={tts.handleSeekPreview}
           onGetPlaybackInfo={tts.handleGetPlaybackInfo}

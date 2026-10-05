@@ -13,6 +13,12 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useSidebarStore } from '@/store/sidebarStore';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import Button from '@/components/Button';
+import {
+  useNarrationAvailability,
+  shouldOpenNarrationStatus,
+  NARRATION_STATUS_OPEN_EVENT,
+} from '@/app/reader/hooks/useNarrationAvailability';
+import { eventDispatcher } from '@/utils/event';
 import { Insets } from '@/types/misc';
 
 interface NavigationBarProps {
@@ -37,6 +43,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
   const { getBookData } = useBookDataStore();
   const { isSideBarVisible, isSideBarPinned } = useSidebarStore();
 
+  const availability = useNarrationAvailability(bookKey);
   const viewState = getViewState(bookKey);
   const hasNarration = !!getBookData(bookKey)?.book?.hasNarration;
   const viewSettings = getViewSettings(bookKey);
@@ -97,7 +104,13 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
             <TTSIcon className={viewState?.ttsEnabled ? 'text-blue-500' : ''} />
           )
         }
-        onClick={() => onSetActionTab('tts')}
+        onClick={() => {
+          if (!viewState?.ttsEnabled && shouldOpenNarrationStatus(bookKey, availability)) {
+            void eventDispatcher.dispatch(NARRATION_STATUS_OPEN_EVENT, { bookKey });
+            return;
+          }
+          onSetActionTab('tts');
+        }}
       />
     </div>
   );

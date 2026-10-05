@@ -89,6 +89,13 @@ vi.mock('@/app/reader/components/tts/TTSChaptersView', () => ({
   default: () => <div>chapters-view</div>,
 }));
 
+const narrationAvailability = vi.hoisted(() => ({ state: 'unknown' }));
+vi.mock('@/app/reader/hooks/useNarrationAvailability', () => ({
+  useNarrationAvailability: () => narrationAvailability,
+  NARRATION_STATUS_OPEN_EVENT: 'narration-status-open',
+}));
+
+import { eventDispatcher } from '@/utils/event';
 import TTSPlayerSheet from '@/app/reader/components/tts/TTSPlayerSheet';
 
 const waitFor = <T,>(callback: () => T | Promise<T>) =>
@@ -118,6 +125,8 @@ const makeProps = (overrides: Record<string, unknown> = {}) => ({
   onTogglePlay: vi.fn(),
   onBackward: vi.fn(),
   onForward: vi.fn(),
+  onPreviousChapter: vi.fn(),
+  onNextChapter: vi.fn(),
   onSetRate: vi.fn(),
   onGetVoices: vi.fn().mockResolvedValue(voiceGroups),
   onSetVoice: vi.fn(),
@@ -150,6 +159,7 @@ const makeProps = (overrides: Record<string, unknown> = {}) => ({
 
 describe('TTSPlayerSheet', () => {
   beforeEach(() => {
+    narrationAvailability.state = 'unknown';
     viewSettings['ttsRate'] = 1.0;
     viewSettings['ttsSentenceGap'] = 0.15;
     viewSettings['isEink'] = false;
@@ -353,9 +363,154 @@ describe('TTSPlayerSheet', () => {
       onGetVoiceId: vi.fn().mockReturnValue('media-overlay'),
     });
     render(<TTSPlayerSheet {...props} />);
-    expect(await waitFor(() => screen.getByText('Book narration'))).toBeTruthy();
+    await waitFor(() => expect(screen.queryByLabelText('Voice')).toBeNull());
+    expect(screen.queryByText('Book narration')).toBeNull();
     expect(screen.getByRole('dialog', { name: 'Listen' })).toBeTruthy();
     expect(screen.queryByLabelText('Offline Audio')).toBeNull();
+  });
+
+  // User-visible sheet contracts: wrong mode routing, missing transport or
+  // synthetic controls leaking into narration must fail at the rendered UI.
+  test.each([
+    'Jane Reader',
+    '',
+    undefined,
+  ])('narrated player uses audiobook controls and narrator %s', (narrator) => {
+    narrationAvailability.state = 'narrated';
+    getBookData.mockReturnValue({
+      book: { title: 'Alice in Wonderland' },
+      bookDoc: { media: { narrator } },
+    });
+    const props = makeProps({ downloads: makeDownloads() });
+    render(<TTSPlayerSheet {...props} />);
+    expect(screen.getByRole('dialog', { name: 'Listen' })).toBeTruthy();
+    for (const label of [
+      'Previous Chapter',
+      'Previous Sentence',
+      'Pause',
+      'Next Sentence',
+      'Next Chapter',
+    ]) {
+      expect(screen.getByRole('button', { name: label })).toBeTruthy();
+    }
+    expect(screen.queryByLabelText('Voice')).toBeNull();
+    expect(screen.queryByLabelText('Offline Audio')).toBeNull();
+    expect(screen.queryByLabelText('Previous Paragraph')).toBeNull();
+    expect(screen.queryByLabelText('Next Paragraph')).toBeNull();
+    expect(screen.queryByText('Premium')).toBeNull();
+    expect(screen.queryByText('Book narration')).toBeNull();
+    if (narrator) expect(screen.getByText('Read by Jane Reader')).toBeTruthy();
+    else expect(screen.queryByText(/Read by/)).toBeNull();
+    fireEvent.click(screen.getByLabelText('Previous Sentence'));
+    expect(props.onBackward).toHaveBeenCalledWith(true);
+    fireEvent.click(screen.getByLabelText('Next Sentence'));
+    expect(props.onForward).toHaveBeenCalledWith(true);
+    fireEvent.click(screen.getByLabelText('Pause'));
+    expect(props.onTogglePlay).toHaveBeenCalledOnce();
+  });
+
+  test('narration speed is a selectable preset list, not a ruler', () => {
+    narrationAvailability.state = 'narrated';
+    const props = makeProps();
+    render(<TTSPlayerSheet {...props} />);
+    fireEvent.click(screen.getByLabelText('Speed'));
+    expect(screen.queryByRole('slider')).toBeNull();
+    for (const label of ['0.8×', '1×', '1.2×', '1.5×', '1.75×', '2×']) {
+      expect(screen.getByRole('button', { name: label })).toBeTruthy();
+    }
+    expect(screen.getByRole('button', { name: '1×' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: '1.75×' }));
+    expect(props.onSetRate).toHaveBeenCalledWith(1.75);
+    expect(screen.getByRole('button', { name: '1.75×' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('chapter buttons delegate without toggling playback or using paragraph fallbacks', () => {
+    narrationAvailability.state = 'narrated';
+    const props = makeProps({
+      isPlaying: false,
+      onPreviousChapter: vi.fn(),
+      onNextChapter: vi.fn(),
+    });
+    render(<TTSPlayerSheet {...props} />);
+    fireEvent.click(screen.getByLabelText('Previous Chapter'));
+    fireEvent.click(screen.getByLabelText('Next Chapter'));
+    expect(props.onPreviousChapter).toHaveBeenCalledOnce();
+    expect(props.onNextChapter).toHaveBeenCalledOnce();
+    expect(props.onSeek).not.toHaveBeenCalled();
+    expect(props.onBackward).not.toHaveBeenCalled();
+    expect(props.onForward).not.toHaveBeenCalled();
+    expect(props.onTogglePlay).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Play')).toBeTruthy();
+  });
+
+  test.each([
+    ['queued', 'Narration isn’t ready yet. Using a synthetic voice.'],
+    ['aligning', 'Narration isn’t ready yet. Using a synthetic voice.'],
+    ['needs-check', 'Narration isn’t ready yet. Using a synthetic voice.'],
+    ['fetching-edition', 'Narration isn’t ready yet. Using a synthetic voice.'],
+    ['swap-ready', 'Narration is ready. Tap to switch.'],
+    ['failed', 'Alignment failed. Using a synthetic voice.'],
+    ['can-align', 'Your audiobook isn’t aligned yet. Using a synthetic voice.'],
+  ])('synthetic %s line opens narration status for this book', async (state, copy) => {
+    narrationAvailability.state = state;
+    const opened: unknown[] = [];
+    const handler = (event: CustomEvent) => {
+      opened.push(event.detail);
+    };
+    eventDispatcher.on('narration-status-open', handler);
+    try {
+      render(<TTSPlayerSheet {...makeProps()} />);
+      fireEvent.click(screen.getByRole('button', { name: copy }));
+      await waitFor(() => expect(opened).toEqual([{ bookKey: 'b1' }]));
+    } finally {
+      eventDispatcher.off('narration-status-open', handler);
+    }
+  });
+
+  test('no audiobook is static text and unknown has no availability line', () => {
+    narrationAvailability.state = 'none';
+    const props = makeProps();
+    const { rerender } = render(<TTSPlayerSheet {...props} />);
+    const copy = 'No audiobook for this book. Using a synthetic voice.';
+    expect(screen.getByText(copy).tagName).toBe('SPAN');
+    expect(screen.queryByRole('button', { name: copy })).toBeNull();
+    narrationAvailability.state = 'unknown';
+    rerender(<TTSPlayerSheet {...props} />);
+    expect(screen.queryByText(copy)).toBeNull();
+    expect(screen.queryByText(/Using a synthetic voice/)).toBeNull();
+  });
+
+  test('e-ink chapter clock and sleep timer update on sentences, not one-second ticks', async () => {
+    vi.useFakeTimers();
+    try {
+      narrationAvailability.state = 'narrated';
+      viewSettings['isEink'] = true;
+      let position = 10;
+      const props = makeProps({
+        timeoutOption: 60,
+        timeoutTimestamp: Date.now() + 60000,
+        onGetPlaybackInfo: () => ({ position, duration: 100, measuredFraction: 1 }),
+      });
+      render(<TTSPlayerSheet {...props} />);
+      expect(screen.getByRole('slider').getAttribute('value')).toBe('10');
+      const timer = screen.getByLabelText('Sleep Timer').textContent;
+      position = 20;
+      const { act } = await import('@testing-library/react');
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.getByRole('slider').getAttribute('value')).toBe('10');
+      expect(screen.getByLabelText('Sleep Timer').textContent).toBe(timer);
+      await act(async () => {
+        await eventDispatcher.dispatch('tts-position', { bookKey: 'b1', kind: 'sentence' });
+      });
+      expect(screen.getByRole('slider').getAttribute('value')).toBe('20');
+      expect(screen.getByLabelText('Sleep Timer').textContent).not.toBe(timer);
+      expect(screen.getByText('0:20')).toBeTruthy();
+      expect(screen.getByText('-1:20')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('choosing the narrator records the per-book narration preference', async () => {

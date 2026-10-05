@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
+vi.mock('@/context/EnvContext', () => ({ useEnv: () => ({ appService: null }) }));
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => (key: string) => key,
 }));
@@ -9,12 +13,10 @@ vi.mock('@/store/themeStore', () => ({
   useThemeStore: () => ({ safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 } }),
 }));
 
-vi.mock('@/store/readerStore', () => ({
-  useReaderStore: () => ({
-    hoveredBookKey: '',
-    getViewSettings: () => ({ isEink: false, rtl: false }),
-  }),
-}));
+vi.mock('@/store/readerStore', () => {
+  const state = { hoveredBookKey: '', getViewSettings: () => ({ isEink: false, rtl: false }) };
+  return { useReaderStore: Object.assign(() => state, { getState: () => state }) };
+});
 
 const ttsState: Record<string, unknown> = {};
 vi.mock('@/app/reader/hooks/useTTSControl', () => ({

@@ -1,7 +1,7 @@
 import { FoliateView, ViewTTS } from '@/types/view';
 import { AppService } from '@/types/system';
 import type { PairedAudiobook } from '@/types/book';
-import { SectionItem } from '@/libs/document';
+import { SectionItem, TOCItem } from '@/libs/document';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { transformTTSSectionDocument } from './transformDoc';
 import { filterSSMLWithLang, parseSSMLMarks } from '@/utils/ssml';
@@ -413,12 +413,11 @@ export class TTSController extends EventTarget {
 
     // A book that ships its own narration should be read by its narrator, not
     // synthesized — that is the whole point of having the recording. The
-    // per-book `ttsUseNarration` opt-out (set when the reader picks a synthetic
-    // voice for this book) is what overrides it. Deliberately last, so it wins
-    // over the globally remembered preferred client.
+    // recording always wins over a stale per-book opt-out. Deliberately last,
+    // so it wins over the globally remembered preferred client.
     if (this.narrationAvailable) {
       this.#attachNarrationSource(this.view.book);
-      if (this.useNarration && (await this.ttsMediaOverlayClient.init())) {
+      if (await this.ttsMediaOverlayClient.init()) {
         this.ttsClient = this.ttsMediaOverlayClient;
       }
     }
@@ -435,8 +434,7 @@ export class TTSController extends EventTarget {
     return this.ttsClient === this.ttsMediaOverlayClient;
   }
 
-  // Per-book opt-in, defaulting on: only an explicit synthetic-voice choice for
-  // this book turns narration off.
+  // Retained for settings compatibility; available recordings always win.
   set useNarration(value: boolean) {
     this.#useNarration = value;
   }
@@ -1086,9 +1084,70 @@ export class TTSController extends EventTarget {
     } catch {}
   }
 
+  // Click coordinates are local to the section iframe, just like the DOM caret API.
+  // Pagination awaits the hit result before deciding whether to toggle its toolbar.
+  async handleNarrationTap(doc: Document, clientX: number, clientY: number): Promise<boolean> {
+    if (!this.narrationActive || (!this.state.includes('paused') && this.state !== 'playing')) {
+      return false;
+    }
+    const sectionIndex = this.view.renderer
+      .getContents()
+      .find((content) => content.doc === doc)?.index;
+    if (sectionIndex === undefined) return false;
+    const currentSource = this.#getTts();
+    const section =
+      currentSource instanceof MediaOverlayTTS && currentSource.doc === doc
+        ? currentSource.section
+        : await this.#loadNarrationSection(this.view, sectionIndex, doc);
+    if (!section || !this.narrationActive) return false;
+    const caret = doc.caretRangeFromPoint?.(clientX, clientY);
+    if (!caret) return false;
+    const par = section.pars.find((candidate) => {
+      const root = candidate.range.commonAncestorContainer;
+      if (!root.contains(caret.startContainer)) return false;
+      // Caret hit testing snaps margins/blank lines to nearby text. Only ink
+      // belonging to the narrated element is a seek target.
+      return Array.from(candidate.range.getClientRects()).some(
+        (rect) =>
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom,
+      );
+    });
+    if (!par) return false;
+    const current = currentSource?.doc === doc ? currentSource.getLastRange() : undefined;
+    if (
+      current &&
+      current.startContainer === par.range.startContainer &&
+      current.startOffset === par.range.startOffset &&
+      current.endContainer === par.range.endContainer &&
+      current.endOffset === par.range.endOffset
+    ) {
+      return false;
+    }
+    const isPlaying = this.state === 'playing';
+    // Draw before stopping/loading audio. No tap, including a paused seek,
+    // starts playback unless the session was already playing.
+    if (currentSource instanceof MediaOverlayTTS && currentSource.doc === doc) {
+      currentSource.setMark(par.markName);
+    }
+    await this.#seekNarrationRange(par.range, isPlaying, sectionIndex);
+    return true;
+  }
+
+  async #seekNarrationRange(range: Range, isPlaying: boolean, sectionIndex: number): Promise<void> {
+    await this.stop(isPlaying);
+    if (!isPlaying) this.state = 'forward-paused';
+    if (sectionIndex !== this.#ttsSectionIndex && !(await this.#initTTSForSection(sectionIndex)))
+      return;
+    const ssml = this.#getTts()?.from(range);
+    await this.#handleNavigationWithSSML(ssml, isPlaying);
+    if (!isPlaying) this.reapplyCurrentHighlight();
+  }
+
   // Sentence-snapped seek through the same navigation machinery as prev/next:
-  // foliate's from(range) returns the paragraph SSML sliced at the target
-  // sentence, so highlighting, page-follow, and mark bookkeeping come free.
+  // foliate's from(range) slices SSML at the target sentence.
   async seekToTime(seconds: number): Promise<void> {
     this.clearSeekPreview();
     await this.initViewTTS();
@@ -1117,6 +1176,87 @@ export class TTSController extends EventTarget {
     }
     await this.#handleNavigationWithSSML(ssml, isPlaying);
     if (!isPlaying) this.reapplyCurrentHighlight();
+  }
+
+  // TOC sections, not paragraphs or every spine item, define chapter transport.
+  #chapterSections(): number[] {
+    const book = this.view.book;
+    const indices = new Set<number>();
+    const visit = (items: TOCItem[]) => {
+      for (const item of items) {
+        const id = book.splitTOCHref?.(item.href)?.[0];
+        const index = book.sections.findIndex((section) => section.id === id);
+        if (index >= 0) indices.add(index);
+        if (item.subitems) visit(item.subitems);
+      }
+    };
+    visit(book.toc ?? []);
+    return indices.size ? [...indices].sort((a, b) => a - b) : book.sections.map((_, i) => i);
+  }
+
+  async #goToChapter(sectionIndex: number): Promise<void> {
+    if (this.narrationActive) {
+      sectionIndex = this.#findNarratedSection(this.view.book, sectionIndex, 1);
+      if (sectionIndex < 0) return;
+    }
+    const isPlaying = this.state === 'playing';
+    await this.stop(isPlaying);
+    if (!isPlaying) this.state = 'forward-paused';
+    if (!(await this.#initTTSForSection(sectionIndex))) return;
+    const ssml = this.#getTts()?.start();
+    await this.#handleNavigationWithSSML(ssml, isPlaying);
+    if (!isPlaying) this.reapplyCurrentHighlight();
+  }
+
+  async previousChapter(): Promise<void> {
+    await this.initViewTTS();
+    await this.ensureTimeline();
+    const chapters = this.#chapterSections();
+    const current = chapters.findLastIndex((index) => index <= this.#ttsSectionIndex);
+    if (current < 0) {
+      await this.#goToChapter(0);
+      return;
+    }
+    const firstSection = this.narrationActive
+      ? this.#findNarratedSection(this.view.book, chapters[current]!, 1)
+      : chapters[current]!;
+    const info = this.getPlaybackInfo();
+    const source = this.#getTts();
+    const range = source?.getLastRange();
+    const firstRange =
+      source instanceof MediaOverlayTTS ? source.section.pars[0]?.range : undefined;
+    let elapsed =
+      info?.position ??
+      (range &&
+      (!firstRange ||
+        range.startContainer !== firstRange.startContainer ||
+        range.startOffset !== firstRange.startOffset)
+        ? Infinity
+        : 0);
+    // A TOC chapter can span multiple spine files. Sum their recorded time,
+    // not just the current file's clock; unavailable timing is conservatively
+    // past the restart threshold once we have left the first narrated file.
+    for (let index = firstSection; index < this.#ttsSectionIndex; index++) {
+      if (!this.narrationActive) {
+        elapsed = Infinity;
+        break;
+      }
+      if (this.#findNarratedSection(this.view.book, index, 1) !== index) continue;
+      const doc =
+        this.#getLiveSectionDoc(index) ??
+        (await this.#createSectionDoc(this.view.book.sections[index]!));
+      const section = await this.#loadNarrationSection(this.view, index, doc);
+      const duration = section?.pars.reduce((sum, par) => sum + par.clipEnd - par.clipBegin, 0);
+      elapsed += duration && Number.isFinite(duration) ? duration : Infinity;
+    }
+    const target = elapsed > 5 || current === 0 ? current : current - 1;
+    await this.#goToChapter(chapters[target]!);
+  }
+
+  async nextChapter(): Promise<void> {
+    await this.initViewTTS();
+    const next = this.#chapterSections().find((index) => index > this.#ttsSectionIndex);
+    if (next !== undefined) await this.#goToChapter(next);
   }
 
   async #initTTSForNextSection(): Promise<boolean> {
@@ -1565,6 +1705,7 @@ export class TTSController extends EventTarget {
       if (wantsNarration) await this.ttsMediaOverlayClient.init();
       this.ttsClient = wantsNarration ? this.ttsMediaOverlayClient : this.ttsWebClient;
       await this.#rebuildTextSource();
+      this.dispatchEvent(new CustomEvent('tts-narration-change'));
     }
     if (wantsNarration) {
       await this.ttsMediaOverlayClient.setRate(this.ttsRate);

@@ -1,3 +1,4 @@
+import { useReaderStore } from '@/store/readerStore';
 import { DOUBLE_CLICK_INTERVAL_THRESHOLD_MS, LONG_HOLD_THRESHOLD } from '@/services/constants';
 import { eventDispatcher } from '@/utils/event';
 import { findGlossWord } from '@/app/reader/utils/wordlensRuby';
@@ -535,6 +536,11 @@ export const handleClick = (
       {
         type: 'iframe-single-click',
         bookKey,
+        sectionIndex: useReaderStore
+          .getState()
+          .getView(bookKey)
+          ?.renderer.getContents()
+          .find(({ doc }) => doc === (event.target as Node | null)?.ownerDocument)?.index,
         screenX: event.screenX,
         screenY: event.screenY,
         clientX: event.clientX,

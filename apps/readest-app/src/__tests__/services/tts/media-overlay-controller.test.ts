@@ -180,14 +180,14 @@ describe('narration selection', () => {
     expect(controller.ttsClient).toBe(controller.ttsMediaOverlayClient);
   });
 
-  test('the per-book opt-out keeps synthesis even when narration exists', async () => {
+  test('narration wins over the stored per-book false preference', async () => {
     const controller = new TTSController(null, makeView([true]));
     controller.useNarration = false;
     await controller.init();
 
     expect(controller.narrationAvailable).toBe(true);
-    expect(controller.narrationActive).toBe(false);
-    expect(controller.ttsClient).toBe(controller.ttsEdgeClient);
+    expect(controller.narrationActive).toBe(true);
+    expect(controller.ttsClient).toBe(controller.ttsMediaOverlayClient);
   });
 
   test('a book without overlays is unaffected and keeps the preferred client', async () => {
@@ -400,8 +400,8 @@ describe('narration mark source and timeline', () => {
     expect(stop).not.toHaveBeenCalled();
   });
 
-  test('synthesis still uses foliate segmentation for the same book', async () => {
-    const controller = new TTSController(null, makeView([true]));
+  test('a book without narration still uses foliate segmentation', async () => {
+    const controller = new TTSController(null, makeView([false]));
     controller.useNarration = false;
     await controller.init();
     await controller.initViewTTS(0);

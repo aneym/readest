@@ -168,7 +168,27 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
     }
   };
 
+  const handleNarrationTap = (event: CustomEvent): boolean => {
+    const detail = event.detail as {
+      bookKey: string;
+      sectionIndex: number;
+      clientX: number;
+      clientY: number;
+      result?: Promise<boolean>;
+    };
+    const controller = ttsControllerRef.current;
+    if (detail?.bookKey !== bookKey || !controller?.narrationActive) return false;
+    // Only the clicked iframe owns these coordinates. Never try adjacent docs.
+    const content = getView(bookKey)
+      ?.renderer.getContents()
+      .find(({ index }) => index === detail.sectionIndex);
+    if (!content?.doc) return false;
+    detail.result = controller.handleNarrationTap(content.doc, detail.clientX, detail.clientY);
+    return true;
+  };
+
   useEffect(() => {
+    eventDispatcher.onSync('tts-narration-tap', handleNarrationTap);
     eventDispatcher.on('tts-speak', handleTTSSpeak);
     eventDispatcher.on('tts-stop', handleTTSStop);
     eventDispatcher.on('tts-close-book', handleTTSCloseBook);
@@ -179,6 +199,7 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
     eventDispatcher.on('tts-highlight-sentence', handleTTSHighlightSentence);
     eventDispatcher.on('tts-sync-request', handleTTSSyncRequest);
     return () => {
+      eventDispatcher.offSync('tts-narration-tap', handleNarrationTap);
       eventDispatcher.off('tts-speak', handleTTSSpeak);
       eventDispatcher.off('tts-stop', handleTTSStop);
       eventDispatcher.off('tts-close-book', handleTTSCloseBook);
@@ -301,6 +322,7 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
             title: bookData.book.title,
             author: bookData.book.author,
             coverImageUrl: bookData.book.coverImageUrl || null,
+            narration: () => controller.narrationActive,
             metadataMode: getViewSettings(bookKey)?.ttsMediaMetadata ?? 'sentence',
             getSectionLabel: () => getProgress(bookKey)?.sectionLabel,
           });
@@ -912,6 +934,7 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
           title: bookData.book.title,
           author: bookData.book.author,
           coverImageUrl: bookData.book.coverImageUrl || null,
+          narration: () => ttsController.narrationActive,
           metadataMode: viewSettings.ttsMediaMetadata ?? 'sentence',
           getSectionLabel: () => getProgress(bookKey)?.sectionLabel,
         });
@@ -931,8 +954,19 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
 
         // Must precede init(): it decides whether this session plays the book's
         // own narration or a synthesized voice.
-        ttsController.useNarration = viewSettings.ttsUseNarration ?? true;
+        ttsController.useNarration =
+          ttsController.narrationAvailable || (viewSettings.ttsUseNarration ?? true);
         await ttsController.init();
+        // claim precedes engine selection; rebind the now-known playback kind.
+        ttsSessionManager.adopt(bookKey, {
+          bookKey,
+          title: bookData.book.title,
+          author: bookData.book.author,
+          coverImageUrl: bookData.book.coverImageUrl || null,
+          narration: () => ttsController.narrationActive,
+          metadataMode: viewSettings.ttsMediaMetadata ?? 'sentence',
+          getSectionLabel: () => getProgress(bookKey)?.sectionLabel,
+        });
         await ttsController.initViewTTS(ttsFromIndex);
         const isBwEink = viewSettings.isEink && !viewSettings.isColorEink;
         ttsController.updateHighlightOptions(
@@ -1087,6 +1121,14 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
     }
   }, []);
 
+  const handlePreviousChapter = useCallback(async () => {
+    await ttsControllerRef.current?.previousChapter();
+  }, []);
+
+  const handleNextChapter = useCallback(async () => {
+    await ttsControllerRef.current?.nextChapter();
+  }, []);
+
   const handlePause = useCallback(async () => {
     const ttsController = ttsControllerRef.current;
     if (ttsController) {
@@ -1237,6 +1279,8 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
     handleTogglePlay,
     handleBackward,
     handleForward,
+    handlePreviousChapter,
+    handleNextChapter,
     handlePause,
     handleSetRate,
     handleSetVoice,

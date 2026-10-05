@@ -2,6 +2,8 @@ import clsx from 'clsx';
 import { useEffect, useState } from 'react';
 import {
   MdAlarm,
+  MdSkipPrevious,
+  MdSkipNext,
   MdArrowBackIosNew,
   MdCheck,
   MdKeyboardArrowLeft,
@@ -31,10 +33,13 @@ import { isHouseholdBuild } from '@/services/household';
 import { eventDispatcher } from '@/utils/event';
 import { navigateToLogin, navigateToProfile } from '@/utils/nav';
 import { getLanguageName } from '@/utils/lang';
-import { formatPlaybackTime } from '@/utils/time';
+import { formatCountdown, formatPlaybackTime } from '@/utils/time';
+import {
+  NARRATION_STATUS_OPEN_EVENT,
+  useNarrationAvailability,
+} from '@/app/reader/hooks/useNarrationAvailability';
 import Dialog from '@/components/Dialog';
 import { TTSPlaybackInfo } from './usePlaybackInfo';
-import { useCountdownLabel } from './useCountdownLabel';
 import TTSScrubber from './TTSScrubber';
 import SpeedRuler, { formatRate } from './SpeedRuler';
 import TTSChaptersView from './TTSChaptersView';
@@ -78,6 +83,8 @@ type TTSPlayerSheetProps = {
   onTogglePlay: () => void;
   onBackward: (byMark: boolean) => void;
   onForward: (byMark: boolean) => void;
+  onPreviousChapter?: () => void;
+  onNextChapter?: () => void;
   onSetRate: (rate: number) => void;
   onGetVoices: (lang: string) => Promise<TTSVoicesGroup[]>;
   onSetVoice: (voice: string, lang: string) => void;
@@ -106,6 +113,8 @@ const TTSPlayerSheet = ({
   onTogglePlay,
   onBackward,
   onForward,
+  onPreviousChapter,
+  onNextChapter,
   onSetRate,
   onGetVoices,
   onSetVoice,
@@ -152,13 +161,16 @@ const TTSPlayerSheet = ({
   const [voiceGroups, setVoiceGroups] = useState<TTSVoicesGroup[]>([]);
   const [rate, setRate] = useState(viewSettings?.ttsRate ?? 1.0);
   const [selectedVoice, setSelectedVoice] = useState('');
-  const timerLabel = useCountdownLabel(timeoutTimestamp);
+  const [timerLabel, setTimerLabel] = useState('');
+  const availability = useNarrationAvailability(bookKey);
   const iconSize18 = useResponsiveSize(18);
   const iconSize24 = useResponsiveSize(24);
   const iconSize28 = useResponsiveSize(28);
   const iconSize32 = useResponsiveSize(32);
 
-  const book = getBookData(bookKey)?.book;
+  const bookData = getBookData(bookKey);
+  const book = bookData?.book;
+  const narrator = bookData?.bookDoc?.media?.narrator?.trim();
   const sectionLabel = progress?.sectionLabel;
   const isEink = viewSettings?.isEink ?? false;
 
@@ -167,7 +179,46 @@ const TTSPlayerSheet = ({
   const hasNarrationVoice = voiceGroups.some((group) =>
     group.voices.some((voice) => voice.id === MEDIA_OVERLAY_VOICE_ID),
   );
-  const isNarrating = selectedVoice === MEDIA_OVERLAY_VOICE_ID;
+  const isNarrating = availability.state === 'narrated' || selectedVoice === MEDIA_OVERLAY_VOICE_ID;
+  const quietLine = (() => {
+    switch (availability.state) {
+      case 'none':
+        return _('No audiobook for this book. Using a synthetic voice.');
+      case 'queued':
+      case 'aligning':
+      case 'needs-check':
+      case 'fetching-edition':
+        return _('Narration isn’t ready yet. Using a synthetic voice.');
+      case 'swap-ready':
+        return _('Narration is ready. Tap to switch.');
+      case 'failed':
+        return _('Alignment failed. Using a synthetic voice.');
+      case 'can-align':
+        return _('Your audiobook isn’t aligned yet. Using a synthetic voice.');
+      default:
+        return null;
+    }
+  })();
+
+  // E-ink countdowns follow sentence events too; a timer must not cause the
+  // whole sheet (including the scrubber) to repaint every second.
+  useEffect(() => {
+    const refresh = () =>
+      setTimerLabel(
+        timeoutTimestamp > Date.now() ? formatCountdown(timeoutTimestamp - Date.now()) : '',
+      );
+    refresh();
+    if (!isOpen || !timeoutTimestamp) return;
+    if (isEink) {
+      const handler = (event: CustomEvent<{ bookKey?: string; kind?: string }>) => {
+        if (event.detail.bookKey === bookKey && event.detail.kind === 'sentence') refresh();
+      };
+      eventDispatcher.on('tts-position', handler);
+      return () => eventDispatcher.off('tts-position', handler);
+    }
+    const interval = setInterval(refresh, 1000);
+    return () => clearInterval(interval);
+  }, [bookKey, isEink, isOpen, timeoutTimestamp]);
 
   // Fresh open: land on the main view with current rate/voice.
   useEffect(() => {
@@ -345,6 +396,24 @@ const TTSPlayerSheet = ({
             {sectionLabel && (
               <span className='text-base-content/70 line-clamp-1 text-sm'>{sectionLabel}</span>
             )}
+            {isNarrating && narrator && (
+              <span className='text-base-content/60 line-clamp-1 text-xs'>
+                {_('Read by {{narrator}}', { narrator })}
+              </span>
+            )}
+            {!isNarrating &&
+              quietLine &&
+              (availability.state === 'none' ? (
+                <span className='text-base-content/60 text-xs'>{quietLine}</span>
+              ) : (
+                <button
+                  type='button'
+                  className='text-base-content/60 text-xs'
+                  onClick={() => eventDispatcher.dispatch(NARRATION_STATUS_OPEN_EVENT, { bookKey })}
+                >
+                  {quietLine}
+                </button>
+              ))}
           </div>
           {hasTimeline ? (
             <TTSScrubber
@@ -364,16 +433,20 @@ const TTSPlayerSheet = ({
           <div dir='ltr' className='flex items-center justify-center gap-1'>
             <button
               type='button'
-              className='rounded-full p-2'
-              title={_('Previous Paragraph')}
-              aria-label={_('Previous Paragraph')}
-              onClick={() => onBackward(false)}
+              className='min-h-11 min-w-11 rounded-full p-2'
+              title={isNarrating ? _('Previous Chapter') : _('Previous Paragraph')}
+              aria-label={isNarrating ? _('Previous Chapter') : _('Previous Paragraph')}
+              onClick={isNarrating ? onPreviousChapter : () => onBackward(false)}
             >
-              <MdKeyboardDoubleArrowLeft size={iconSize24} />
+              {isNarrating ? (
+                <MdSkipPrevious size={iconSize24} />
+              ) : (
+                <MdKeyboardDoubleArrowLeft size={iconSize24} />
+              )}
             </button>
             <button
               type='button'
-              className='rounded-full p-2'
+              className='min-h-11 min-w-11 rounded-full p-2'
               title={_('Previous Sentence')}
               aria-label={_('Previous Sentence')}
               onClick={() => onBackward(true)}
@@ -382,7 +455,7 @@ const TTSPlayerSheet = ({
             </button>
             <button
               type='button'
-              className='btn btn-primary btn-circle mx-2 h-14 min-h-14 w-14'
+              className='btn not-eink:btn-primary eink-bordered btn-circle mx-2 h-14 min-h-14 w-14'
               aria-label={isPlaying ? _('Pause') : _('Play')}
               onClick={onTogglePlay}
             >
@@ -390,7 +463,7 @@ const TTSPlayerSheet = ({
             </button>
             <button
               type='button'
-              className='rounded-full p-2'
+              className='min-h-11 min-w-11 rounded-full p-2'
               title={_('Next Sentence')}
               aria-label={_('Next Sentence')}
               onClick={() => onForward(true)}
@@ -399,12 +472,16 @@ const TTSPlayerSheet = ({
             </button>
             <button
               type='button'
-              className='rounded-full p-2'
-              title={_('Next Paragraph')}
-              aria-label={_('Next Paragraph')}
-              onClick={() => onForward(false)}
+              className='min-h-11 min-w-11 rounded-full p-2'
+              title={isNarrating ? _('Next Chapter') : _('Next Paragraph')}
+              aria-label={isNarrating ? _('Next Chapter') : _('Next Paragraph')}
+              onClick={isNarrating ? onNextChapter : () => onForward(false)}
             >
-              <MdKeyboardDoubleArrowRight size={iconSize24} />
+              {isNarrating ? (
+                <MdSkipNext size={iconSize24} />
+              ) : (
+                <MdKeyboardDoubleArrowRight size={iconSize24} />
+              )}
             </button>
           </div>
           <div className='flex w-full gap-2'>
@@ -419,21 +496,19 @@ const TTSPlayerSheet = ({
                 {_('Speed')}
               </span>
             </button>
-            <button
-              type='button'
-              aria-label={_('Voice')}
-              onClick={() => setView('voice')}
-              className='not-eink:bg-base-200 eink-bordered flex h-14 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl'
-            >
-              <RiVoiceAiFill size={iconSize18} />
-              <span className='text-base-content/60 max-w-full truncate px-1 text-xs'>
-                {isNarrating
-                  ? _('Book narration')
-                  : currentVoiceName
-                    ? _(currentVoiceName)
-                    : _('Voice')}
-              </span>
-            </button>
+            {!isNarrating && (
+              <button
+                type='button'
+                aria-label={_('Voice')}
+                onClick={() => setView('voice')}
+                className='not-eink:bg-base-200 eink-bordered flex h-14 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl'
+              >
+                <RiVoiceAiFill size={iconSize18} />
+                <span className='text-base-content/60 max-w-full truncate px-1 text-xs'>
+                  {currentVoiceName ? _(currentVoiceName) : _('Voice')}
+                </span>
+              </button>
+            )}
             <button
               type='button'
               aria-label={_('Sleep Timer')}
@@ -474,7 +549,7 @@ const TTSPlayerSheet = ({
           )}
         </div>
       )}
-      {view === 'chapters' && (
+      {view === 'chapters' && !isNarrating && (
         <TTSChaptersView
           downloads={downloads}
           activeSectionIndex={activeSectionIndex}
@@ -483,10 +558,29 @@ const TTSPlayerSheet = ({
       )}
       {view === 'speed' && (
         <div className='flex w-full flex-col items-center pb-4 pt-2'>
-          <SpeedRuler rate={rate} onSelect={handleSelectRate} />
+          {isNarrating ? (
+            <div className='flex w-full flex-col'>
+              {[0.8, 1, 1.2, 1.5, 1.75, 2].map((value) => (
+                <button
+                  key={value}
+                  type='button'
+                  aria-pressed={rate === value}
+                  onClick={() => handleSelectRate(value)}
+                  className='flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-2 text-start'
+                >
+                  <span className='flex h-6 w-6 items-center justify-center'>
+                    {rate === value && <MdCheck className='text-base-content' />}
+                  </span>
+                  <span className='text-base sm:text-sm'>{_('{{value}}×', { value })}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <SpeedRuler rate={rate} onSelect={handleSelectRate} />
+          )}
         </div>
       )}
-      {view === 'voice' && (
+      {view === 'voice' && !isNarrating && (
         <div className='flex w-full flex-col pb-4'>
           {voiceGroups.map((voiceGroup) => (
             <div key={voiceGroup.id}>

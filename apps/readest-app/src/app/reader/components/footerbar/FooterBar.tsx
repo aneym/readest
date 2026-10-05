@@ -17,6 +17,11 @@ import MobileFooterBar from './MobileFooterBar';
 import DesktopFooterBar from './DesktopFooterBar';
 import { getFooterBarPosition } from './position';
 import TTSControl from '../tts/TTSControl';
+import {
+  useNarrationAvailability,
+  shouldOpenNarrationStatus,
+  NARRATION_STATUS_OPEN_EVENT,
+} from '../../hooks/useNarrationAvailability';
 
 const FooterBar: React.FC<FooterBarProps> = ({
   bookKey,
@@ -27,6 +32,7 @@ const FooterBar: React.FC<FooterBarProps> = ({
   gridInsets,
 }) => {
   const _ = useTranslation();
+  const availability = useNarrationAvailability(bookKey);
   const { appService } = useEnv();
   const { getConfig, setConfig, getBookData } = useBookDataStore();
   const { hoveredBookKey, setHoveredBookKey, bottomBarTab, setBottomBarTab } = useReaderStore();
@@ -95,9 +101,13 @@ const FooterBar: React.FC<FooterBarProps> = ({
   const handleSpeakText = useCallback(async () => {
     if (!view || !progress || !viewState) return;
 
+    if (!viewState.ttsEnabled && shouldOpenNarrationStatus(bookKey, availability)) {
+      void eventDispatcher.dispatch(NARRATION_STATUS_OPEN_EVENT, { bookKey });
+      return;
+    }
     const eventType = viewState.ttsEnabled ? 'tts-stop' : 'tts-speak';
     eventDispatcher.dispatch(eventType, { bookKey });
-  }, [view, progress, viewState, bookKey]);
+  }, [view, progress, viewState, bookKey, availability]);
 
   const handleSetActionTab = useCallback(
     (tab: string) => {

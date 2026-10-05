@@ -8,6 +8,8 @@ interface BuildTTSMediaMetadataOptions {
   author: string;
   ttsMediaMetadata: TTSMediaMetadataMode;
   previousSectionLabel?: string;
+  // Recorded narration ignores sentence/paragraph/chapter modes.
+  narration?: boolean;
 }
 
 interface TTSMediaMetadataResult {
@@ -28,7 +30,19 @@ export function buildTTSMediaMetadata(
     author,
     ttsMediaMetadata,
     previousSectionLabel,
+    narration,
   } = options;
+
+  if (narration) {
+    const shouldUpdate =
+      previousSectionLabel === undefined || previousSectionLabel !== sectionLabel;
+    return {
+      title,
+      artist: sectionLabel || author,
+      album: author,
+      shouldUpdate,
+    };
+  }
 
   if (ttsMediaMetadata === 'chapter') {
     const shouldUpdate =

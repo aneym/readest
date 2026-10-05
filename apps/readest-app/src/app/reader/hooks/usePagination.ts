@@ -261,6 +261,24 @@ export const usePagination = (
             if (!consumed) {
               const centerStartX = viewStartX + viewRect.width * 0.375;
               const centerEndX = viewStartX + viewRect.width * 0.625;
+              const inSeekZone =
+                viewSettings.disableClick || (screenX >= centerStartX && screenX <= centerEndX);
+              if (!hoveredBookKey && inSeekZone) {
+                const tap: {
+                  bookKey: string;
+                  sectionIndex: number;
+                  clientX: number;
+                  clientY: number;
+                  result?: Promise<boolean>;
+                } = {
+                  bookKey,
+                  sectionIndex: msg.data.sectionIndex,
+                  clientX: msg.data.clientX,
+                  clientY: msg.data.clientY,
+                };
+                const routed = eventDispatcher.dispatchSync('tts-narration-tap', tap);
+                if (await (tap.result ?? routed)) return;
+              }
               if (
                 viewSettings.disableClick! ||
                 (screenX >= centerStartX && screenX <= centerEndX)

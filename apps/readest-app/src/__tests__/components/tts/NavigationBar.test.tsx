@@ -9,10 +9,13 @@ vi.mock('@/context/EnvContext', () => ({ useEnv: () => ({ appService: null }) })
 vi.mock('@/hooks/useTranslation', () => ({ useTranslation: () => (key: string) => key }));
 vi.mock('@/hooks/useResponsiveSize', () => ({ useResponsiveSize: (size: number) => size }));
 vi.mock('@/store/readerStore', () => ({
-  useReaderStore: () => ({
-    getViewState: () => readerState,
-    getViewSettings: () => readerState,
-  }),
+  useReaderStore: Object.assign(
+    () => ({
+      getViewState: () => readerState,
+      getViewSettings: () => readerState,
+    }),
+    { getState: () => ({ getViewSettings: () => readerState }) },
+  ),
 }));
 vi.mock('@/store/bookDataStore', () => ({
   useBookDataStore: () => ({ getBookData: () => ({ book: bookData }) }),

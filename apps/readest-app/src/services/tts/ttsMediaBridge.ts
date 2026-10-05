@@ -27,6 +27,11 @@ export interface TTSMediaBridgeMeta {
   author: string;
   coverImageUrl: string | null;
   metadataMode: TTSMediaMetadataMode;
+  // Recorded narration. PlaybackSource has no narration flag (TTSController
+  // .narrationActive is not on that surface), so the session owner passes
+  // this (a getter follows mid-session voice changes). Omit or false keeps
+  // synthetic metadata and transport.
+  narration?: boolean | (() => boolean);
   // False when this session's audio plays through a WebView media element, so
   // the native media session leaves audio focus alone — see
   // MediaSessionState.ownsAudioFocus. Defaults to true: TTS (WebAudio or the
@@ -115,6 +120,13 @@ export class TTSMediaBridge {
   #previousSectionLabel: string | undefined;
   #onSpeakMark: ((e: Event) => void) | null = null;
   #onStateChange: ((e: Event) => void) | null = null;
+  #onNarrationChange: (() => void) | null = null;
+  #lastNarration = false;
+
+  #isNarration(): boolean {
+    const narration = this.#meta?.narration;
+    return (typeof narration === 'function' ? narration() : narration) === true;
+  }
   // A nexttrack/previoustrack from the car (or lock screen) makes the
   // controller stop() then advance a paragraph — a ~1s round trip. While it
   // is in flight the controller churns (stop -> transient paused, timeline
@@ -138,11 +150,17 @@ export class TTSMediaBridge {
       // Re-bind on adopt: refresh the meta (new bookKey / live label source)
       // without re-registering listeners or re-activating the session.
       this.#meta = meta;
+      const playbackKindChanged = this.#lastNarration !== this.#isNarration();
+      if (playbackKindChanged) {
+        this.#previousSectionLabel = undefined;
+        await this.#updateMetadata(undefined);
+      }
       return;
     }
     this.unbind();
     this.#controller = controller;
     this.#meta = meta;
+    this.#lastNarration = this.#isNarration();
     this.#mediaSession = this.#resolveMediaSession();
     if (!this.#mediaSession) return;
     // bind() awaits below (cover fetch, setActive), during which a concurrent
@@ -164,6 +182,10 @@ export class TTSMediaBridge {
     }
     this.#pushArtwork = true;
 
+    if (this.#mediaSession !== mediaSession || this.#controller !== controller) return;
+    // Engine selection may have re-adopted this controller while cover loading
+    // was pending. Initial native metadata must use that latest playback kind.
+    meta = this.#meta ?? meta;
     if (mediaSession instanceof TauriMediaSession) {
       await mediaSession.setActive({
         active: true,
@@ -174,13 +196,40 @@ export class TTSMediaBridge {
         bookTitle: meta.title,
         bookAuthor: meta.author,
       });
-      await mediaSession.updateMetadata({
-        title: meta.title,
-        artist: meta.author,
-        album: meta.title,
-        artwork: this.#coverArtwork,
-      });
+      meta = this.#meta ?? meta;
+      const narration = this.#isNarration();
+      this.#lastNarration = narration;
+      const sectionLabel = narration ? (meta.getSectionLabel?.() ?? '') : '';
+      if (narration && sectionLabel) this.#lastSectionLabel = sectionLabel;
+      const built = narration
+        ? buildTTSMediaMetadata({
+            markText: '',
+            markName: '',
+            sectionLabel,
+            title: meta.title,
+            author: meta.author,
+            ttsMediaMetadata: meta.metadataMode,
+            narration: true,
+          })
+        : null;
+      const payload: {
+        title: string;
+        artist: string;
+        album: string;
+        artwork?: string;
+      } = {
+        title: built?.title ?? meta.title,
+        artist: built?.artist ?? meta.author,
+        album: built?.album ?? meta.title,
+      };
+      // Narration never sends artwork: '' (that wipes the cover). Synthetic
+      // keeps sending the field, including an empty string, as before.
+      if (!narration || this.#coverArtwork) {
+        payload.artwork = this.#coverArtwork;
+      }
+      await mediaSession.updateMetadata(payload);
       this.#pushArtwork = false;
+      if (narration) this.#previousSectionLabel = this.#lastSectionLabel;
     }
 
     if (this.#mediaSession !== mediaSession) return;
@@ -216,12 +265,19 @@ export class TTSMediaBridge {
         void this.#updatePositionState();
       }
     };
+    this.#onNarrationChange = () => {
+      void this.#updateMetadata(undefined);
+    };
+    controller.addEventListener('tts-narration-change', this.#onNarrationChange);
     controller.addEventListener('tts-speak-mark', this.#onSpeakMark);
     controller.addEventListener('tts-state-change', this.#onStateChange);
   }
 
   unbind(): void {
     if (this.#controller) {
+      if (this.#onNarrationChange) {
+        this.#controller.removeEventListener('tts-narration-change', this.#onNarrationChange);
+      }
       if (this.#onSpeakMark) {
         this.#controller.removeEventListener('tts-speak-mark', this.#onSpeakMark);
       }
@@ -305,13 +361,20 @@ export class TTSMediaBridge {
     });
     mediaSession.setActionHandler('seekforward', () => void controller()?.forward(true));
     mediaSession.setActionHandler('seekbackward', () => void controller()?.backward(true));
+    // Narration: headset next/previous are sentence steps, same as the
+    // seek actions. Chapter skip stays in the sheet. Synthetic next/previous
+    // stay paragraph steps (forward()/backward() with no byMark).
     mediaSession.setActionHandler('nexttrack', () => {
       this.#beginSkip();
-      void controller()?.forward();
+      const ctrl = controller();
+      if (this.#isNarration()) void ctrl?.forward(true);
+      else void ctrl?.forward();
     });
     mediaSession.setActionHandler('previoustrack', () => {
       this.#beginSkip();
-      void controller()?.backward();
+      const ctrl = controller();
+      if (this.#isNarration()) void ctrl?.backward(true);
+      else void ctrl?.backward();
     });
     if (mediaSession instanceof TauriMediaSession) {
       mediaSession.setActionHandler('seekto', ((positionMs: number) => {
@@ -334,6 +397,9 @@ export class TTSMediaBridge {
     const mediaSession = this.#mediaSession;
     const meta = this.#meta;
     if (!mediaSession || !meta) return;
+    const narration = this.#isNarration();
+    if (narration !== this.#lastNarration) this.#previousSectionLabel = undefined;
+    this.#lastNarration = narration;
     const liveLabel = meta.getSectionLabel?.();
     if (liveLabel) this.#lastSectionLabel = liveLabel;
 
@@ -345,8 +411,9 @@ export class TTSMediaBridge {
       author: meta.author,
       ttsMediaMetadata: meta.metadataMode,
       previousSectionLabel: this.#previousSectionLabel,
+      narration,
     });
-    if (meta.metadataMode === 'chapter') {
+    if (narration || meta.metadataMode === 'chapter') {
       this.#previousSectionLabel = this.#lastSectionLabel;
     }
     if (!metadata.shouldUpdate) return;
