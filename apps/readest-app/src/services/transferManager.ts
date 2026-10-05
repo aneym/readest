@@ -1,6 +1,7 @@
 import {
   clearBookDownloadFailureNotification,
   notifyBookDownloadFailure,
+  markReportedBookDownloadFailure,
   isMissingHomebaseBookError,
 } from './bookDownloadErrors';
 import { Book } from '@/types/book';
@@ -251,7 +252,11 @@ class TransferManager {
         if (current?.status === 'pending' || current?.status === 'in_progress') return;
         unsubscribe();
         if (current?.status === 'completed') resolve();
-        else reject(new Error(current?.error || this._!('Book download cancelled')));
+        else {
+          const error = new Error(current?.error || this._!('Book download cancelled'));
+          if (current?.status === 'failed') markReportedBookDownloadFailure(bookHash, error);
+          reject(error);
+        }
       };
       const unsubscribe = useTransferStore.subscribe(check);
       check();

@@ -9,7 +9,14 @@ import type { Book } from '@/types/book';
 const context = vi.hoisted(() => ({ service: null as unknown }));
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'paired' } }) }));
 vi.mock('@/context/EnvContext', () => ({
-  useEnv: () => ({ appService: context.service, envConfig: {} }),
+  useEnv: () => ({
+    appService: context.service,
+    envConfig: { getAppService: async () => context.service },
+  }),
+}));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 const book: Book = {
   hash: '4c58263345999aa6580dcd52005f97eb',
@@ -88,6 +95,7 @@ beforeEach(() => {
   book.hash = `notification-book-${++scenario}`;
   owners.useLibraryStore.getState().setLibrary([{ ...book }]);
   toasts = [];
+  owners.useReaderStore.setState({ bookKeys: [] });
   owners.useTransferStore.setState({ transfers: {}, isQueuePaused: false, activeCount: 0 });
 });
 afterEach(async () => {
@@ -307,6 +315,48 @@ test.each([
   } finally {
     release();
     clock.mockRestore();
+    vi.stubGlobal('fetch', async () => new Response('{}', { status: 404 }));
+  }
+});
+
+test('reader caller joining an active download shows exactly one failure toast', async () => {
+  const { default: useBooksManager } = await import('@/app/reader/hooks/useBooksManager');
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requests = 0;
+  vi.stubGlobal('fetch', async (url: string) => {
+    if (!url.includes(`fileKey=${book.hash}.epub`)) return new Response('{}', { status: 404 });
+    requests++;
+    await gate;
+    return new Response('{}', { status: 404 });
+  });
+  try {
+    const id = owners.transferManager.queueDownload(book, 1)!;
+    await vi.waitFor(() => expect(requests).toBe(1));
+    renderHook(() => useBooksManager());
+    owners.eventDispatcher.dispatch('open-book-in-reader', { bookHash: book.hash });
+    await vi.waitFor(() => expect(owners.useReaderStore.getState().bookKeys).toHaveLength(1));
+    // Allow the real reader to subscribe to the held transfer before failure.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    release();
+    await vi.waitFor(() =>
+      expect(owners.useTransferStore.getState().transfers[id]?.status).toBe('failed'),
+    );
+    await vi.waitFor(() => {
+      const key = owners.useReaderStore.getState().bookKeys[0]!;
+      expect(owners.useReaderStore.getState().getViewState(key)?.loading).toBe(false);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(toasts).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        message: expect.stringContaining('Refresh the library'),
+      }),
+    ]);
+  } finally {
+    release();
     vi.stubGlobal('fetch', async () => new Response('{}', { status: 404 }));
   }
 });

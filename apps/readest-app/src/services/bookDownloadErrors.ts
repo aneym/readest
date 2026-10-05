@@ -56,6 +56,12 @@ export const clearBookDownloadFailureNotification = (hash: string): void => {
   notifiedBookHashes.delete(hash);
 };
 
+// Waiters receive a new Error from the persisted transfer message. Only inherit
+// reporting when this same attempt has already emitted its download toast.
+export const markReportedBookDownloadFailure = (hash: string, error: Error): void => {
+  if (notifiedBookHashes.has(hash)) reportedErrors.add(error);
+};
+
 export const isReportedBookDownloadFailure = (error: unknown): boolean =>
   error instanceof Error && reportedErrors.has(error);
 
