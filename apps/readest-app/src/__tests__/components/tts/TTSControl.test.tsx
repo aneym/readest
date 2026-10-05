@@ -55,8 +55,14 @@ vi.mock('@/app/reader/components/tts/TTSMiniPlayer', () => ({
 
 vi.mock('@/app/reader/components/tts/TTSPlayerSheet', () => ({
   __esModule: true,
-  default: ({ isOpen }: { isOpen: boolean }) =>
-    isOpen ? <div data-testid='player-sheet' /> : null,
+  default: ({ isOpen, onStop }: { isOpen: boolean; onStop?: () => void }) =>
+    isOpen ? (
+      <div data-testid='player-sheet'>
+        <button type='button' onClick={onStop}>
+          Stop
+        </button>
+      </div>
+    ) : null,
 }));
 
 import TTSControl from '@/app/reader/components/tts/TTSControl';
@@ -142,6 +148,22 @@ describe('TTSControl', () => {
     });
     expect(screen.getByTestId('player-sheet')).toBeTruthy();
     expect(screen.queryByTestId('mini-player')).toBeNull();
+  });
+
+  test("the sheet's Stop ends the session", async () => {
+    const stops: unknown[] = [];
+    const onStop = (event: CustomEvent) => {
+      stops.push(event.detail);
+    };
+    eventDispatcher.on('tts-stop', onStop);
+    try {
+      render(<TTSControl bookKey='b1' gridInsets={gridInsets} />);
+      fireEvent.click(screen.getByTestId('mini-player'));
+      fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+      expect(stops).toEqual([{ bookKey: 'b1' }]);
+    } finally {
+      eventDispatcher.off('tts-stop', onStop);
+    }
   });
 
   test('shows the back-to-TTS-location pill when reading has drifted', () => {

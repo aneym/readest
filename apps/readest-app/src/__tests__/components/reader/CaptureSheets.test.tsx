@@ -235,6 +235,8 @@ test.each([
     expect(line.className).toContain('bottom-0');
     expect(line.className).toContain('border-t');
     expect(useReaderStore.getState().hoveredBookKey).toBe('');
+    // Flush the passive effect that arms the timer before moving the clock.
+    await act(async () => {});
     act(() => vi.advanceTimersByTime(2900));
     expect(screen.getByRole('status').textContent).toBe(notice);
     act(() => vi.advanceTimersByTime(200));

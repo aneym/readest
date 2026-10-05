@@ -225,6 +225,12 @@ const TTSMiniPlayer = ({
         ? `-${formatCompactTime(chapterRemainingSec)}`
         : '';
 
+  // The thumb bar overlays the page by design and the book text never
+  // reflows under it. The docked strip only reserves its own band at the
+  // bottom, so while the bar is up the strip yields rather than ride above
+  // the bar over unreserved text; the bar's Listening cell opens the player.
+  if (docked && barVisible) return null;
+
   return (
     <div
       role='status'

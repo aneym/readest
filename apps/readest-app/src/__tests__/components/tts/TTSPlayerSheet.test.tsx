@@ -586,6 +586,17 @@ describe('TTSPlayerSheet on a household e-ink phone', () => {
     expect(props.onClose).toHaveBeenCalledOnce();
   });
 
+  // Every player style must reach Stop: the minimal strip has no stop glyph
+  // and the thumb bar's Listening cell opens this sheet.
+  test('Stop ends the session and closes the sheet', () => {
+    const onStop = vi.fn();
+    const props = makeProps({ onStop });
+    render(<TTSPlayerSheet {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(onStop).toHaveBeenCalledOnce();
+    expect(props.onClose).toHaveBeenCalledOnce();
+  });
+
   test('each skip is named under its glyph; play is not', () => {
     render(<TTSPlayerSheet {...makeProps()} />);
     const caption = (label: string) => screen.getByLabelText(label).textContent;

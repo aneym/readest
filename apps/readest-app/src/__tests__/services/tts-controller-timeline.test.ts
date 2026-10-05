@@ -238,19 +238,28 @@ describe('TTSController section timeline', () => {
     expect(timeline!.getDuration()).toBeCloseTo(before / 2, 5);
   });
 
-  // B/W e-ink draws the narration mark as a 3px underline dropped far enough
-  // below the line box to clear descenders; other styles keep plain options.
-  test('the B/W e-ink underline clears descenders; other highlights stay plain', async () => {
-    await controller.ensureTimeline();
-    const overlayer = controller.view.renderer.getContents()[0]!.overlayer as unknown as {
-      add: ReturnType<typeof vi.fn>;
-    };
-    controller.updateHighlightOptions({ style: 'underline', color: 'black' }, true);
-    controller.previewSeekTime(1);
-    expect(overlayer.add.mock.calls.at(-1)![3]).toEqual({ color: 'black', width: 3, padding: 3 });
-    controller.updateHighlightOptions({ style: 'highlight', color: 'gray' }, true);
-    controller.previewSeekTime(1);
-    expect(overlayer.add.mock.calls.at(-1)![3]).toEqual({ color: 'gray' });
+  // B/W e-ink draws the narration mark as a 3px underline. The household
+  // build drops it far enough below the line box to clear descenders; stock
+  // keeps its 1px offset. Other styles keep plain options.
+  test.each([
+    ['household', '1', 3],
+    ['stock', '', 1],
+  ] as const)('the %s B/W e-ink underline offset; other highlights stay plain', async (_build, flag, padding) => {
+    vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', flag);
+    try {
+      await controller.ensureTimeline();
+      const overlayer = controller.view.renderer.getContents()[0]!.overlayer as unknown as {
+        add: ReturnType<typeof vi.fn>;
+      };
+      controller.updateHighlightOptions({ style: 'underline', color: 'black' }, true);
+      controller.previewSeekTime(1);
+      expect(overlayer.add.mock.calls.at(-1)![3]).toEqual({ color: 'black', width: 3, padding });
+      controller.updateHighlightOptions({ style: 'highlight', color: 'gray' }, true);
+      controller.previewSeekTime(1);
+      expect(overlayer.add.mock.calls.at(-1)![3]).toEqual({ color: 'gray' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   test('shutdown drops the timeline', async () => {

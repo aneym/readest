@@ -99,6 +99,7 @@ type TTSPlayerSheetProps = {
   timeoutTimestamp: number;
   chapterRemainingSec: number | null;
   onClose: () => void;
+  onStop?: () => void;
   onTogglePlay: () => void;
   onBackward: (byMark: boolean) => void;
   onForward: (byMark: boolean) => void;
@@ -129,6 +130,7 @@ const TTSPlayerSheet = ({
   timeoutTimestamp,
   chapterRemainingSec,
   onClose,
+  onStop,
   onTogglePlay,
   onBackward,
   onForward,
@@ -353,7 +355,23 @@ const TTSPlayerSheet = ({
   // view floats the standard dialog close pill over its top-right corner.
   const header =
     view === 'main' && einkPhone ? (
-      <div className='flex h-11 w-full items-center justify-end'>
+      <div className='flex h-11 w-full items-center justify-between'>
+        {/* Every player style reaches Stop here: the minimal strip has no
+            stop glyph, and Listening in the thumb bar opens this sheet. */}
+        {onStop ? (
+          <button
+            type='button'
+            onClick={() => {
+              onStop();
+              onClose();
+            }}
+            className='min-h-11 px-2 text-sm font-normal'
+          >
+            {_('Stop')}
+          </button>
+        ) : (
+          <span />
+        )}
         <button type='button' onClick={onClose} className='min-h-11 px-2 text-sm font-semibold'>
           {_('Done')}
         </button>

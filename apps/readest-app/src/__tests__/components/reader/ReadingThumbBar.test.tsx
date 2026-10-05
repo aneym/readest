@@ -311,6 +311,30 @@ describe('household reading thumb bar', () => {
     expect(received.some((entry) => entry.event === 'tts-stop')).toBe(false);
     expect(useReaderStore.getState().hoveredBookKey).toBe('');
   });
+  it('a colour household phone keeps Listen as the existing TTS toggle mid-session', async () => {
+    observe('tts-player-open');
+    mount();
+    await tapMiddle();
+    act(() =>
+      useReaderStore.setState((state) => {
+        const viewState = state.viewStates[bookKey]!;
+        return {
+          viewStates: {
+            ...state.viewStates,
+            [bookKey]: {
+              ...viewState,
+              ttsEnabled: true,
+              viewSettings: { ...viewState.viewSettings!, isEink: false },
+            },
+          },
+        };
+      }),
+    );
+    expect(screen.queryByRole('button', { name: 'Listening' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Listen' }));
+    expect(received.some((entry) => entry.event === 'tts-player-open')).toBe(false);
+    expect(useReaderStore.getState().bottomBarTab).toBe('tts');
+  });
   it('dispatches captures and reuses library, contents, search and font actions', async () => {
     observe('reader-capture-open');
     observe('search-term');

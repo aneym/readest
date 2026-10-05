@@ -472,6 +472,18 @@ describe('TTSMiniPlayer', () => {
       expect(path(screen.getByLabelText('Next Sentence'))).toBe(path(right));
     });
 
+    // The bar overlays the page and the text never reflows for it; the strip
+    // reserves only its bottom band, so it must not ride above the open bar
+    // over text nothing reserved. It yields and returns when the bar closes.
+    test('yields while the thumb bar is open and returns when it closes', () => {
+      readerState.hoveredBookKey = 'b1';
+      const { rerender } = render(<TTSMiniPlayer {...makeProps({ isEink: true })} />);
+      expect(screen.queryByRole('status')).toBeNull();
+      readerState.hoveredBookKey = '';
+      rerender(<TTSMiniPlayer {...makeProps({ isEink: true })} />);
+      expect(strip().style.bottom).toBe(`${DEFAULT_BOOK_LAYOUT.marginBottomPx}px`);
+    });
+
     test('docks flush on the screen edge when the bar is hidden and no footer renders', () => {
       viewSettingsOverride = { showFooter: false };
       render(<TTSMiniPlayer {...makeProps({ isEink: true })} />);

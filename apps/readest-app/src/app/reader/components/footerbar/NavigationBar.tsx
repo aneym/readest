@@ -59,7 +59,9 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
     const capture = (kind: 'page-note' | 'note' | 'voice') => {
       void eventDispatcher.dispatch('reader-capture-open', { bookKey, kind });
     };
-    const listening = !!viewState?.ttsEnabled;
+    // E-ink only: there the sheet carries Stop (and the strip docks). A colour
+    // household phone keeps Listen as the stop toggle it has always been.
+    const listening = !!viewSettings?.isEink && !!viewState?.ttsEnabled;
     const listen = () => {
       // While narration runs, Listen is the way back to the player, not a stop.
       if (listening) {
@@ -67,7 +69,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
         void eventDispatcher.dispatch(TTS_PLAYER_OPEN_EVENT, { bookKey });
         return;
       }
-      if (shouldOpenNarrationStatus(bookKey, availability)) {
+      if (!viewState?.ttsEnabled && shouldOpenNarrationStatus(bookKey, availability)) {
         void eventDispatcher.dispatch(NARRATION_STATUS_OPEN_EVENT, { bookKey });
         return;
       }
