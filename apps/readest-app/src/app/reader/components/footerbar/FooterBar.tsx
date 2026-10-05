@@ -232,6 +232,8 @@ const FooterBar: React.FC<FooterBarProps> = ({
     'footer-bar shadow-xs bottom-0 left-0 z-10 flex w-full flex-col',
     !forceMobileLayout && 'sm:h-[52px] sm:bg-base-100 sm:border-none',
     'not-eink:border-base-300/50 eink:border-base-content border-t',
+    // The household thumb bar opens with the same 2px rule as its sheets.
+    householdMobile && 'eink:border-t-2',
     !householdMobile && 'transition-[opacity,transform] duration-300',
     getFooterBarPosition(forceMobileLayout || window.innerWidth < 640, isSideBarPinned),
     appService?.hasRoundedWindow && 'rounded-window-bottom-right',

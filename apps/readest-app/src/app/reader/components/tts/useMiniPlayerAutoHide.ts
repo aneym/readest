@@ -30,19 +30,22 @@ export const useMiniPlayerAutoHide = (
   bookKey: string,
   playerStyle: TTSPlayerStyle,
   mounted: boolean,
+  // The household e-ink strip is docked and reserves its own band of text, so
+  // it stays up like the minimal card whatever its style.
+  persistent = false,
 ) => {
   const { hoveredBookKey } = useReaderStore();
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
-    if (!mounted || playerStyle === 'minimal' || hoveredBookKey === bookKey) {
+    if (!mounted || persistent || playerStyle === 'minimal' || hoveredBookKey === bookKey) {
       setVisible(true);
       return;
     }
     setVisible(true);
     const timeout = setTimeout(() => setVisible(false), LINGER_MS);
     return () => clearTimeout(timeout);
-  }, [mounted, playerStyle, hoveredBookKey, bookKey]);
+  }, [mounted, persistent, playerStyle, hoveredBookKey, bookKey]);
 
   return visible;
 };

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import {
   MdAlarm,
   MdSkipPrevious,
@@ -45,8 +45,27 @@ import SpeedRuler, { formatRate } from './SpeedRuler';
 import TTSChaptersView from './TTSChaptersView';
 import { TTS_STOP_AT_CHAPTER_END } from '@/services/tts/TTSSessionManager';
 import type { UseTTSDownloadsResult } from '@/app/reader/hooks/useTTSDownloads';
+import { isDockedMiniPlayer } from '../../utils/ttsMiniPlayerPosition';
 
 type SheetView = 'main' | 'speed' | 'voice' | 'timer' | 'chapters';
+
+// A transport glyph, optionally named underneath (household e-ink, where the
+// chevron pairs alone don't say what they skip). The caption hangs below the
+// glyph so every glyph stays centred on the play button.
+const TransportGlyph = ({ caption, children }: { caption?: string; children: ReactNode }) =>
+  caption ? (
+    <span className='relative flex'>
+      {children}
+      <span
+        aria-hidden='true'
+        className='absolute left-1/2 top-full -translate-x-1/2 whitespace-nowrap text-[11px] leading-none'
+      >
+        {caption}
+      </span>
+    </span>
+  ) : (
+    <>{children}</>
+  );
 
 // Exported so the audiobook player route (src/app/player/components/PlayerView.tsx)
 // can reuse the same sleep-timer preset list instead of duplicating it.
@@ -128,7 +147,7 @@ const TTSPlayerSheet = ({
 }: TTSPlayerSheetProps) => {
   const _ = useTranslation();
   const router = useRouter();
-  const { envConfig } = useEnv();
+  const { envConfig, appService } = useEnv();
   const { user } = useAuth();
   const { getViewSettings, setViewSettings } = useReaderStore();
   const { getBookData } = useBookDataStore();
@@ -173,6 +192,9 @@ const TTSPlayerSheet = ({
   const narrator = bookData?.bookDoc?.media?.narrator?.trim();
   const sectionLabel = progress?.sectionLabel;
   const isEink = viewSettings?.isEink ?? false;
+  // Household e-ink phone: the sheet sizes to its content, closes from a
+  // visible Done, and names each skip in words.
+  const einkPhone = isDockedMiniPlayer(isEink, appService?.isMobile);
 
   // Books with recorded narration expose it as a voice; while it is playing
   // there is nothing to pre-download, since the audio ships with the book.
@@ -309,6 +331,8 @@ const TTSPlayerSheet = ({
   };
 
   const timeoutOptions = getTTSTimeoutOptions(_);
+  // The outer skips move a chapter with narration, a paragraph otherwise.
+  const skipCaption = isNarrating ? _('Chapter') : _('Paragraph');
   const currentVoiceName = voiceGroups
     .flatMap((group) => group.voices)
     .find((voice) => voice.id === selectedVoice)?.name;
@@ -328,7 +352,13 @@ const TTSPlayerSheet = ({
   // Desktop hides the drag handle and has no swipe-to-dismiss, so the main
   // view floats the standard dialog close pill over its top-right corner.
   const header =
-    view === 'main' ? (
+    view === 'main' && einkPhone ? (
+      <div className='flex h-11 w-full items-center justify-end'>
+        <button type='button' onClick={onClose} className='min-h-11 px-2 text-sm font-semibold'>
+          {_('Done')}
+        </button>
+      </div>
+    ) : view === 'main' ? (
       <button
         type='button'
         aria-label={_('Close')}
@@ -373,7 +403,11 @@ const TTSPlayerSheet = ({
       snapHeight={0.65}
       title={isNarrating ? _('Listen') : _('Read Aloud')}
       header={header}
-      boxClassName='sm:!h-auto sm:!max-h-[85%] sm:!w-[420px] sm:!min-w-0'
+      boxClassName={clsx(
+        'sm:!h-auto sm:!max-h-[85%] sm:!w-[420px] sm:!min-w-0',
+        // Beats the inline snap height: no blank band under the controls.
+        einkPhone && '!h-auto !max-h-[85%]',
+      )}
       contentClassName='!px-4 sm:!px-4 mt-[-4px]'
       onClose={onClose}
     >
@@ -419,6 +453,7 @@ const TTSPlayerSheet = ({
             <TTSScrubber
               bookKey={bookKey}
               isEink={isEink}
+              flatTrack={einkPhone}
               onSeek={onSeek}
               onSeekPreview={onSeekPreview}
               onGetPlaybackInfo={onGetPlaybackInfo}
@@ -430,7 +465,10 @@ const TTSPlayerSheet = ({
               </span>
             )
           )}
-          <div dir='ltr' className='flex items-center justify-center gap-1'>
+          <div
+            dir='ltr'
+            className={clsx('flex items-center justify-center gap-1', einkPhone && 'pb-3')}
+          >
             <button
               type='button'
               className='min-h-11 min-w-11 rounded-full p-2'
@@ -438,11 +476,13 @@ const TTSPlayerSheet = ({
               aria-label={isNarrating ? _('Previous Chapter') : _('Previous Paragraph')}
               onClick={isNarrating ? onPreviousChapter : () => onBackward(false)}
             >
-              {isNarrating ? (
-                <MdSkipPrevious size={iconSize24} />
-              ) : (
-                <MdKeyboardDoubleArrowLeft size={iconSize24} />
-              )}
+              <TransportGlyph caption={einkPhone ? skipCaption : undefined}>
+                {isNarrating ? (
+                  <MdSkipPrevious size={iconSize24} />
+                ) : (
+                  <MdKeyboardDoubleArrowLeft size={iconSize24} />
+                )}
+              </TransportGlyph>
             </button>
             <button
               type='button'
@@ -451,7 +491,9 @@ const TTSPlayerSheet = ({
               aria-label={_('Previous Sentence')}
               onClick={() => onBackward(true)}
             >
-              <MdKeyboardArrowLeft size={iconSize28} />
+              <TransportGlyph caption={einkPhone ? _('Sentence') : undefined}>
+                <MdKeyboardArrowLeft size={iconSize28} />
+              </TransportGlyph>
             </button>
             <button
               type='button'
@@ -468,7 +510,9 @@ const TTSPlayerSheet = ({
               aria-label={_('Next Sentence')}
               onClick={() => onForward(true)}
             >
-              <MdKeyboardArrowRight size={iconSize28} />
+              <TransportGlyph caption={einkPhone ? _('Sentence') : undefined}>
+                <MdKeyboardArrowRight size={iconSize28} />
+              </TransportGlyph>
             </button>
             <button
               type='button'
@@ -477,11 +521,13 @@ const TTSPlayerSheet = ({
               aria-label={isNarrating ? _('Next Chapter') : _('Next Paragraph')}
               onClick={isNarrating ? onNextChapter : () => onForward(false)}
             >
-              {isNarrating ? (
-                <MdSkipNext size={iconSize24} />
-              ) : (
-                <MdKeyboardDoubleArrowRight size={iconSize24} />
-              )}
+              <TransportGlyph caption={einkPhone ? skipCaption : undefined}>
+                {isNarrating ? (
+                  <MdSkipNext size={iconSize24} />
+                ) : (
+                  <MdKeyboardDoubleArrowRight size={iconSize24} />
+                )}
+              </TransportGlyph>
             </button>
           </div>
           <div className='flex w-full gap-2'>

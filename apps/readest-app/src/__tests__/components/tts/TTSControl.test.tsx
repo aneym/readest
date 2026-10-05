@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('@/context/EnvContext', () => ({ useEnv: () => ({ appService: null }) }));
 
@@ -60,6 +60,7 @@ vi.mock('@/app/reader/components/tts/TTSPlayerSheet', () => ({
 }));
 
 import TTSControl from '@/app/reader/components/tts/TTSControl';
+import { eventDispatcher } from '@/utils/event';
 
 const gridInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
@@ -126,6 +127,20 @@ describe('TTSControl', () => {
     fireEvent.click(screen.getByTestId('mini-player'));
     expect(screen.getByTestId('player-sheet')).toBeTruthy();
     // The two surfaces never show at the same time.
+    expect(screen.queryByTestId('mini-player')).toBeNull();
+  });
+
+  // The household thumb bar's Listen cell reopens the player mid-session.
+  test('the player-open event for this book opens the sheet; another book is ignored', async () => {
+    render(<TTSControl bookKey='b1' gridInsets={gridInsets} />);
+    await act(async () => {
+      await eventDispatcher.dispatch('tts-player-open', { bookKey: 'b2' });
+    });
+    expect(screen.queryByTestId('player-sheet')).toBeNull();
+    await act(async () => {
+      await eventDispatcher.dispatch('tts-player-open', { bookKey: 'b1' });
+    });
+    expect(screen.getByTestId('player-sheet')).toBeTruthy();
     expect(screen.queryByTestId('mini-player')).toBeNull();
   });
 

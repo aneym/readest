@@ -191,7 +191,9 @@ export class TTSController extends EventTarget {
 
   #highlightDrawOptions() {
     const { style, color } = this.options;
-    return style === 'underline' && this.#isBwEink ? { color, width: 3, padding: 1 } : { color };
+    // B/W e-ink narration underline: 3px solid, dropped 3px below the line
+    // box so it clears descenders. User highlight styles are untouched.
+    return style === 'underline' && this.#isBwEink ? { color, width: 3, padding: 3 } : { color };
   }
 
   constructor(

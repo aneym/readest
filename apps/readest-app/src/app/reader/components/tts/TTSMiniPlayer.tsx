@@ -27,7 +27,11 @@ import { isForcedMobileLayout } from '../../utils/mobileLayout';
 import { TTSPlaybackInfo, usePlaybackInfo } from './usePlaybackInfo';
 import { useCountdownLabel } from './useCountdownLabel';
 import { formatRate } from './SpeedRuler';
-import { getTTSMiniPlayerBottomOffset } from '../../utils/ttsMiniPlayerPosition';
+import {
+  getDockedStripBottomOffset,
+  getTTSMiniPlayerBottomOffset,
+  isDockedMiniPlayer,
+} from '../../utils/ttsMiniPlayerPosition';
 
 // Playback-settings glyph: a hex nut whose top-right edge is left open so
 // the current speed sits in the gap (podcast-player convention). The number
@@ -127,6 +131,9 @@ const TTSMiniPlayer = ({
   const forceMobileLayout = isForcedMobileLayout(appService?.isMobile);
   const usesMobileBar = forceMobileLayout || window.innerWidth < 640 || window.innerHeight < 640;
   const householdMobile = isHouseholdBuild() && (forceMobileLayout || window.innerWidth < 640);
+  // Household e-ink phone: a full-width strip docked on the thumb bar (or the
+  // footer band while the bar is hidden) instead of a floating card.
+  const docked = isDockedMiniPlayer(isEink, appService?.isMobile);
   const [thumbBarHeight, setThumbBarHeight] = useState(0);
   useLayoutEffect(() => {
     if (!householdMobile || !barVisible) return;
@@ -171,9 +178,15 @@ const TTSMiniPlayer = ({
   const bottomOffset =
     householdMobile && barVisible
       ? Math.max(thumbBarHeight, panelTopOffset ? panelTopOffset + safeAreaMargin + 8 : 0)
-      : viewSettings
-        ? getTTSMiniPlayerBottomOffset(viewSettings, { barVisible, usesMobileBar, panelTopOffset })
-        : 16;
+      : docked && viewSettings
+        ? getDockedStripBottomOffset(viewSettings)
+        : viewSettings
+          ? getTTSMiniPlayerBottomOffset(viewSettings, {
+              barVisible,
+              usesMobileBar,
+              panelTopOffset,
+            })
+          : 16;
   const playerStyle = viewSettings?.ttsPlayerStyle ?? 'full';
 
   const { ready, position, total, measuredFraction } = playback;
@@ -197,6 +210,14 @@ const TTSMiniPlayer = ({
       ? _('{{time}} left in chapter', { time: formatPlaybackTime(chapterRemainingSec) })
       : '';
   const timeLabel = elapsedLabel ? `${elapsedLabel} · ${remainingLabel}` : chapterLabel;
+  // The docked strip names the section and the time still to go, never the
+  // elapsed half: on a 412px strip the pair truncated to "0:00 ·…".
+  const dockedTimeLabel =
+    hasTimeline && ready
+      ? `-${formatPlaybackTime(remainingSec, forceHours)}`
+      : chapterRemainingSec !== null
+        ? `-${formatPlaybackTime(chapterRemainingSec)}`
+        : '';
   const compactLabel =
     hasTimeline && ready
       ? `-${formatCompactTime(remainingSec)}`
@@ -209,8 +230,11 @@ const TTSMiniPlayer = ({
       role='status'
       aria-label={`${_('Reading aloud')}: ${book?.title ?? ''}`}
       className={clsx(
-        'absolute z-40 inset-x-4 sm:inset-x-0 sm:mx-auto sm:w-full sm:max-w-md',
-        'transition-[bottom,opacity] duration-300',
+        'absolute z-40',
+        // E-ink ghosts every animated frame, so the docked strip just moves.
+        docked
+          ? 'eink:transition-none inset-x-0'
+          : 'inset-x-4 sm:inset-x-0 sm:mx-auto sm:w-full sm:max-w-md transition-[bottom,opacity] duration-300',
         visible ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
       )}
       style={{
@@ -220,8 +244,20 @@ const TTSMiniPlayer = ({
       onMouseEnter={() => !appService?.isMobile && setHoveredBookKey('')}
       onTouchStart={() => !appService?.isMobile && setHoveredBookKey('')}
     >
-      <div className='not-eink:bg-base-300 eink-bordered relative overflow-hidden rounded-2xl shadow-lg'>
-        {hasTimeline && (
+      <div
+        className={clsx(
+          'relative overflow-hidden',
+          // The strip reads like the thumb bar and capture sheets: one 2px
+          // rule on top, no box, no rounding, no shadow.
+          docked
+            ? 'bg-base-100 border-base-content border-t-2'
+            : 'not-eink:bg-base-300 eink-bordered rounded-2xl shadow-lg',
+        )}
+      >
+        {/* The docked strip states the time left in words and sits right on
+            the thumb bar's own progress bar; a second track would stack two
+            rules and two progress readings. */}
+        {hasTimeline && !docked && (
           // E-ink has no legible grey tints: delineate the track with a crisp
           // 1px hairline, drop the buffer fill, and paint progress solid.
           <div
@@ -253,7 +289,7 @@ const TTSMiniPlayer = ({
               aria-label={_('Open Read Aloud player')}
               className='flex min-w-0 flex-1 cursor-pointer items-center gap-2'
             >
-              {book?.coverImageUrl && !coverFailed ? (
+              {book?.coverImageUrl && !coverFailed && !docked ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={book.coverImageUrl}
@@ -262,14 +298,31 @@ const TTSMiniPlayer = ({
                   onError={() => setCoverFailed(true)}
                 />
               ) : null}
-              <div className='flex min-w-0 flex-col'>
-                <span className='truncate text-sm'>{book?.title ?? ''}</span>
-                {(sectionLabel || timeLabel) && (
-                  <span className='text-base-content/70 truncate text-xs tabular-nums'>
-                    {[sectionLabel, timeLabel].filter(Boolean).join(' · ')}
-                  </span>
-                )}
-              </div>
+              {docked ? (
+                <div className='flex min-w-0 flex-col ps-2'>
+                  <span className='truncate text-sm font-semibold'>{book?.title ?? ''}</span>
+                  {(sectionLabel || dockedTimeLabel) && (
+                    // Only the section truncates; the time left always shows.
+                    <span className='flex min-w-0 text-xs tabular-nums'>
+                      {sectionLabel && <span className='truncate'>{sectionLabel}</span>}
+                      {dockedTimeLabel && (
+                        <span className='shrink-0 whitespace-pre'>
+                          {sectionLabel ? ` · ${dockedTimeLabel}` : dockedTimeLabel}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className='flex min-w-0 flex-col'>
+                  <span className='truncate text-sm'>{book?.title ?? ''}</span>
+                  {(sectionLabel || timeLabel) && (
+                    <span className='text-base-content/70 truncate text-xs tabular-nums'>
+                      {[sectionLabel, timeLabel].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             {timerLabel && (
               <span className='shrink-0 text-xs tabular-nums opacity-70'>{timerLabel}</span>
@@ -281,7 +334,12 @@ const TTSMiniPlayer = ({
                 aria-label={_('Previous Sentence')}
                 onClick={() => onBackward(true)}
               >
-                <MdSkipPrevious size={iconSize28} />
+                {/* Chevrons for a sentence, as in the player sheet. */}
+                {docked ? (
+                  <MdKeyboardArrowLeft size={iconSize28} />
+                ) : (
+                  <MdSkipPrevious size={iconSize28} />
+                )}
               </button>
               <button
                 type='button'
@@ -301,7 +359,11 @@ const TTSMiniPlayer = ({
                 aria-label={_('Next Sentence')}
                 onClick={() => onForward(true)}
               >
-                <MdSkipNext size={iconSize28} />
+                {docked ? (
+                  <MdKeyboardArrowRight size={iconSize28} />
+                ) : (
+                  <MdSkipNext size={iconSize28} />
+                )}
               </button>
               <button
                 type='button'

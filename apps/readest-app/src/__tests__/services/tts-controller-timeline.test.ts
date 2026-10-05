@@ -238,6 +238,21 @@ describe('TTSController section timeline', () => {
     expect(timeline!.getDuration()).toBeCloseTo(before / 2, 5);
   });
 
+  // B/W e-ink draws the narration mark as a 3px underline dropped far enough
+  // below the line box to clear descenders; other styles keep plain options.
+  test('the B/W e-ink underline clears descenders; other highlights stay plain', async () => {
+    await controller.ensureTimeline();
+    const overlayer = controller.view.renderer.getContents()[0]!.overlayer as unknown as {
+      add: ReturnType<typeof vi.fn>;
+    };
+    controller.updateHighlightOptions({ style: 'underline', color: 'black' }, true);
+    controller.previewSeekTime(1);
+    expect(overlayer.add.mock.calls.at(-1)![3]).toEqual({ color: 'black', width: 3, padding: 3 });
+    controller.updateHighlightOptions({ style: 'highlight', color: 'gray' }, true);
+    controller.previewSeekTime(1);
+    expect(overlayer.add.mock.calls.at(-1)![3]).toEqual({ color: 'gray' });
+  });
+
   test('shutdown drops the timeline', async () => {
     await controller.ensureTimeline();
     await controller.shutdown();

@@ -251,6 +251,66 @@ describe('household reading thumb bar', () => {
     await tapMiddle();
     expect(container.querySelector('.footer-bar')?.classList.contains('opacity-0')).toBe(true);
   });
+  it('shows where you are above the actions: page, time left and a bordered bar', async () => {
+    mount();
+    await tapMiddle();
+    act(() =>
+      useReaderStore.setState((state) => ({
+        viewStates: {
+          ...state.viewStates,
+          [bookKey]: {
+            ...state.viewStates[bookKey]!,
+            view: {
+              renderer: { page: 3, pages: 10, getContents: () => [] },
+              history: { canGoBack: false, canGoForward: false },
+            } as unknown as FoliateView,
+          },
+        },
+      })),
+    );
+    const nav = screen.getByRole('navigation', { name: 'Reading actions' });
+    expect(nav.textContent).toContain('p. 112 of 774');
+    // 7 pages left in the chapter at the default pace (1500/1600 min a page).
+    expect(nav.textContent).toContain('7 min left in chapter');
+    const bar = screen.getByRole('progressbar', { name: 'Reading Progress' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('14');
+    expect(bar.classList.contains('border')).toBe(true);
+    // Position sits above the four actions.
+    const pageNote = screen.getByRole('button', { name: 'Page note' });
+    expect(bar.compareDocumentPosition(pageNote) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it('lays the bottom row out as equal centred cells split by hairlines', async () => {
+    mount();
+    await tapMiddle();
+    const row = screen.getByRole('button', { name: 'Contents' }).parentElement!;
+    expect(row.classList.contains('grid-cols-4')).toBe(true);
+    expect(row.classList.contains('divide-x')).toBe(true);
+    for (const name of ['‹ Library', 'Contents', 'Search', 'Aa']) {
+      const cell = screen.getByRole('button', { name });
+      expect(cell.className).not.toMatch(/text-(start|end)/);
+    }
+  });
+  it('while narration runs, Listen reads Listening and reopens the player', async () => {
+    observe('tts-player-open');
+    observe('tts-stop');
+    mount();
+    await tapMiddle();
+    act(() =>
+      useReaderStore.setState((state) => ({
+        viewStates: {
+          ...state.viewStates,
+          [bookKey]: { ...state.viewStates[bookKey]!, ttsEnabled: true },
+        },
+      })),
+    );
+    expect(screen.queryByRole('button', { name: 'Listen' })).toBeNull();
+    const listening = screen.getByRole('button', { name: 'Listening' });
+    expect(listening.className).toContain('font-semibold');
+    fireEvent.click(listening);
+    expect(received).toContainEqual({ event: 'tts-player-open', detail: { bookKey } });
+    expect(received.some((entry) => entry.event === 'tts-stop')).toBe(false);
+    expect(useReaderStore.getState().hoveredBookKey).toBe('');
+  });
   it('dispatches captures and reuses library, contents, search and font actions', async () => {
     observe('reader-capture-open');
     observe('search-term');
@@ -353,8 +413,8 @@ describe('household reading thumb bar', () => {
     expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Note text' }).value).toBe(
       `Thought ${count - 1}`,
     );
-    expect(screen.getByRole('dialog').classList.contains('border-t')).toBe(true);
-    expect(screen.getByRole('dialog').classList.contains('border-base-content/20')).toBe(true);
+    expect(screen.getByRole('dialog').classList.contains('border-t-2')).toBe(true);
+    expect(screen.getByRole('dialog').classList.contains('border-base-content')).toBe(true);
     if (count > 1) {
       expect(screen.getByText('1 of 2')).toBeTruthy();
       fireEvent.click(screen.getByRole('button', { name: 'Next' }));
@@ -367,13 +427,13 @@ describe('household reading thumb bar', () => {
     act(() => setBookProgress(bookKey, null));
     expect(screen.queryByRole('button', { name: /page notes?/ })).toBeNull();
   });
-  it('opens a capture sheet with the reader hairline', async () => {
+  it('opens a capture sheet with the reader rule', async () => {
     mount();
     await act(async () => {
       await eventDispatcher.dispatch('reader-capture-open', { bookKey, kind: 'page-note' });
     });
-    expect(screen.getByRole('dialog').classList.contains('border-t')).toBe(true);
-    expect(screen.getByRole('dialog').classList.contains('border-base-content/20')).toBe(true);
+    expect(screen.getByRole('dialog').classList.contains('border-t-2')).toBe(true);
+    expect(screen.getByRole('dialog').classList.contains('border-base-content')).toBe(true);
   });
   it('excludes page notes from the bookmark sidebar', () => {
     useBookDataStore.getState().setConfig(bookKey, {
