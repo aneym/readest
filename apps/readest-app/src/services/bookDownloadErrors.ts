@@ -2,7 +2,20 @@ import type { TranslationFunc } from '@/hooks/useTranslation';
 
 // Stable, secret-free marker survives transfer queue persistence as a string.
 export const homebaseDownloadError = (status: number, code: string): Error =>
-  new Error(`Homebase book download failed (${status}; ${code})`);
+  new Error(
+    `Homebase book download failed (${status}; ${code})${
+      status === 404 || status === 410 ? '. Refresh the library to download this book' : ''
+    }`,
+  );
+
+// Include the previous build's persisted error so upgrading stops existing loops.
+export const isMissingHomebaseBookError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return (
+    /^Homebase book download failed \((404|410); [A-Z_]+\)/.test(message) ||
+    /^Homebase download URL failed: (404|410)$/.test(message)
+  );
+};
 
 export const getBookDownloadFailureMessage = (
   error: unknown,

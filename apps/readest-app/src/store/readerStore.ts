@@ -209,6 +209,12 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
           bookDoc = await openFeedBookDoc(fs, book.hash, feedUrl, book.title);
           file = null;
         } else {
+          // Deep links enter here without the library's makeBookAvailable step.
+          // A synced row (including a newly aligned edition) is not local bytes.
+          if (book.uploadedAt && !(await appService.isBookAvailable(book))) {
+            await appService.downloadBook(book);
+            await useLibraryStore.getState().updateBook(envConfig, book);
+          }
           const content = (await appService.loadBookContent(book)) as BookContent;
           file = content.file;
           let nativeFilePath: string | null = null;

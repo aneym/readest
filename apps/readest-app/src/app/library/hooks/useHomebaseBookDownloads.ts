@@ -1,3 +1,4 @@
+import { isMissingHomebaseBookError } from '@/services/bookDownloadErrors';
 import { useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useEnv } from '@/context/EnvContext';
@@ -85,7 +86,8 @@ export const useHomebaseBookDownloads = () => {
             t.type === 'download' &&
             (t.status === 'pending' ||
               t.status === 'in_progress' ||
-              (t.status === 'failed' && isBookIntegrityError(t.error)) ||
+              (t.status === 'failed' &&
+                (isBookIntegrityError(t.error) || isMissingHomebaseBookError(t.error))) ||
               (t.status === 'cancelled' && t.cancelReason === 'user')),
         )
         .map((t) => t.bookHash),
