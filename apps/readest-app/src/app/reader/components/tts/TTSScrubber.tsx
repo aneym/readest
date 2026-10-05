@@ -9,6 +9,9 @@ import { TTSPlaybackInfo, usePlaybackInfo } from './usePlaybackInfo';
 type TTSScrubberProps = {
   bookKey: string;
   isEink: boolean;
+  // Household e-ink: played is solid ink, the rest is paper inside the 1px
+  // border. No buffered band; its grey dithers on the panel.
+  flatTrack?: boolean;
   onSeek: (seconds: number) => Promise<void>;
   onSeekPreview?: (seconds: number) => void;
   onGetPlaybackInfo: () => TTSPlaybackInfo | null;
@@ -21,6 +24,7 @@ type TTSScrubberProps = {
 const TTSScrubber = ({
   bookKey,
   isEink,
+  flatTrack = false,
   onSeek,
   onSeekPreview,
   onGetPlaybackInfo,
@@ -95,7 +99,10 @@ const TTSScrubber = ({
     <div dir='ltr' className={clsx('flex w-full items-center gap-2 py-1', stale && 'opacity-60')}>
       <span className='min-w-9 text-center text-xs tabular-nums'>{elapsedLabel}</span>
       <input
-        className='tts-scrubber text-base-content min-w-0 grow'
+        className={clsx(
+          'tts-scrubber text-base-content min-w-0 grow',
+          flatTrack && 'tts-scrubber-flat',
+        )}
         type='range'
         min={0}
         max={total || 1}
@@ -106,9 +113,15 @@ const TTSScrubber = ({
         onPointerUp={handlePointerCommit}
         onTouchEnd={handlePointerCommit}
         onKeyUp={handleKeyUp}
-        style={{
-          background: `linear-gradient(to right, currentColor 0% ${playedPct}%, color-mix(in srgb, currentColor 40%, transparent) ${playedPct}% ${bufferedPct}%, color-mix(in srgb, currentColor 15%, transparent) ${bufferedPct}% 100%)`,
-        }}
+        style={
+          flatTrack
+            ? {
+                backgroundImage: `linear-gradient(to right, currentColor 0% ${playedPct}%, transparent ${playedPct}% 100%)`,
+              }
+            : {
+                background: `linear-gradient(to right, currentColor 0% ${playedPct}%, color-mix(in srgb, currentColor 40%, transparent) ${playedPct}% ${bufferedPct}%, color-mix(in srgb, currentColor 15%, transparent) ${bufferedPct}% 100%)`,
+              }
+        }
         aria-label={_('Chapter progress')}
         aria-valuetext={_('{{elapsed}} of {{total}}', {
           elapsed: elapsedLabel,

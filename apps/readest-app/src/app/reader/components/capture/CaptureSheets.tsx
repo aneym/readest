@@ -1,9 +1,13 @@
+import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import * as CFI from 'foliate-js/epubcfi.js';
 import { useEnv } from '@/context/EnvContext';
+import { useKeyboardInset } from '@/hooks/useKeyboardInset';
+import { isForcedMobileLayout } from '../../utils/mobileLayout';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useBookDataStore } from '@/store/bookDataStore';
+import { useReaderStore } from '@/store/readerStore';
 import { getBookProgress } from '@/store/readerProgressStore';
 import { isHouseholdBuild } from '@/services/household';
 import {
@@ -18,6 +22,13 @@ import { isCfiInLocation } from '@/utils/cfi';
 import { discoverClient } from '@/services/discover/client';
 import type { PendingVoice } from '@/services/thoughts/voiceQueue';
 import type { BookNote } from '@/types/book';
+
+// How long a save confirmation stays in the footer line.
+const CONFIRMATION_MS = 3000;
+
+// "Titan: The Life of John D. Rockefeller" -> "Titan". Keeps helper copy to
+// one line on a phone.
+const shortTitle = (title: string) => title.split(/[:—]/)[0]?.trim() || title;
 
 interface CaptureSession {
   bookKey: string;
@@ -35,11 +46,15 @@ interface CaptureSession {
 /** One reader-wide host; snapshot the page when opening, not when saving. */
 export function CaptureSheets() {
   const _ = useTranslation();
-  const { envConfig } = useEnv();
+  const { envConfig, appService } = useEnv();
   const settings = useSettingsStore((state) => state.settings);
   const [session, setSession] = useState<CaptureSession | null>(null);
+  const householdMobile =
+    isHouseholdBuild() && (window.innerWidth < 640 || isForcedMobileLayout(appService?.isMobile));
+  const keyboardInset = useKeyboardInset(householdMobile && !!session);
   const [text, setText] = useState('');
   const [message, setMessage] = useState('');
+  const [confirmation, setConfirmation] = useState('');
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [recording, setRecording] = useState(false);
@@ -54,6 +69,20 @@ export function CaptureSheets() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (!confirmation) return;
+    const timer = setTimeout(() => setConfirmation(''), CONFIRMATION_MS);
+    return () => clearTimeout(timer);
+  }, [confirmation]);
+
+  // A finished capture returns straight to the page: the sheet and the thumb
+  // bar both close, and a plain footer line says where the thought went.
+  const finish = (notice?: string) => {
+    setSession(null);
+    useReaderStore.getState().setHoveredBookKey('');
+    if (notice) setConfirmation(notice);
+  };
 
   const beginVoice = () => {
     if (savingRef.current || recorder.current || !session) return;
@@ -93,13 +122,12 @@ export function CaptureSheets() {
       );
       if (result.ok) {
         pendingVoice.current = null;
-        if (session.kind === 'page-note' && result.transcript) {
-          await savePageNote(result.transcript);
-        }
-        setSession(null);
+        const transcript = session.kind === 'page-note' ? result.transcript : undefined;
+        if (transcript) await savePageNote(transcript);
+        finish(transcript ? _('Page note saved') : _('Saved to Thoughts'));
       } else if (result.reason === 'offline' && result.queued) {
         pendingVoice.current = null;
-        setSession(null);
+        finish();
         setMessage(_("Saved offline. It sends when you're back."));
       } else {
         setMessage(
@@ -238,6 +266,7 @@ export function CaptureSheets() {
       pendingVoice.current = null;
       setText(note?.note ?? '');
       setMessage('');
+      setConfirmation('');
     };
     eventDispatcher.on('reader-capture-open', open);
     return () => {
@@ -280,7 +309,7 @@ export function CaptureSheets() {
       if (session.kind === 'page-note') {
         await savePageNote(text);
         if (session.existing) {
-          setSession(null);
+          finish(_('Page note saved'));
           return;
         }
       }
@@ -288,9 +317,11 @@ export function CaptureSheets() {
         body: text,
         ...(session.attachment ? { attachment: session.attachment } : {}),
       });
-      if (result.ok || result.reason === 'offline') {
-        setSession(null);
-        if (!result.ok) setMessage(_("Saved offline. It sends when you're back."));
+      if (result.ok) {
+        finish(session.kind === 'page-note' ? _('Page note saved') : _('Saved to Thoughts'));
+      } else if (result.reason === 'offline') {
+        finish();
+        setMessage(_("Saved offline. It sends when you're back."));
       } else {
         setMessage(
           result.reason === 'unpaired'
@@ -307,6 +338,7 @@ export function CaptureSheets() {
   };
 
   if (!isHouseholdBuild()) return null;
+  const saveDisabled = saving || recording || !text.trim();
   return (
     <>
       {session && (
@@ -316,8 +348,11 @@ export function CaptureSheets() {
           aria-label={_(
             session.kind === 'page-note' ? 'Page note' : session.kind === 'note' ? 'Note' : 'Voice',
           )}
-          className='bg-base-100 text-base-content fixed bottom-0 left-0 right-0 z-[100] border-t border-base-content/20 px-4 pb-4 pt-3'
-          style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
+          className='bg-base-100 text-base-content border-base-content fixed bottom-0 left-0 right-0 z-[100] border-t-2 px-4 pb-4 pt-3'
+          style={{
+            paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+            ...(householdMobile ? { bottom: `${keyboardInset}px` } : {}),
+          }}
         >
           <div className='mb-2 flex items-center justify-between text-sm font-medium'>
             <span>
@@ -380,7 +415,7 @@ export function CaptureSheets() {
                     )
                   : _(
                       'Not tied to {{title}}. Goes to Thoughts like one from the home screen or your phone.',
-                      { title: session.title },
+                      { title: shortTitle(session.title) },
                     )}
               </p>
             </>
@@ -418,7 +453,7 @@ export function CaptureSheets() {
                 onBlur={() => void finishVoice(true)}
                 className='min-h-11 touch-none select-none border-2 border-current px-3'
               >
-                {_('Hold to talk')}
+                {recording ? _('Release to send') : _('Hold to talk')}
               </button>
             )}
             {pendingVoice.current && !recording && (
@@ -434,15 +469,24 @@ export function CaptureSheets() {
             {session.kind !== 'voice' && (
               <button
                 type='button'
-                disabled={saving || recording || !text.trim()}
-                className='min-h-11 flex-1 border-2 border-current px-3 font-semibold'
+                disabled={saveDisabled}
+                className={clsx(
+                  'min-h-11 flex-1 border-2 px-3',
+                  // Filled ink once there is something to save; an outline
+                  // until then, so the one action reads as not ready yet.
+                  saveDisabled
+                    ? 'border-current font-normal'
+                    : 'bg-base-content text-base-100 border-base-content eink-inverted font-semibold',
+                )}
                 onClick={() => void save()}
               >
                 {_('Save')}
               </button>
             )}
           </div>
-          {!session.existing && <p className='mt-2 text-sm'>{_('Sends when you let go.')}</p>}
+          {session.kind === 'voice' && !session.existing && (
+            <p className='mt-2 text-sm'>{_('Sends when you let go.')}</p>
+          )}
           {message && (
             <p role='status' className='mt-2 text-sm'>
               {message}
@@ -450,13 +494,19 @@ export function CaptureSheets() {
           )}
         </section>
       )}
-      {!session && message && (
+      {!session && (message || confirmation) && (
+        // A plain footer line, not a toast box; it appears and goes without
+        // a fade (e-ink ghosts every frame of one).
         <div
           role='status'
-          className='bg-base-100 fixed bottom-4 left-4 right-4 z-[101] border border-current p-3'
-          onClick={() => setMessage('')}
+          className='bg-base-100 text-base-content border-base-content fixed inset-x-0 bottom-0 z-[101] border-t px-4 py-3 text-sm font-semibold'
+          style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+          onClick={() => {
+            setMessage('');
+            setConfirmation('');
+          }}
         >
-          {message}
+          {message || confirmation}
         </div>
       )}
     </>

@@ -21,6 +21,8 @@ import {
 } from '@/app/reader/hooks/useNarrationAvailability';
 import { eventDispatcher } from '@/utils/event';
 import { Insets } from '@/types/misc';
+import { TTS_PLAYER_OPEN_EVENT } from '../tts/ttsPlayerEvents';
+import { ThumbBarPosition } from './ThumbBarPosition';
 
 interface NavigationBarProps {
   bookKey: string;
@@ -57,7 +59,16 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
     const capture = (kind: 'page-note' | 'note' | 'voice') => {
       void eventDispatcher.dispatch('reader-capture-open', { bookKey, kind });
     };
+    // E-ink only: there the sheet carries Stop (and the strip docks). A colour
+    // household phone keeps Listen as the stop toggle it has always been.
+    const listening = !!viewSettings?.isEink && !!viewState?.ttsEnabled;
     const listen = () => {
+      // While narration runs, Listen is the way back to the player, not a stop.
+      if (listening) {
+        useReaderStore.getState().setHoveredBookKey('');
+        void eventDispatcher.dispatch(TTS_PLAYER_OPEN_EVENT, { bookKey });
+        return;
+      }
       if (!viewState?.ttsEnabled && shouldOpenNarrationStatus(bookKey, availability)) {
         void eventDispatcher.dispatch(NARRATION_STATUS_OPEN_EVENT, { bookKey });
         return;
@@ -69,6 +80,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
         aria-label={_('Reading actions')}
         className='bg-base-100 text-base-content w-full font-sans'
       >
+        <ThumbBarPosition bookKey={bookKey} />
         <div className='grid grid-cols-4 gap-2 px-4 pb-2 pt-3'>
           <button
             type='button'
@@ -93,14 +105,17 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
           </button>
           <button
             type='button'
-            className='border-base-content min-h-[50px] border text-xs font-medium'
+            className={clsx(
+              'border-base-content min-h-[50px] border text-xs',
+              listening ? 'font-semibold' : 'font-medium',
+            )}
             onClick={listen}
           >
-            {_('Listen')}
+            {listening ? _('Listening') : _('Listen')}
           </button>
         </div>
         <div
-          className='border-base-content grid grid-cols-4 border-t px-4 text-xs font-medium'
+          className='border-base-content divide-base-content grid grid-cols-4 divide-x border-t text-xs font-medium rtl:divide-x-reverse'
           style={{
             paddingBottom: appService?.isAndroidApp
               ? 'env(safe-area-inset-bottom)'
@@ -109,7 +124,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
         >
           <button
             type='button'
-            className='min-h-11 text-start'
+            className='min-h-11'
             onClick={() => void eventDispatcher.dispatch('reader-library-open', { bookKey })}
           >
             {_('‹ Library')}
@@ -127,11 +142,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
           >
             {_('Search')}
           </button>
-          <button
-            type='button'
-            className='min-h-11 text-end'
-            onClick={() => onSetActionTab('font')}
-          >
+          <button type='button' className='min-h-11' onClick={() => onSetActionTab('font')}>
             {_('Aa')}
           </button>
         </div>

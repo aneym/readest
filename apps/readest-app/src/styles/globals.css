@@ -1181,3 +1181,9 @@ textarea:focus-within,
   height: 6px;
   border: 1px solid currentColor;
 }
+
+/* Household e-ink sheet: the unplayed track is paper, not a dithered grey. */
+[data-eink='true'] .tts-scrubber.tts-scrubber-flat {
+  border-radius: 0;
+  background-color: theme('colors.base-100');
+}

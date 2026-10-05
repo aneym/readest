@@ -8,10 +8,13 @@ import { useTTSDownloads } from '@/app/reader/hooks/useTTSDownloads';
 import { useBookProgress } from '@/store/readerProgressStore';
 import { Insets } from '@/types/misc';
 import { eventDispatcher } from '@/utils/event';
+import { useEnv } from '@/context/EnvContext';
+import { isDockedMiniPlayer } from '../../utils/ttsMiniPlayerPosition';
 import TTSMiniPlayer from './TTSMiniPlayer';
 import TTSPlayerSheet from './TTSPlayerSheet';
 import NarrationStatusSheet from './NarrationStatusSheet';
 import { useMiniPlayerAutoHide } from './useMiniPlayerAutoHide';
+import { TTS_PLAYER_OPEN_EVENT } from './ttsPlayerEvents';
 
 interface TTSControlProps {
   bookKey: string;
@@ -20,6 +23,7 @@ interface TTSControlProps {
 
 const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
   const _ = useTranslation();
+  const { appService } = useEnv();
   const { safeAreaInsets } = useThemeStore();
   const { getViewSettings } = useReaderStore();
 
@@ -41,7 +45,8 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
   const playerStyle = viewSettings?.ttsPlayerStyle ?? 'full';
   const hasTimeline = tts.ttsClientsInited && tts.handleSupportsPlaybackInfo();
   const miniPlayerMounted = tts.showIndicator && !showPlayerSheet;
-  const miniPlayerVisible = useMiniPlayerAutoHide(bookKey, playerStyle, miniPlayerMounted);
+  const docked = isDockedMiniPlayer(isEink, appService?.isMobile);
+  const miniPlayerVisible = useMiniPlayerAutoHide(bookKey, playerStyle, miniPlayerMounted, docked);
 
   useEffect(() => {
     if (tts.showBackToCurrentTTSLocation) {
@@ -69,6 +74,16 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
     tts.refreshTtsLang();
     setShowPlayerSheet(true);
   };
+
+  const expandRef = useRef(handleExpand);
+  expandRef.current = handleExpand;
+  useEffect(() => {
+    const open = (event: CustomEvent) => {
+      if (event.detail?.bookKey === bookKey) expandRef.current();
+    };
+    eventDispatcher.on(TTS_PLAYER_OPEN_EVENT, open);
+    return () => eventDispatcher.off(TTS_PLAYER_OPEN_EVENT, open);
+  }, [bookKey]);
 
   const handleStop = () => {
     eventDispatcher.dispatch('tts-stop', { bookKey });
@@ -132,6 +147,7 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
           timeoutTimestamp={tts.timeoutTimestamp}
           chapterRemainingSec={tts.chapterRemainingSec}
           onClose={() => setShowPlayerSheet(false)}
+          onStop={handleStop}
           onTogglePlay={tts.handleTogglePlay}
           onBackward={tts.handleBackward}
           onForward={tts.handleForward}

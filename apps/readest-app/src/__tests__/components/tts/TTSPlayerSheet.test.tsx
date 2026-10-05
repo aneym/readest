@@ -23,15 +23,17 @@ vi.mock('@/components/Dialog', () => ({
     isOpen,
     title,
     header,
+    boxClassName,
     children,
   }: {
     isOpen: boolean;
     title: string;
     header?: React.ReactNode;
+    boxClassName?: string;
     children: React.ReactNode;
   }) =>
     isOpen ? (
-      <div role='dialog' aria-label={title}>
+      <div role='dialog' aria-label={title} data-box-class={boxClassName}>
         {header}
         {children}
       </div>
@@ -553,5 +555,78 @@ describe('TTSPlayerSheet', () => {
     rerender(<TTSPlayerSheet {...props} isOpen={true} />);
     expect(screen.getByLabelText('Previous Paragraph')).toBeTruthy();
     expect(screen.queryByText('Guy')).toBeNull();
+  });
+});
+
+// Household e-ink phone (the Palma): the sheet sizes to its content, closes
+// from a visible Done, names each skip, and draws a paper scrubber track.
+describe('TTSPlayerSheet on a household e-ink phone', () => {
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', '1');
+    vi.stubGlobal('innerWidth', 412);
+    vi.stubGlobal('innerHeight', 824);
+    narrationAvailability.state = 'unknown';
+    viewSettings['isEink'] = true;
+    getBookData.mockReturnValue({ book: { title: 'Titan', coverImageUrl: null } });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    viewSettings['isEink'] = false;
+    vi.clearAllMocks();
+  });
+
+  test('Done closes the sheet, which sizes to its content', () => {
+    const props = makeProps();
+    render(<TTSPlayerSheet {...props} />);
+    expect(screen.getByRole('dialog').dataset['boxClass']).toContain('!h-auto');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(props.onClose).toHaveBeenCalledOnce();
+  });
+
+  // Every player style must reach Stop: the minimal strip has no stop glyph
+  // and the thumb bar's Listening cell opens this sheet.
+  test('Stop ends the session and closes the sheet', () => {
+    const onStop = vi.fn();
+    const props = makeProps({ onStop });
+    render(<TTSPlayerSheet {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(onStop).toHaveBeenCalledOnce();
+    expect(props.onClose).toHaveBeenCalledOnce();
+  });
+
+  test('each skip is named under its glyph; play is not', () => {
+    render(<TTSPlayerSheet {...makeProps()} />);
+    const caption = (label: string) => screen.getByLabelText(label).textContent;
+    expect(caption('Previous Paragraph')).toBe('Paragraph');
+    expect(caption('Previous Sentence')).toBe('Sentence');
+    expect(caption('Next Sentence')).toBe('Sentence');
+    expect(caption('Next Paragraph')).toBe('Paragraph');
+    expect(caption('Pause')).toBe('');
+  });
+
+  test('with narration the outer skips are named Chapter', () => {
+    narrationAvailability.state = 'narrated';
+    render(<TTSPlayerSheet {...makeProps()} />);
+    expect(screen.getByLabelText('Previous Chapter').textContent).toBe('Chapter');
+    expect(screen.getByLabelText('Next Chapter').textContent).toBe('Chapter');
+  });
+
+  test('the scrubber track is solid ink then paper, with no buffered band', () => {
+    render(<TTSPlayerSheet {...makeProps()} />);
+    const slider = screen.getByRole('slider');
+    expect(slider.classList.contains('tts-scrubber-flat')).toBe(true);
+    expect(slider.style.backgroundImage).toContain('transparent 10%');
+    expect(slider.style.backgroundImage).not.toContain('color-mix');
+  });
+
+  test('a desktop-width window keeps the stock sheet', () => {
+    vi.stubGlobal('innerWidth', 1280);
+    render(<TTSPlayerSheet {...makeProps()} />);
+    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull();
+    expect(screen.getByLabelText('Previous Sentence').textContent).toBe('');
+    expect(screen.getByRole('slider').classList.contains('tts-scrubber-flat')).toBe(false);
   });
 });

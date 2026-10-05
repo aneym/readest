@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('@/context/EnvContext', () => ({ useEnv: () => ({ appService: null }) }));
 
@@ -55,11 +55,18 @@ vi.mock('@/app/reader/components/tts/TTSMiniPlayer', () => ({
 
 vi.mock('@/app/reader/components/tts/TTSPlayerSheet', () => ({
   __esModule: true,
-  default: ({ isOpen }: { isOpen: boolean }) =>
-    isOpen ? <div data-testid='player-sheet' /> : null,
+  default: ({ isOpen, onStop }: { isOpen: boolean; onStop?: () => void }) =>
+    isOpen ? (
+      <div data-testid='player-sheet'>
+        <button type='button' onClick={onStop}>
+          Stop
+        </button>
+      </div>
+    ) : null,
 }));
 
 import TTSControl from '@/app/reader/components/tts/TTSControl';
+import { eventDispatcher } from '@/utils/event';
 
 const gridInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
@@ -127,6 +134,36 @@ describe('TTSControl', () => {
     expect(screen.getByTestId('player-sheet')).toBeTruthy();
     // The two surfaces never show at the same time.
     expect(screen.queryByTestId('mini-player')).toBeNull();
+  });
+
+  // The household thumb bar's Listen cell reopens the player mid-session.
+  test('the player-open event for this book opens the sheet; another book is ignored', async () => {
+    render(<TTSControl bookKey='b1' gridInsets={gridInsets} />);
+    await act(async () => {
+      await eventDispatcher.dispatch('tts-player-open', { bookKey: 'b2' });
+    });
+    expect(screen.queryByTestId('player-sheet')).toBeNull();
+    await act(async () => {
+      await eventDispatcher.dispatch('tts-player-open', { bookKey: 'b1' });
+    });
+    expect(screen.getByTestId('player-sheet')).toBeTruthy();
+    expect(screen.queryByTestId('mini-player')).toBeNull();
+  });
+
+  test("the sheet's Stop ends the session", async () => {
+    const stops: unknown[] = [];
+    const onStop = (event: CustomEvent) => {
+      stops.push(event.detail);
+    };
+    eventDispatcher.on('tts-stop', onStop);
+    try {
+      render(<TTSControl bookKey='b1' gridInsets={gridInsets} />);
+      fireEvent.click(screen.getByTestId('mini-player'));
+      fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+      expect(stops).toEqual([{ bookKey: 'b1' }]);
+    } finally {
+      eventDispatcher.off('tts-stop', onStop);
+    }
   });
 
   test('shows the back-to-TTS-location pill when reading has drifted', () => {

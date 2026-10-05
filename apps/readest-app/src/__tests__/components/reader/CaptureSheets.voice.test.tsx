@@ -3,11 +3,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { CaptureSheets } from '@/app/reader/components/capture/CaptureSheets';
 import { eventDispatcher } from '@/utils/event';
 import { useBookDataStore } from '@/store/bookDataStore';
+import { useReaderStore } from '@/store/readerStore';
 import { setBookProgress } from '@/store/readerProgressStore';
 import type { Book, BookConfig, BookProgress } from '@/types/book';
 
 vi.mock('@/services/household', () => ({ isHouseholdBuild: () => true }));
-vi.mock('@/services/environment', () => ({ isTauriAppPlatform: () => false }));
+vi.mock('@/services/environment', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/environment')>()),
+  isTauriAppPlatform: () => false,
+}));
 vi.mock('@/services/sync/homebase/config', () => ({
   getHomebaseBaseUrl: () => 'https://studio.tailf266ac.ts.net:3148/api/readest',
 }));
@@ -111,11 +115,18 @@ async function hold() {
   });
 }
 test('hold records static status; release posts WAV with device auth and closes Voice', async () => {
+  useReaderStore.setState({ hoveredBookKey: 'voice-book' });
   await open('voice');
+  expect(screen.getByText('Sends when you let go.')).toBeTruthy();
   await hold();
   expect(network).not.toHaveBeenCalled();
-  fireEvent.keyUp(screen.getByRole('button', { name: 'Hold to talk' }), { key: ' ' });
+  // While held, the button says what letting go does.
+  expect(screen.queryByRole('button', { name: 'Hold to talk' })).toBeNull();
+  fireEvent.keyUp(screen.getByRole('button', { name: 'Release to send' }), { key: ' ' });
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  // Back to the page: thumb bar closed, a footer line says where it went.
+  expect(screen.getByRole('status').textContent).toBe('Saved to Thoughts');
+  expect(useReaderStore.getState().hoveredBookKey).toBe('');
   expect(stopTrack).toHaveBeenCalledOnce();
   const [url, request] = network.mock.calls[0]!;
   expect(url).toBe('https://studio.tailf266ac.ts.net:3148/api/thoughts/voice');
@@ -136,10 +147,14 @@ test.each([
   'page-note',
 ])('release in new %s sends only the voice Thought and closes', async (kind) => {
   await open(kind);
-  expect(screen.getByText('Sends when you let go.')).toBeTruthy();
+  // The voice hint belongs to the Voice sheet; here Save is the main action.
+  expect(screen.queryByText('Sends when you let go.')).toBeNull();
   await hold();
-  fireEvent.keyUp(screen.getByRole('button', { name: 'Hold to talk' }), { key: ' ' });
+  fireEvent.keyUp(screen.getByRole('button', { name: 'Release to send' }), { key: ' ' });
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.getByRole('status').textContent).toBe(
+    kind === 'page-note' ? 'Page note saved' : 'Saved to Thoughts',
+  );
   const posts = network.mock.calls.filter(([, request]) => request?.method === 'POST');
   expect(posts).toHaveLength(1);
   expect(posts[0]![0]).toBe('https://studio.tailf266ac.ts.net:3148/api/thoughts/voice');
@@ -171,7 +186,7 @@ test('offline keeps take for explicit retry and never claims it was queued', asy
   await open('voice');
   await hold();
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
-  fireEvent.keyUp(screen.getByRole('button', { name: 'Hold to talk' }), { key: ' ' });
+  fireEvent.keyUp(screen.getByRole('button', { name: 'Release to send' }), { key: ' ' });
   await screen.findByText("Couldn't send. Try again when you're back online.");
   expect(network).not.toHaveBeenCalled();
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);

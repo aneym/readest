@@ -42,6 +42,16 @@ describe('useMiniPlayerAutoHide', () => {
     expect(result.current).toBe(false);
   });
 
+  // The household e-ink strip is docked and reserves its own band of text,
+  // so it never auto-hides, whatever its style.
+  it('keeps a persistent (docked) full player up for the whole session', () => {
+    const { result } = renderHook(() => useMiniPlayerAutoHide(BOOK, 'full', true, true));
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(result.current).toBe(true);
+  });
+
   it('keeps the full player up for as long as the toolbar is shown', () => {
     setHovered(BOOK);
     const { result } = renderHook(() => useMiniPlayerAutoHide(BOOK, 'full', true));

@@ -11,6 +11,7 @@ import {
 import { CaptureSheets } from '@/app/reader/components/capture/CaptureSheets';
 import { usePageNotes } from '@/app/reader/hooks/usePageNotes';
 import { useBookDataStore } from '@/store/bookDataStore';
+import { useReaderStore } from '@/store/readerStore';
 import { setBookProgress } from '@/store/readerProgressStore';
 import { eventDispatcher } from '@/utils/event';
 import { captureThought } from '@/services/thoughts/client';
@@ -142,4 +143,113 @@ test('offline save closes with honest copy; an unpaired save keeps the draft', a
     expect(screen.getByText('Pair this reader with Homebase to save to Thoughts.')).toBeTruthy(),
   );
   expect(screen.getByRole<HTMLTextAreaElement>('textbox').value).toBe('Still here');
+});
+
+test.each([
+  'note',
+  'page-note',
+  'voice',
+] as const)('%s sheet follows the mobile keyboard viewport without hiding its actions', async (kind) => {
+  const viewport = Object.assign(new EventTarget(), { height: 824, offsetTop: 0 });
+  vi.stubGlobal('innerWidth', 412);
+  vi.stubGlobal('innerHeight', 824);
+  vi.stubGlobal('visualViewport', viewport);
+  try {
+    render(<CaptureSheets />);
+    await open(kind);
+    const sheet = screen.getByRole('dialog');
+    if (kind !== 'voice') fireEvent.focus(screen.getByRole('textbox'));
+    act(() => {
+      viewport.height = 504;
+      viewport.dispatchEvent(new Event('resize'));
+    });
+    expect(sheet.style.bottom).toBe('320px');
+    if (kind !== 'voice') {
+      expect(sheet.contains(screen.getByRole('textbox'))).toBe(true);
+      expect(sheet.contains(screen.getByRole('button', { name: 'Save' }))).toBe(true);
+    }
+    if (kind !== 'page-note') {
+      expect(sheet.contains(screen.getByRole('button', { name: 'Hold to talk' }))).toBe(true);
+    }
+    act(() => {
+      viewport.offsetTop = 20;
+      viewport.dispatchEvent(new Event('scroll'));
+    });
+    expect(sheet.style.bottom).toBe('300px');
+    act(() => {
+      viewport.height = 824;
+      viewport.offsetTop = 0;
+      viewport.dispatchEvent(new Event('resize'));
+    });
+    expect(sheet.style.bottom).toBe('0px');
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+  }
+});
+
+test('Save is an outline until there is text, then filled ink', async () => {
+  render(<CaptureSheets />);
+  await open('note');
+  const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Save' });
+  expect(save.disabled).toBe(true);
+  expect(save.className).toContain('font-normal');
+  expect(save.className).not.toContain('bg-base-content');
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Book the dentist' } });
+  expect(save.disabled).toBe(false);
+  expect(save.className).toContain('bg-base-content');
+  expect(save.className).toContain('text-base-100');
+  expect(save.className).toContain('eink-inverted');
+  expect(save.className).not.toContain('font-normal');
+});
+
+test('the loose Note names the book by its short title', async () => {
+  book.title = 'Titan: The Life of John D. Rockefeller, Sr.';
+  try {
+    render(<CaptureSheets />);
+    await open('note');
+    expect(
+      screen.getByText(
+        'Not tied to Titan. Goes to Thoughts like one from the home screen or your phone.',
+      ),
+    ).toBeTruthy();
+  } finally {
+    book.title = 'Titan';
+  }
+});
+
+test.each([
+  ['note', 'Saved to Thoughts'],
+  ['page-note', 'Page note saved'],
+] as const)('a saved %s closes to a footer line that clears after 3s', async (kind, notice) => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  useReaderStore.setState({ hoveredBookKey: key });
+  try {
+    render(<CaptureSheets />);
+    await open(kind);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'A thought' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const line = screen.getByRole('status');
+    expect(line.textContent).toBe(notice);
+    expect(line.className).toContain('bottom-0');
+    expect(line.className).toContain('border-t');
+    expect(useReaderStore.getState().hoveredBookKey).toBe('');
+    // Flush the passive effect that arms the timer before moving the clock.
+    await act(async () => {});
+    act(() => vi.advanceTimersByTime(2900));
+    expect(screen.getByRole('status').textContent).toBe(notice);
+    act(() => vi.advanceTimersByTime(200));
+    expect(screen.queryByRole('status')).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('the sheet opens with the 2px reader rule', async () => {
+  render(<CaptureSheets />);
+  await open('page-note');
+  const sheet = screen.getByRole('dialog');
+  expect(sheet.classList.contains('border-t-2')).toBe(true);
+  expect(sheet.classList.contains('border-base-content')).toBe(true);
 });

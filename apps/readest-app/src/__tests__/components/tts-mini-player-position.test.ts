@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  TTS_DOCKED_STRIP_HEIGHT,
   TTS_MINI_PLAYER_HEIGHT,
   getTTSMiniPlayerBottomOffset,
   getTTSMiniPlayerClearance,
@@ -142,5 +143,21 @@ describe('getTTSMiniPlayerClearance', () => {
     expect(
       getTTSMiniPlayerClearance(settings({ ttsPlayerStyle: 'minimal', showFooter: false }), 0),
     ).toBe(16 + TTS_MINI_PLAYER_HEIGHT);
+  });
+});
+
+// The household e-ink strip never auto-hides, so the page text always stops
+// above it: footer band (if any) + strip + safe area, whatever the style.
+describe('getTTSMiniPlayerClearance for the docked e-ink strip', () => {
+  it('reserves the footer band plus the strip for the full style too', () => {
+    expect(
+      getTTSMiniPlayerClearance(settings({ ttsPlayerStyle: 'full' }), 12, { docked: true }),
+    ).toBe(DEFAULT_BOOK_LAYOUT.marginBottomPx + TTS_DOCKED_STRIP_HEIGHT + 12);
+  });
+
+  it('reserves only the strip when no footer renders at the bottom', () => {
+    expect(getTTSMiniPlayerClearance(settings({ showFooter: false }), 0, { docked: true })).toBe(
+      TTS_DOCKED_STRIP_HEIGHT,
+    );
   });
 });

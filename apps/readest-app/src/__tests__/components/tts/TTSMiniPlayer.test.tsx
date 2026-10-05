@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MdKeyboardArrowLeft, MdKeyboardArrowRight } from 'react-icons/md';
 
 vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => (key: string, opts?: Record<string, unknown>) =>
     opts ? Object.entries(opts).reduce((s, [k, v]) => s.replace(`{{${k}}}`, String(v)), key) : key,
 }));
+
+vi.mock('@/services/household', () => ({ isHouseholdBuild: () => true }));
 
 vi.mock('@/hooks/useResponsiveSize', () => ({
   useResponsiveSize: (size: number) => size,
@@ -293,6 +296,46 @@ describe('TTSMiniPlayer', () => {
     expect(card.className).not.toContain('pointer-events-none');
   });
 
+  test('household mobile player tracks the thumb bar height and rests normally when hidden', () => {
+    vi.stubGlobal('innerWidth', 412);
+    vi.stubGlobal('innerHeight', 824);
+    let barHeight = 137;
+    let resize: (() => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resize = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const cell = document.createElement('div');
+    cell.id = 'gridcell-b1';
+    const bar = document.createElement('div');
+    bar.className = 'footer-bar';
+    bar.getBoundingClientRect = () => ({ height: barHeight }) as DOMRect;
+    cell.appendChild(bar);
+    document.body.appendChild(cell);
+    try {
+      readerState.hoveredBookKey = 'b1';
+      const { rerender } = render(<TTSMiniPlayer {...makeProps()} />);
+      expect(screen.getByRole('status').style.bottom).toBe('137px');
+      barHeight = 161;
+      act(() => resize?.());
+      expect(screen.getByRole('status').style.bottom).toBe('161px');
+      readerState.hoveredBookKey = '';
+      rerender(<TTSMiniPlayer {...makeProps()} />);
+      expect(screen.getByRole('status').style.bottom).toBe(
+        `${DEFAULT_BOOK_LAYOUT.marginBottomPx}px`,
+      );
+    } finally {
+      cell.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
   test('rides above an expanded action panel while one is open', () => {
     readerState.hoveredBookKey = 'b1';
     readerState.bottomBarTab = 'font';
@@ -382,5 +425,80 @@ describe('TTSMiniPlayer', () => {
     render(<TTSMiniPlayer {...props} />);
     fireEvent.click(screen.getByLabelText('Open Read Aloud player'));
     expect(props.onExpand).toHaveBeenCalled();
+  });
+
+  // Household e-ink phone: a full-width strip docked on the thumb bar, drawn
+  // like the bar itself, never a floating card.
+  describe('docked e-ink strip', () => {
+    beforeEach(() => {
+      vi.stubGlobal('innerWidth', 412);
+      vi.stubGlobal('innerHeight', 824);
+      getBookData.mockReturnValue({ book: { title: 'Titan', coverImageUrl: 'blob:cover' } });
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const strip = () => screen.getByRole('status');
+    const surface = () => strip().firstElementChild as HTMLElement;
+
+    test('spans the width with one 2px top rule, no card chrome, no cover', () => {
+      const { container } = render(<TTSMiniPlayer {...makeProps({ isEink: true })} />);
+      expect(strip().className).toContain('inset-x-0');
+      expect(strip().className).not.toContain('inset-x-4');
+      expect(surface().className).toContain('border-t-2');
+      for (const chrome of ['rounded-2xl', 'shadow-lg', 'eink-bordered'])
+        expect(surface().className).not.toContain(chrome);
+      expect(container.querySelector('img')).toBeNull();
+      // No animated move or fade for the panel to ghost.
+      expect(strip().className).not.toContain('transition-[bottom,opacity]');
+      expect(strip().className).toContain('eink:transition-none');
+    });
+
+    test('names the book in semibold, then the section and only the time left', () => {
+      render(<TTSMiniPlayer {...makeProps({ isEink: true })} />);
+      expect(screen.getByText('Titan').className).toContain('font-semibold');
+      const line = screen.getByText('Chapter 5').parentElement!;
+      expect(line.textContent).toBe('Chapter 5 · -1:30');
+      // The section may truncate; the time left may not.
+      expect(screen.getByText('Chapter 5').className).toContain('truncate');
+      expect(screen.getByText('· -1:30').className).toContain('shrink-0');
+    });
+
+    test('skips sentences with the same chevrons as the player sheet', () => {
+      render(<TTSMiniPlayer {...makeProps({ isEink: true })} />);
+      const { container: left } = render(<MdKeyboardArrowLeft />);
+      const { container: right } = render(<MdKeyboardArrowRight />);
+      const path = (el: Element | null) => el?.querySelector('path')?.getAttribute('d');
+      expect(path(screen.getByLabelText('Previous Sentence'))).toBe(path(left));
+      expect(path(screen.getByLabelText('Next Sentence'))).toBe(path(right));
+    });
+
+    // The bar overlays the page and the text never reflows for it; the strip
+    // reserves only its bottom band, so it must not ride above the open bar
+    // over text nothing reserved. It yields and returns when the bar closes.
+    test('yields while the thumb bar is open and returns when it closes', () => {
+      readerState.hoveredBookKey = 'b1';
+      const { rerender } = render(<TTSMiniPlayer {...makeProps({ isEink: true })} />);
+      expect(screen.queryByRole('status')).toBeNull();
+      readerState.hoveredBookKey = '';
+      rerender(<TTSMiniPlayer {...makeProps({ isEink: true })} />);
+      expect(strip().style.bottom).toBe(`${DEFAULT_BOOK_LAYOUT.marginBottomPx}px`);
+    });
+
+    test('docks flush on the screen edge when the bar is hidden and no footer renders', () => {
+      viewSettingsOverride = { showFooter: false };
+      render(<TTSMiniPlayer {...makeProps({ isEink: true })} />);
+      expect(strip().style.bottom).toBe('0px');
+    });
+
+    test('docks on the footer band when the bar is hidden', () => {
+      render(<TTSMiniPlayer {...makeProps({ isEink: true })} />);
+      expect(strip().style.bottom).toBe(`${DEFAULT_BOOK_LAYOUT.marginBottomPx}px`);
+    });
+
+    test('a colour or desktop window keeps the floating card', () => {
+      render(<TTSMiniPlayer {...makeProps({ isEink: false })} />);
+      expect(surface().className).toContain('rounded-2xl');
+      expect(strip().className).toContain('inset-x-4');
+    });
   });
 });
