@@ -46,6 +46,12 @@ const TTSControl: React.FC<TTSControlProps> = ({ bookKey, gridInsets }) => {
   const hasTimeline = tts.ttsClientsInited && tts.handleSupportsPlaybackInfo();
   const miniPlayerMounted = tts.showIndicator && !showPlayerSheet;
   const docked = isDockedMiniPlayer(isEink, appService?.isMobile);
+  useEffect(() => {
+    const { setTTSMiniPlayerMounted } = useReaderStore.getState();
+    setTTSMiniPlayerMounted(bookKey, miniPlayerMounted);
+    return () => setTTSMiniPlayerMounted(bookKey, false);
+  }, [bookKey, miniPlayerMounted]);
+
   const miniPlayerVisible = useMiniPlayerAutoHide(bookKey, playerStyle, miniPlayerMounted, docked);
 
   useEffect(() => {

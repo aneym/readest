@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { CaptureSheets } from '@/app/reader/components/capture/CaptureSheets';
 import { eventDispatcher } from '@/utils/event';
 import { useBookDataStore } from '@/store/bookDataStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { useReaderStore } from '@/store/readerStore';
 import { setBookProgress } from '@/store/readerProgressStore';
 import type { Book, BookConfig, BookProgress } from '@/types/book';
@@ -50,6 +51,12 @@ class BrowserAudioContext {
   }
 }
 beforeEach(() => {
+  useSettingsStore.setState((state) => ({
+    settings: {
+      ...state.settings,
+      globalViewSettings: { ...state.settings.globalViewSettings, isEink: true },
+    },
+  }));
   localStorage.clear();
   localStorage.setItem('token', 'test-device-token');
   audioCallback = null;
