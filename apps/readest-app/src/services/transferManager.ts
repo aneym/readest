@@ -313,6 +313,7 @@ class TransferManager {
     const existing = store.getTransferByBookHash(book.hash, 'download');
     if (existing) {
       if (!isBackground && existing.isBackground) {
+        clearBookDownloadFailureNotification(book.hash);
         useTransferStore.setState((state) => ({
           transfers: {
             ...state.transfers,

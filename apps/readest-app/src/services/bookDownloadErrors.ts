@@ -60,8 +60,8 @@ export const isReportedBookDownloadFailure = (error: unknown): boolean =>
   error instanceof Error && reportedErrors.has(error);
 
 export const notifyBookDownloadFailure = (hash: string, error: unknown, message: string): void => {
-  if (error instanceof Error) reportedErrors.add(error);
   if (notifiedBookHashes.has(hash)) return;
+  if (error instanceof Error) reportedErrors.add(error);
   notifiedBookHashes.add(hash);
   eventDispatcher.dispatch('toast', { type: 'error', message });
 };

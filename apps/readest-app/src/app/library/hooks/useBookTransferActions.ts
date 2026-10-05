@@ -142,8 +142,9 @@ export const useBookTransferActions = (
     async (book: Book, downloadOptions: BookDownloadOptions = {}) => {
       const { redownload = false, queued = false, silent = false } = downloadOptions;
       // Download (including Retry) starts a new attempt unless it joins an
-      // active queued transfer. Silent batch/background work must not reset it.
-      if (!silent && !useTransferStore.getState().getTransferByBookHash(book.hash, 'download')) {
+      // active foreground transfer. Background retries are not user attempts.
+      const active = useTransferStore.getState().getTransferByBookHash(book.hash, 'download');
+      if (!silent && (!active || active.isBackground)) {
         clearBookDownloadFailureNotification(book.hash);
       }
       const settingsNow = useSettingsStore.getState().settings;

@@ -226,3 +226,87 @@ test('each sequential Download tap and subsequent reader open reports its own fa
     );
   }
 });
+
+test.each([
+  'queue',
+  'Download tap',
+  'reader open',
+])('%s joining a revived background download reports a new failure', async (action) => {
+  // Reach terminal 503s without waiting through automatic retry backoff.
+  vi.stubGlobal('fetch', async () => new Response('{}', { status: 503 }));
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + scenario * 10_000);
+  const { result } = renderHook(() =>
+    owners.useBookTransferActions(
+      { getAppService: async () => owners.service },
+      owners.service,
+      owners.useLibraryStore.getState().updateBook,
+      () => {},
+    ),
+  );
+  let release = () => {};
+  try {
+    owners.transferManager.pauseQueue();
+    const id = owners.transferManager.queueDownload(book, 1)!;
+    owners.useTransferStore.setState((state) => ({
+      transfers: { ...state.transfers, [id]: { ...state.transfers[id]!, maxRetries: 0 } },
+    }));
+    owners.transferManager.resumeQueue();
+    await vi.waitFor(() =>
+      expect(owners.useTransferStore.getState().transfers[id]?.status).toBe('failed'),
+    );
+    expect(toasts).toHaveLength(1);
+
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let requests = 0;
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (!url.includes(`fileKey=${book.hash}.epub`)) return new Response('{}', { status: 404 });
+      requests++;
+      await gate;
+      return new Response('{}', { status: 503 });
+    });
+    expect(owners.transferManager.reviveTransientFailures('foreground')).toBe(1);
+    await vi.waitFor(() => expect(requests).toBe(1));
+    expect(owners.useTransferStore.getState().transfers[id]?.isBackground).toBe(true);
+    // Revival replenishes the retry budget; keep this scenario at the final failure.
+    owners.useTransferStore.setState((state) => ({
+      transfers: { ...state.transfers, [id]: { ...state.transfers[id]!, maxRetries: 0 } },
+    }));
+    let opened: Promise<void> | undefined;
+    if (action === 'reader open') {
+      opened = expect(
+        owners.useReaderStore
+          .getState()
+          .initViewState(
+            { getAppService: async () => owners.service },
+            book.hash,
+            `${book.hash}-revived`,
+          ),
+      ).rejects.toThrow('Homebase book download failed (503');
+    } else if (action === 'Download tap') {
+      expect(await result.current.handleBookDownload(book, { queued: true })).toBe(true);
+    } else {
+      expect(owners.transferManager.queueDownload(book, 1)).toBe(id);
+    }
+    await vi.waitFor(() =>
+      expect(owners.useTransferStore.getState().transfers[id]?.isBackground).toBe(false),
+    );
+    release();
+    await opened;
+    await vi.waitFor(() =>
+      expect(owners.useTransferStore.getState().transfers[id]?.status).toBe('failed'),
+    );
+    expect(requests).toBe(1);
+    expect(
+      toasts.filter(
+        (toast) =>
+          toast !== null && typeof toast === 'object' && 'type' in toast && toast.type === 'error',
+      ),
+    ).toHaveLength(2);
+  } finally {
+    release();
+    clock.mockRestore();
+    vi.stubGlobal('fetch', async () => new Response('{}', { status: 404 }));
+  }
+});
