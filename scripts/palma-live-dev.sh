@@ -33,9 +33,12 @@ if [[ ! -f "$ROOT/apps/readest-app/public/vendor/pdfjs/pdf.min.mjs" || ! -f "$RO
   exit 2
 fi
 "$ADB" -s "$SERIAL" reverse tcp:3000 tcp:3000
+# debugApplicationIdSuffix makes the CLI rewrite this tracked file; put it back on exit.
+GRADLE_FILE=apps/readest-app/src-tauri/gen/android/app/build.gradle.kts
+trap 'git -C "$ROOT" checkout -- "$GRADLE_FILE"' EXIT
 # The supported config field makes the CLI generate AND launch the .dev id.
 # Keep the namespace unchanged: JNI/Kotlin bindings use com.bilingify.readest.
 CONFIG='{"build":{"devUrl":"http://127.0.0.1:3000","beforeDevCommand":"pnpm dev --hostname 127.0.0.1"},"bundle":{"android":{"debugApplicationIdSuffix":".dev"}}}'
 printf 'Dev session started at %s; frontend edits need no APK rebuild.\n' "$(date -u +%FT%TZ)"
 cd "$ROOT/apps/readest-app"
-exec pnpm exec tauri android dev --no-watch --host 127.0.0.1 "$AVD" --config "$CONFIG"
+pnpm exec tauri android dev --no-watch --host 127.0.0.1 "$AVD" --config "$CONFIG"
