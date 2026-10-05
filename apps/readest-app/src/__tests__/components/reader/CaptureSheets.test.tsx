@@ -11,6 +11,7 @@ import {
 import { CaptureSheets } from '@/app/reader/components/capture/CaptureSheets';
 import { usePageNotes } from '@/app/reader/hooks/usePageNotes';
 import { useBookDataStore } from '@/store/bookDataStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { useReaderStore } from '@/store/readerStore';
 import { setBookProgress } from '@/store/readerProgressStore';
 import { eventDispatcher } from '@/utils/event';
@@ -37,6 +38,13 @@ const location = 'epubcfi(/6/2!/4/2/1:0)';
 const book = { hash: 'book', title: 'Titan', author: 'Ron Chernow', calibreId: 42 } as Book;
 const progress = { location, page: 112 } as BookProgress;
 beforeEach(() => {
+  useSettingsStore.setState((state) => ({
+    settings: {
+      ...state.settings,
+      globalViewSettings: { ...state.settings.globalViewSettings, isEink: true },
+    },
+  }));
+  useReaderStore.setState({ viewStates: {} });
   capture.mockReset();
   capture.mockResolvedValue({ ok: true, id: 'thought' });
   saveConfig.mockReset();
@@ -252,4 +260,36 @@ test('the sheet opens with the 2px reader rule', async () => {
   const sheet = screen.getByRole('dialog');
   expect(sheet.classList.contains('border-t-2')).toBe(true);
   expect(sheet.classList.contains('border-base-content')).toBe(true);
+});
+
+test('non-e-ink household phone keeps the stock sheet and returns without confirmation', async () => {
+  vi.stubGlobal('innerWidth', 412);
+  vi.stubGlobal('innerHeight', 824);
+  useSettingsStore.setState((state) => ({
+    settings: {
+      ...state.settings,
+      globalViewSettings: { ...state.settings.globalViewSettings, isEink: false },
+    },
+  }));
+  useReaderStore.setState({ hoveredBookKey: key });
+  try {
+    render(<CaptureSheets />);
+    await open('note');
+    const sheet = screen.getByRole('dialog');
+    expect(sheet.classList.contains('border-t')).toBe(true);
+    expect(sheet.classList.contains('border-base-content/20')).toBe(true);
+    expect(sheet.classList.contains('border-t-2')).toBe(false);
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save.classList.contains('font-semibold')).toBe(true);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Stock note' } });
+    expect(save.classList.contains('border-current')).toBe(true);
+    expect(save.classList.contains('bg-base-content')).toBe(false);
+    expect(save.classList.contains('eink-inverted')).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(useReaderStore.getState().hoveredBookKey).toBe(key);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

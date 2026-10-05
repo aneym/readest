@@ -246,6 +246,8 @@ describe('TTSController section timeline', () => {
     ['stock', '', 1],
   ] as const)('the %s B/W e-ink underline offset; other highlights stay plain', async (_build, flag, padding) => {
     vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', flag);
+    vi.stubGlobal('innerWidth', 412);
+    vi.stubGlobal('innerHeight', 824);
     try {
       await controller.ensureTimeline();
       const overlayer = controller.view.renderer.getContents()[0]!.overlayer as unknown as {
@@ -259,6 +261,7 @@ describe('TTSController section timeline', () => {
       expect(overlayer.add.mock.calls.at(-1)![3]).toEqual({ color: 'gray' });
     } finally {
       vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
     }
   });
 

@@ -858,7 +858,7 @@ const FoliateViewer: React.FC<{
     // Only a persistent player reserves a band: the 'minimal' card, or the
     // household e-ink strip docked at the bottom. The 'full' card auto-hides
     // with the toolbar and overlaps instead (#5310).
-    const miniPlayerClearance = viewState?.ttsEnabled
+    const miniPlayerClearance = viewState?.ttsMiniPlayerMounted
       ? getTTSMiniPlayerClearance(viewSettings, gridInsets.bottom * 0.33, {
           docked: isDockedMiniPlayer(viewSettings.isEink, appService?.isMobile),
         })
@@ -877,7 +877,10 @@ const FoliateViewer: React.FC<{
     viewRef.current?.renderer.setAttribute('margin-bottom', `${bottomMargin}px`);
     viewRef.current?.renderer.setAttribute('margin-left', `${leftMargin}px`);
 
-    if (viewSettings.scrolled) {
+    if (bookData?.isFixedLayout) {
+      // Fixed-layout renderers ignore page margins; shrink their viewport instead.
+      setScrollMargins({ top: 0, bottom: miniPlayerClearance });
+    } else if (viewSettings.scrolled) {
       const headerVisible = showTopHeader;
       const footerVisible = showBottomFooter;
       const safeBottomPadding = appService?.hasSafeAreaInset ? gridInsets.bottom * 0.33 : 0;
@@ -1043,7 +1046,7 @@ const FoliateViewer: React.FC<{
     viewSettings?.showFooter,
     viewSettings?.scrolled,
     viewSettings?.noContinuousScroll,
-    viewState?.ttsEnabled,
+    viewState?.ttsMiniPlayerMounted,
     // Switching Player Style changes whether a band is reserved at all.
     viewSettings?.ttsPlayerStyle,
     // The household e-ink strip reserves a band on e-ink only.

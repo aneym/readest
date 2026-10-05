@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { TTSController } from '@/services/tts/TTSController';
 import type { TTSClient, TTSMessageEvent } from '@/services/tts/TTSClient';
@@ -61,7 +61,9 @@ vi.mock('@/services/tts/TTSUtils', () => ({
     getPreferredVoice: vi.fn().mockReturnValue(null),
   },
 }));
-vi.mock('foliate-js/overlayer.js', () => ({ Overlayer: { highlight: 'highlightFn' } }));
+vi.mock('foliate-js/overlayer.js', () => ({
+  Overlayer: { highlight: 'highlightFn', underline: 'underlineFn' },
+}));
 vi.mock('foliate-js/text-walker.js', () => ({ textWalker: vi.fn() }));
 vi.mock('foliate-js/tts.js', () => ({
   TTS: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
@@ -441,4 +443,39 @@ describe('unnarrated sections', () => {
     expect(controller.view.tts!.start()).toContain('<mark name="0"/>');
     expect(view.book.sections[1]!.createDocument).toHaveBeenCalled();
   });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+// The real recorded-narration mark source draws through the renderer boundary.
+// These cases guard the viewport/build policy, not a private padding helper.
+test.each([
+  [1280, 800, '1', 1],
+  [412, 824, '1', 3],
+  [412, 824, '0', 1],
+])('narration underline at %ix%i household=%s has padding %i', async (width, height, household, padding) => {
+  vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', household);
+  vi.stubGlobal('innerWidth', width);
+  vi.stubGlobal('innerHeight', height);
+  const doc = makeDoc();
+  const view = makeView([true], [doc]);
+  const range = doc.createRange();
+  range.selectNodeContents(doc.querySelector('p')!);
+  const overlayer = { remove: vi.fn(), add: vi.fn() };
+  view.renderer.getContents = () => [{ doc, index: 0, overlayer }];
+  view.resolveCFI = () => ({ index: 0, anchor: () => range });
+  const controller = new TTSController(null, view);
+  await controller.init();
+  await controller.initViewTTS(0);
+  controller.updateHighlightOptions({ style: 'underline', color: 'gray' }, true);
+  controller.dispatchSpeakMark({ offset: 0, name: '0', text: 'First', language: 'en' });
+  expect(overlayer.add).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    expect.anything(),
+    { color: 'gray', width: 3, padding },
+  );
 });

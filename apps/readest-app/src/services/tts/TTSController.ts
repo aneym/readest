@@ -25,7 +25,7 @@ import { TTSUtils } from './TTSUtils';
 import { TTSClient } from './TTSClient';
 import { startAudioKeepAlive, stopAudioKeepAlive } from './WebAudioPlayer';
 import { isValidLang } from '@/utils/lang';
-import { isHouseholdBuild } from '@/services/household';
+import { isDockedMiniPlayer } from '@/app/reader/utils/ttsMiniPlayerPosition';
 import {
   computeWordOffsets,
   getTextSubRange,
@@ -193,10 +193,14 @@ export class TTSController extends EventTarget {
   #highlightDrawOptions() {
     const { style, color } = this.options;
     // B/W e-ink narration underline: 3px solid. The household build drops it
-    // 3px below the line box so it clears descenders; stock keeps 1px. User
+    // 3px below the line box on phones so it clears descenders; other builds keep 1px. User
     // highlight styles are untouched.
     return style === 'underline' && this.#isBwEink
-      ? { color, width: 3, padding: isHouseholdBuild() ? 3 : 1 }
+      ? {
+          color,
+          width: 3,
+          padding: isDockedMiniPlayer(this.#isBwEink, this.appService?.isMobile) ? 3 : 1,
+        }
       : { color };
   }
 

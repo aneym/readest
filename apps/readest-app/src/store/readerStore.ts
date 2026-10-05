@@ -49,6 +49,7 @@ interface ViewState {
      `getBookProgress(key)` for one-shot reads. */
   ribbonVisible: boolean;
   ttsEnabled: boolean;
+  ttsMiniPlayerMounted?: boolean;
   /* True while an Auto Scroll session (#4998) is engaged for this view;
      session-only, never persisted. Drives the View menu checkmark. */
   autoScrollEnabled: boolean;
@@ -80,6 +81,7 @@ interface ReaderStore {
   setBottomBarTab: (tab: string) => void;
   setBookmarkRibbonVisibility: (key: string, visible: boolean) => void;
   setTTSEnabled: (key: string, enabled: boolean) => void;
+  setTTSMiniPlayerMounted: (key: string, mounted: boolean) => void;
   setAutoScrollEnabled: (key: string, enabled: boolean) => void;
   setIsLoading: (key: string, loading: boolean) => void;
   setIsSyncing: (key: string, syncing: boolean) => void;
@@ -175,6 +177,7 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
           error: null,
           ribbonVisible: false,
           ttsEnabled: false,
+          ttsMiniPlayerMounted: false,
           autoScrollEnabled: false,
           syncing: false,
           gridInsets: null,
@@ -337,6 +340,7 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
             error: null,
             ribbonVisible: false,
             ttsEnabled: false,
+            ttsMiniPlayerMounted: false,
             autoScrollEnabled: false,
             syncing: false,
             gridInsets: null,
@@ -361,6 +365,7 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
             error: 'Failed to load book.',
             ribbonVisible: false,
             ttsEnabled: false,
+            ttsMiniPlayerMounted: false,
             autoScrollEnabled: false,
             syncing: false,
             gridInsets: null,
@@ -494,6 +499,15 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
         },
       },
     })),
+
+  setTTSMiniPlayerMounted: (key, mounted) =>
+    set((state) => {
+      const viewState = state.viewStates[key];
+      if (!viewState || viewState.ttsMiniPlayerMounted === mounted) return state;
+      return {
+        viewStates: { ...state.viewStates, [key]: { ...viewState, ttsMiniPlayerMounted: mounted } },
+      };
+    }),
 
   setTTSEnabled: (key: string, enabled: boolean) =>
     set((state) => ({

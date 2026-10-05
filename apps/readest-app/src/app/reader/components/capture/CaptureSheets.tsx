@@ -51,6 +51,11 @@ export function CaptureSheets() {
   const [session, setSession] = useState<CaptureSession | null>(null);
   const householdMobile =
     isHouseholdBuild() && (window.innerWidth < 640 || isForcedMobileLayout(appService?.isMobile));
+  const [captureBookKey, setCaptureBookKey] = useState('');
+  const isEink = useReaderStore(
+    (state) =>
+      state.getViewSettings(captureBookKey)?.isEink ?? settings.globalViewSettings?.isEink ?? false,
+  );
   const keyboardInset = useKeyboardInset(householdMobile && !!session);
   const [text, setText] = useState('');
   const [message, setMessage] = useState('');
@@ -80,8 +85,10 @@ export function CaptureSheets() {
   // bar both close, and a plain footer line says where the thought went.
   const finish = (notice?: string) => {
     setSession(null);
-    useReaderStore.getState().setHoveredBookKey('');
-    if (notice) setConfirmation(notice);
+    if (isEink) {
+      useReaderStore.getState().setHoveredBookKey('');
+      if (notice) setConfirmation(notice);
+    }
   };
 
   const beginVoice = () => {
@@ -241,6 +248,7 @@ export function CaptureSheets() {
                 .sort((a, b) => b.createdAt - a.createdAt)
             : [],
       };
+      setCaptureBookKey(detail.bookKey);
       setSession(nextSession);
       // Book metadata only stores calibreId. Discover owns the shelf work-key mapping.
       if (detail.kind === 'page-note' && title) {
@@ -348,7 +356,10 @@ export function CaptureSheets() {
           aria-label={_(
             session.kind === 'page-note' ? 'Page note' : session.kind === 'note' ? 'Note' : 'Voice',
           )}
-          className='bg-base-100 text-base-content border-base-content fixed bottom-0 left-0 right-0 z-[100] border-t-2 px-4 pb-4 pt-3'
+          className={clsx(
+            'bg-base-100 text-base-content fixed bottom-0 left-0 right-0 z-[100] px-4 pb-4 pt-3',
+            isEink ? 'border-t-2 border-base-content' : 'border-t border-base-content/20',
+          )}
           style={{
             paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
             ...(householdMobile ? { bottom: `${keyboardInset}px` } : {}),
@@ -474,9 +485,11 @@ export function CaptureSheets() {
                   'min-h-11 flex-1 border-2 px-3',
                   // Filled ink once there is something to save; an outline
                   // until then, so the one action reads as not ready yet.
-                  saveDisabled
-                    ? 'border-current font-normal'
-                    : 'bg-base-content text-base-100 border-base-content eink-inverted font-semibold',
+                  !isEink
+                    ? 'border-current font-semibold'
+                    : saveDisabled
+                      ? 'border-current font-normal'
+                      : 'bg-base-content text-base-100 border-base-content eink-inverted font-semibold',
                 )}
                 onClick={() => void save()}
               >
@@ -499,8 +512,13 @@ export function CaptureSheets() {
         // a fade (e-ink ghosts every frame of one).
         <div
           role='status'
-          className='bg-base-100 text-base-content border-base-content fixed inset-x-0 bottom-0 z-[101] border-t px-4 py-3 text-sm font-semibold'
-          style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+          className={clsx(
+            'bg-base-100 fixed z-[101]',
+            isEink
+              ? 'text-base-content border-base-content inset-x-0 bottom-0 border-t px-4 py-3 text-sm font-semibold'
+              : 'bottom-4 left-4 right-4 border border-current p-3',
+          )}
+          style={isEink ? { paddingBottom: 'max(12px, env(safe-area-inset-bottom))' } : undefined}
           onClick={() => {
             setMessage('');
             setConfirmation('');

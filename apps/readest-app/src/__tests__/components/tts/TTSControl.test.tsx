@@ -14,7 +14,11 @@ vi.mock('@/store/themeStore', () => ({
 }));
 
 vi.mock('@/store/readerStore', () => {
-  const state = { hoveredBookKey: '', getViewSettings: () => ({ isEink: false, rtl: false }) };
+  const state = {
+    setTTSMiniPlayerMounted: vi.fn(),
+    hoveredBookKey: '',
+    getViewSettings: () => ({ isEink: false, rtl: false }),
+  };
   return { useReaderStore: Object.assign(() => state, { getState: () => state }) };
 });
 
