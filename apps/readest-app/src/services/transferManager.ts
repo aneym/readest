@@ -1,3 +1,4 @@
+import { isMissingHomebaseBookError } from './bookDownloadErrors';
 import { Book } from '@/types/book';
 import { AppService, BaseDir } from '@/types/system';
 import { useTransferStore, TransferItem, ReplicaTransferFile } from '@/store/transferStore';
@@ -91,7 +92,11 @@ class TransferManager {
     let revived = 0;
     Object.values(store.transfers).forEach((t) => {
       if (t.type !== 'download') return;
-      if (t.status === 'failed' && !isBookIntegrityError(t.error)) {
+      if (
+        t.status === 'failed' &&
+        !isBookIntegrityError(t.error) &&
+        !isMissingHomebaseBookError(t.error)
+      ) {
         store.retryTransfer(t.id);
         revived++;
       } else if (t.status === 'pending' && t.nextAttemptAt && t.error === OFFLINE_HOLD_MESSAGE) {
@@ -227,6 +232,23 @@ class TransferManager {
     return this.readyPromise;
   }
 
+  /** Join a library download without starting a second HTTP/file write. */
+  async waitForDownload(bookHash: string): Promise<void> {
+    const transfer = useTransferStore.getState().getTransferByBookHash(bookHash, 'download');
+    if (!transfer) return;
+    await new Promise<void>((resolve, reject) => {
+      const check = () => {
+        const current = useTransferStore.getState().transfers[transfer.id];
+        if (current?.status === 'pending' || current?.status === 'in_progress') return;
+        unsubscribe();
+        if (current?.status === 'completed') resolve();
+        else reject(new Error(current?.error || this._!('Book download cancelled')));
+      };
+      const unsubscribe = useTransferStore.subscribe(check);
+      check();
+    });
+  }
+
   queueUpload(book: Book, priority: number = 10): string | null {
     if (!this.isReady()) {
       console.warn('TransferManager not initialized');
@@ -267,6 +289,17 @@ class TransferManager {
     if (isAudiobook(book)) return null;
 
     const store = useTransferStore.getState();
+
+    // A refresh must supply a new hash; foreground/reconciliation cannot repair
+    // a server object that no longer exists. Explicit Retry remains available.
+    const missing = Object.values(store.transfers).find(
+      (t) =>
+        t.type === 'download' &&
+        t.bookHash === book.hash &&
+        t.status === 'failed' &&
+        isMissingHomebaseBookError(t.error),
+    );
+    if (missing) return null;
 
     const existing = store.getTransferByBookHash(book.hash, 'download');
     if (existing) {
@@ -592,8 +625,15 @@ class TransferManager {
       // Served bytes that are not a book cannot be fixed by fetching them
       // again; fail now, keep the reason visible, let the rest of the queue run.
       const isIntegrityError = isBookIntegrityError(errorMessage);
+      const isMissingBook = isMissingHomebaseBookError(errorMessage);
 
-      if (!isQuotaError && !isIntegrityError && currentTransfer && this.isOffline()) {
+      if (
+        !isQuotaError &&
+        !isIntegrityError &&
+        !isMissingBook &&
+        currentTransfer &&
+        this.isOffline()
+      ) {
         // No network: hold the row without spending a retry. The `online`
         // listener releases it; the timed wake is only a fallback.
         currentStore.setTransferStatus(transfer.id, 'pending', OFFLINE_HOLD_MESSAGE);
@@ -601,6 +641,7 @@ class TransferManager {
       } else if (
         !isQuotaError &&
         !isIntegrityError &&
+        !isMissingBook &&
         currentTransfer &&
         currentTransfer.retryCount < currentTransfer.maxRetries
       ) {
@@ -634,7 +675,10 @@ class TransferManager {
           } else if (isQuotaError) {
             this.recordQuotaFailure();
           } else {
-            const errorMessages = getTransferMessages(transfer, _).failure;
+            const errorMessages = getTransferMessages(
+              { ...transfer, error: errorMessage },
+              _,
+            ).failure;
 
             eventDispatcher.dispatch('toast', {
               type: 'error',

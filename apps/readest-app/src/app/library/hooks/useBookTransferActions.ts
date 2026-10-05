@@ -3,9 +3,14 @@ import type { Book } from '@/types/book';
 import type { EnvConfigType } from '@/services/environment';
 import type { AppService } from '@/types/system';
 import { createProgressThrottle, toProgressPercent, type ProgressPayload } from '@/utils/transfer';
+import {
+  getBookDownloadFailureMessage,
+  isMissingHomebaseBookError,
+} from '@/services/bookDownloadErrors';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { eventDispatcher } from '@/utils/event';
+import { useTransferStore } from '@/store/transferStore';
 import { transferManager } from '@/services/transferManager';
 import {
   getActiveFileSyncBackends,
@@ -174,6 +179,23 @@ export const useBookTransferActions = (
         }
       }
 
+      const missing = Object.values(useTransferStore.getState().transfers).find(
+        (transfer) =>
+          transfer.type === 'download' &&
+          transfer.bookHash === book.hash &&
+          transfer.status === 'failed' &&
+          isMissingHomebaseBookError(transfer.error),
+      );
+      if (missing) {
+        if (!silent) {
+          eventDispatcher.dispatch('toast', {
+            type: 'error',
+            message: getBookDownloadFailureMessage(missing.error, book.title, _),
+          });
+        }
+        return false;
+      }
+
       if (redownload || !queued) {
         const tracker = trackProgress(book.hash);
         try {
@@ -190,13 +212,11 @@ export const useBookTransferActions = (
             });
           }
           return true;
-        } catch {
+        } catch (error) {
           tracker.done();
           if (!silent) {
             eventDispatcher.dispatch('toast', {
-              message: _('Failed to download book: {{title}}', {
-                title: book.title,
-              }),
+              message: getBookDownloadFailureMessage(error, book.title, _),
               type: 'error',
             });
           }

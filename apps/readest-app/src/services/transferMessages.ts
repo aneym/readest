@@ -1,3 +1,4 @@
+import { getBookDownloadFailureMessage } from './bookDownloadErrors';
 import type { TransferItem } from '@/store/transferStore';
 import type { TranslationFunc } from '@/hooks/useTranslation';
 
@@ -28,7 +29,7 @@ export const getTransferMessages = (
       },
       failure: {
         upload: _('Failed to upload book: {{title}}', { title }),
-        download: _('Failed to download book: {{title}}', { title }),
+        download: getBookDownloadFailureMessage(transfer.error, title, _),
         delete: _('Failed to delete cloud backup of the book: {{title}}', { title }),
       },
     };

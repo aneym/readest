@@ -1,3 +1,4 @@
+import { homebaseDownloadError } from '@/services/bookDownloadErrors';
 import { getAPIBaseUrl, isWebAppPlatform } from '@/services/environment';
 import { AppService } from '@/types/system';
 import { getUserID } from '@/utils/access';
@@ -199,7 +200,19 @@ export const downloadFile = async ({
           `${base}${DEFAULT_HOMEBASE_STORAGE_PATH}/download?fileKey=${encodeURIComponent(`${hash}.${ext}`)}`,
           { headers: { Authorization: `Bearer ${homebaseToken}` } },
         );
-        if (!response.ok) throw new Error(`Homebase download URL failed: ${response.status}`);
+        if (!response.ok) {
+          const reason: unknown = await response.json().catch(() => null);
+          // Never surface raw server text: it may contain paths or signed URLs.
+          const code =
+            reason &&
+            typeof reason === 'object' &&
+            'code' in reason &&
+            typeof reason.code === 'string' &&
+            /^[A-Z_]{1,64}$/.test(reason.code)
+              ? reason.code
+              : 'UNKNOWN';
+          throw homebaseDownloadError(response.status, code);
+        }
         const payload = (await response.json()) as { downloadUrl?: string };
         downloadUrl = payload.downloadUrl;
         // The household server streams whole files (no Accept-Ranges); the

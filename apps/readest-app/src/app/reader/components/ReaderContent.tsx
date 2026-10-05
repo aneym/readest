@@ -65,7 +65,6 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   } | null>(null);
   const { user } = useAuth();
   const isInitiating = useRef(false);
-  const [loading, setLoading] = useState(false);
   const [errorLoading, setErrorLoading] = useState(false);
 
   useBookShortcuts({ sideBarBookKey, bookKeys });
@@ -315,15 +314,7 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   const bookData = getBookData(bookKeys[0]!);
   const viewSettings = getViewSettings(bookKeys[0]!);
   if (!bookData || !bookData.book || !bookData.bookDoc || !viewSettings) {
-    setTimeout(() => setLoading(true), 200);
-    return (
-      loading &&
-      !errorLoading && (
-        <div className='hero hero-content full-height'>
-          <Spinner loading={true} />
-        </div>
-      )
-    );
+    return !errorLoading && <Spinner loading bookOpen />;
   }
 
   return (

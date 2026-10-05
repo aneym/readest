@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+import { transferManager } from '@/services/transferManager';
+import { useTransferStore } from '@/store/transferStore';
+import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
 
 import {
   BookContent,
@@ -209,6 +212,17 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
           bookDoc = await openFeedBookDoc(fs, book.hash, feedUrl, book.title);
           file = null;
         } else {
+          // Deep links enter here without the library's makeBookAvailable step.
+          // A synced row (including a newly aligned edition) is not local bytes.
+          if (book.uploadedAt && !(await appService.isBookAvailable(book))) {
+            if (useTransferStore.getState().getTransferByBookHash(book.hash, 'download')) {
+              await transferManager.waitForDownload(book.hash);
+            } else if (isHomebaseSyncEnabled()) {
+              // uploadedAt also marks mirror-only books; it is not cloud provenance.
+              await appService.downloadBook(book);
+              await useLibraryStore.getState().updateBook(envConfig, book);
+            }
+          }
           const content = (await appService.loadBookContent(book)) as BookContent;
           file = content.file;
           let nativeFilePath: string | null = null;
