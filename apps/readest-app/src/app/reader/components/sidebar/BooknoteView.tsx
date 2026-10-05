@@ -117,7 +117,9 @@ const BooknoteView: React.FC<{
   // config fields change (e.g. viewSettings, lastUpdated).
   const filteredNotes = useMemo(() => {
     if (type !== 'annotation') {
-      return allNotes.filter((note) => note.type === type && !note.deletedAt);
+      return allNotes.filter(
+        (note) => note.type === type && note.hbKind !== 'page-note' && !note.deletedAt,
+      );
     }
     return filterBooknotes(liveAnnotations, {
       kind: filterKind,

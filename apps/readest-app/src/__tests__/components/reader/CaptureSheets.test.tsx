@@ -117,6 +117,9 @@ test('page note persists a bookmark, is page scoped, and reopens for editing', a
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(useBookDataStore.getState().getConfig(key)!.booknotes).toHaveLength(1);
   expect(hook.result.current.notesOnCurrentPage[0]?.text).toBe('Edited thought');
+  expect(useBookDataStore.getState().getConfig(key)!.booknotes![0]!.id).toBe(note.id);
+  expect(capture).toHaveBeenCalledOnce();
+  expect(useBookDataStore.getState().getConfig(key)!.booknotes![0]!.hbKind).toBe('page-note');
 });
 
 test('offline save closes with honest copy; an unpaired save keeps the draft', async () => {

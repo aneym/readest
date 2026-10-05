@@ -54,7 +54,7 @@ const BookmarkToggler: React.FC<BookmarkTogglerProps> = ({ bookKey }) => {
         updatedAt: Date.now(),
       };
       const existingBookmark = bookmarks.find(
-        (item) => item.type === 'bookmark' && item.cfi === cfi,
+        (item) => item.type === 'bookmark' && item.hbKind !== 'page-note' && item.cfi === cfi,
       );
       if (existingBookmark) {
         existingBookmark.deletedAt = null;
@@ -71,7 +71,11 @@ const BookmarkToggler: React.FC<BookmarkTogglerProps> = ({ bookKey }) => {
     } else {
       setIsBookmarked(false);
       bookmarks.forEach((item) => {
-        if (item.type === 'bookmark' && isCfiInLocation(item.cfi, cfi)) {
+        if (
+          item.type === 'bookmark' &&
+          item.hbKind !== 'page-note' &&
+          isCfiInLocation(item.cfi, cfi)
+        ) {
           item.deletedAt = Date.now();
         }
       });
@@ -101,7 +105,10 @@ const BookmarkToggler: React.FC<BookmarkTogglerProps> = ({ bookKey }) => {
     if (!cfi) return;
 
     const locationBookmarked = booknotes
-      .filter((booknote) => booknote.type === 'bookmark' && !booknote.deletedAt)
+      .filter(
+        (booknote) =>
+          booknote.type === 'bookmark' && booknote.hbKind !== 'page-note' && !booknote.deletedAt,
+      )
       .some((item) => isCfiInLocation(item.cfi, cfi));
     setIsBookmarked(locationBookmarked);
     setBookmarkRibbonVisibility(bookKey, locationBookmarked);

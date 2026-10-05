@@ -27,6 +27,7 @@ export function usePageNotes(bookKey: string): {
             !!note.note &&
             isCfiInLocation(note.cfi, progress?.location),
         )
+        .sort((a, b) => b.createdAt - a.createdAt)
         .map((note) => ({
           id: note.id,
           text: note.note,

@@ -11,7 +11,7 @@ export const PageNoteProgress = ({ bookKey }: { bookKey: string }) => {
       className='pointer-events-auto shrink-0 text-xs font-semibold'
       onClick={(event) => {
         event.stopPropagation();
-        openPageNote();
+        openPageNote(notesOnCurrentPage[0]?.id);
       }}
     >
       {notesOnCurrentPage.length === 1

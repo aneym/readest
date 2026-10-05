@@ -4,6 +4,10 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRef } from 'react';
+import { CaptureSheets } from '@/app/reader/components/capture/CaptureSheets';
+import BookmarkToggler from '@/app/reader/components/BookmarkToggler';
+import BooknoteView from '@/app/reader/components/sidebar/BooknoteView';
+import { transformBookNoteToDB, transformBookNoteFromDB } from '@/utils/transform';
 import { AuthProvider } from '@/context/AuthContext';
 import { EnvProvider } from '@/context/EnvContext';
 import { useReaderStore } from '@/store/readerStore';
@@ -204,6 +208,7 @@ const mount = () =>
     <EnvProvider>
       <AuthProvider>
         <ReaderSurface />
+        <CaptureSheets />
       </AuthProvider>
     </EnvProvider>,
   );
@@ -318,24 +323,96 @@ describe('household reading thumb bar', () => {
         id: `note-${index}`,
         type: 'bookmark',
         cfi,
-        note: 'A thought',
-        createdAt: 1,
+        note: `Thought ${index}`,
+        hbKind: 'page-note',
+        createdAt: index + 1,
         updatedAt: 1,
       })),
     });
-    observe('reader-capture-open');
     const { container } = mount();
     const button = screen.getByRole('button', {
       name: count === 1 ? '1 page note' : '2 page notes',
     });
     fireEvent.click(button);
-    expect(received).toContainEqual({
-      event: 'reader-capture-open',
-      detail: { bookKey, kind: 'page-note', id: undefined },
-    });
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Note text' }).value).toBe(
+      `Thought ${count - 1}`,
+    );
+    expect(screen.getByRole('dialog').classList.contains('border-t')).toBe(true);
+    expect(screen.getByRole('dialog').classList.contains('border-base-content/20')).toBe(true);
+    if (count > 1) {
+      expect(screen.getByText('1 of 2')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      expect(screen.getByText('2 of 2')).toBeTruthy();
+      expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Note text' }).value).toBe(
+        'Thought 0',
+      );
+    }
     expect(container.querySelector('.progress-strip')?.classList.contains('opacity-0')).toBe(false);
     act(() => setBookProgress(bookKey, null));
     expect(screen.queryByRole('button', { name: /page notes?/ })).toBeNull();
+  });
+  it('opens a capture sheet with the reader hairline', async () => {
+    mount();
+    await act(async () => {
+      await eventDispatcher.dispatch('reader-capture-open', { bookKey, kind: 'page-note' });
+    });
+    expect(screen.getByRole('dialog').classList.contains('border-t')).toBe(true);
+    expect(screen.getByRole('dialog').classList.contains('border-base-content/20')).toBe(true);
+  });
+  it('excludes page notes from the bookmark sidebar', () => {
+    useBookDataStore.getState().setConfig(bookKey, {
+      booknotes: [
+        {
+          id: 'page-note',
+          type: 'bookmark',
+          hbKind: 'page-note',
+          cfi,
+          note: 'Keep this page thought',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    render(
+      <EnvProvider>
+        <BooknoteView type='bookmark' bookKey={bookKey} toc={[]} />
+      </EnvProvider>,
+    );
+    expect(screen.getByText('No Bookmarks')).toBeTruthy();
+  });
+  it('keeps synced page notes out of desktop bookmarks and preserves them when removing a real bookmark', () => {
+    const pageNote = transformBookNoteFromDB(
+      transformBookNoteToDB(
+        {
+          id: 'page-note',
+          type: 'bookmark',
+          hbKind: 'page-note',
+          cfi,
+          note: 'Keep this page thought',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        'household',
+      ),
+    );
+    useBookDataStore.getState().setConfig(bookKey, { booknotes: [pageNote] });
+    // Persistence is the filesystem boundary; reader stores, transforms and UI are real.
+    useBookDataStore.setState({ saveConfig: async () => {} });
+    render(
+      <EnvProvider>
+        <BookmarkToggler bookKey={bookKey} />
+        <BooknoteView type='bookmark' bookKey={bookKey} toc={[]} />
+      </EnvProvider>,
+    );
+    expect(screen.getByRole('button', { name: 'Add Bookmark' })).toBeTruthy();
+    expect(screen.getByText('No Bookmarks')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Bookmark' }));
+    expect(useBookDataStore.getState().getConfig(bookKey)!.booknotes).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Bookmark' }));
+    const notes = useBookDataStore.getState().getConfig(bookKey)!.booknotes!;
+    expect(notes.find((note) => note.id === 'page-note')?.deletedAt).toBeFalsy();
+    expect(notes.find((note) => note.id !== 'page-note')?.deletedAt).toBeTruthy();
+    expect(screen.getByText('No Bookmarks')).toBeTruthy();
   });
   it('preserves upstream controls on non-household mobile', async () => {
     vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', '0');

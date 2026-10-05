@@ -9,6 +9,7 @@ import { isHouseholdBuild } from '@/services/household';
 import { captureThought, postVoiceThought, watchThoughtsQueue } from '@/services/thoughts/client';
 import { startWavRecording, type WavRecording } from '@/services/thoughts/wavRecorder';
 import { eventDispatcher } from '@/utils/event';
+import { isCfiInLocation } from '@/utils/cfi';
 import type { BookNote } from '@/types/book';
 
 interface CaptureSession {
@@ -20,6 +21,8 @@ interface CaptureSession {
   title: string;
   author: string;
   calibreId?: number;
+  existing: boolean;
+  pageNotes: BookNote[];
 }
 
 /** One reader-wide host; snapshot the page when opening, not when saving. */
@@ -171,6 +174,19 @@ export function CaptureSheets() {
         title: data?.book?.title ?? '',
         author: data?.book?.author ?? '',
         calibreId: data?.book?.calibreId,
+        existing: !!note,
+        pageNotes:
+          detail.kind === 'page-note'
+            ? (data?.config?.booknotes ?? [])
+                .filter(
+                  (item) =>
+                    item.type === 'bookmark' &&
+                    !item.deletedAt &&
+                    !!item.note &&
+                    isCfiInLocation(item.cfi, progress?.location),
+                )
+                .sort((a, b) => b.createdAt - a.createdAt)
+            : [],
       });
       pendingVoice.current = null;
       setText(note?.note ?? '');
@@ -199,6 +215,7 @@ export function CaptureSheets() {
           ...previous,
           id: session.id,
           type: 'bookmark',
+          hbKind: 'page-note',
           cfi: session.cfi,
           page: session.page,
           note: text,
@@ -212,6 +229,10 @@ export function CaptureSheets() {
         ]);
         if (!updated) throw new Error('Missing book');
         await store.saveConfig(envConfig, session.bookKey, updated, settings);
+        if (session.existing) {
+          setSession(null);
+          return;
+        }
         // The server ignores unknown JSON fields; put the attachment in its supported body.
         body += `\n\n${session.title} — ${session.author}\np. ${session.page ?? '?'}\n${session.cfi}`;
         if (session.calibreId != null) body += `\ncalibreId: ${session.calibreId}`;
@@ -245,7 +266,7 @@ export function CaptureSheets() {
           aria-label={_(
             session.kind === 'page-note' ? 'Page note' : session.kind === 'note' ? 'Note' : 'Voice',
           )}
-          className='bg-base-100 text-base-content fixed bottom-0 left-0 right-0 z-[100] border-t-2 border-current px-4 pb-4 pt-3'
+          className='bg-base-100 text-base-content fixed bottom-0 left-0 right-0 z-[100] border-t border-base-content/20 px-4 pb-4 pt-3'
           style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
         >
           <div className='mb-2 flex items-center justify-between text-sm font-medium'>
@@ -256,6 +277,30 @@ export function CaptureSheets() {
                   ? _('Note · saves to Thoughts')
                   : _('Voice · saves to Thoughts')}
             </span>
+            {session.kind === 'page-note' && session.pageNotes.length > 1 && session.existing && (
+              <div className='ml-2 flex items-center gap-2'>
+                <span>
+                  {_('{{n}} of {{count}}', {
+                    n: session.pageNotes.findIndex((note) => note.id === session.id) + 1,
+                    count: session.pageNotes.length,
+                  })}
+                </span>
+                <button
+                  type='button'
+                  disabled={saving || recording || !!pendingVoice.current}
+                  className='min-h-11 px-2'
+                  onClick={() => {
+                    const index = session.pageNotes.findIndex((note) => note.id === session.id);
+                    const note = session.pageNotes[(index + 1) % session.pageNotes.length]!;
+                    setSession({ ...session, id: note.id, cfi: note.cfi, page: note.page });
+                    setText(note.note);
+                    setMessage('');
+                  }}
+                >
+                  {_('Next')}
+                </button>
+              </div>
+            )}
             <button
               type='button'
               disabled={saving || recording}
