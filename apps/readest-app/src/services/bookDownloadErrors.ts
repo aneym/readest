@@ -47,8 +47,8 @@ export const getBookDownloadFailureMessage = (
   return _('Homebase could not serve this book. Try again: {{title}}', { title });
 };
 
-// One notification per failed book, shared by queue, direct download and reader.
-// A successful download or explicit retry starts a new notification lifecycle.
+// One notification per user attempt, shared by queue, direct download and reader.
+// New user actions reset the hash unless they join an already active transfer.
 const notifiedBookHashes = new Set<string>();
 const reportedErrors = new WeakSet<object>();
 

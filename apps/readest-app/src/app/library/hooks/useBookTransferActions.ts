@@ -141,6 +141,11 @@ export const useBookTransferActions = (
   const handleBookDownload = useCallback(
     async (book: Book, downloadOptions: BookDownloadOptions = {}) => {
       const { redownload = false, queued = false, silent = false } = downloadOptions;
+      // Download (including Retry) starts a new attempt unless it joins an
+      // active queued transfer. Silent batch/background work must not reset it.
+      if (!silent && !useTransferStore.getState().getTransferByBookHash(book.hash, 'download')) {
+        clearBookDownloadFailureNotification(book.hash);
+      }
       const settingsNow = useSettingsStore.getState().settings;
       const backends = getActiveFileSyncBackends(settingsNow);
       const readest = isReadestCloudEnabled(settingsNow);

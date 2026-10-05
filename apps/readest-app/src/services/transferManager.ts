@@ -324,6 +324,7 @@ class TransferManager {
       return existing.id;
     }
 
+    if (!isBackground) clearBookDownloadFailureNotification(book.hash);
     const transferId = store.addTransfer(book.hash, book.title, 'download', priority, isBackground);
     this.persistQueue();
     this.processQueue();

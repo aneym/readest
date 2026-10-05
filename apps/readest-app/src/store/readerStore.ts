@@ -166,6 +166,9 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
     isPrimary = true,
     reload = false,
   ) => {
+    if (!useTransferStore.getState().getTransferByBookHash(id, 'download')) {
+      clearBookDownloadFailureNotification(id);
+    }
     const booksData = useBookDataStore.getState().booksData;
     const bookData = booksData[id];
     set((state) => ({
