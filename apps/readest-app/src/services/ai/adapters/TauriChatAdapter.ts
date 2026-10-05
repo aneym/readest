@@ -1,4 +1,6 @@
 import { streamText, stepCountIs } from 'ai';
+import { t as _ } from 'i18next';
+import '@/i18n/i18n';
 import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react';
 import { getAIProvider } from '../providers';
 import { aiLogger } from '../logger';
@@ -47,11 +49,15 @@ async function* streamViaApiRoute(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `Chat failed: ${response.status}`);
+    throw {
+      responseBody: await response.text(),
+      statusCode: response.status,
+      responseHeaders: { 'content-type': response.headers.get('content-type') },
+    };
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) throw new Error(_("The assistant didn't answer: empty response."));
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
 
   while (true) {
@@ -59,6 +65,88 @@ async function* streamViaApiRoute(
     if (done) break;
     yield decoder.decode(value, { stream: true });
   }
+}
+
+async function* streamSdkText(
+  result: Pick<ReturnType<typeof streamText>, 'fullStream' | 'textStream'>,
+): AsyncGenerator<string> {
+  if (!result.fullStream) {
+    yield* result.textStream;
+    return;
+  }
+  for await (const chunk of result.fullStream) {
+    if (chunk.type === 'error') throw chunk.error;
+    if (chunk.type === 'text-delta') yield chunk.text;
+  }
+}
+
+/** Extract only human-readable error fields, never request metadata or headers. */
+function errorDetail(error: unknown, depth = 0): string | undefined {
+  if (depth > 6 || error == null) return undefined;
+  if (typeof error === 'string') {
+    const value = error.trim();
+    if (!value) return undefined;
+    try {
+      return errorDetail(JSON.parse(value), depth + 1);
+    } catch {
+      return value;
+    }
+  }
+  if (typeof error !== 'object') return undefined;
+  const body = Reflect.get(error, 'responseBody') ?? Reflect.get(error, 'message');
+  const headers = Reflect.get(error, 'responseHeaders');
+  const contentType =
+    headers && typeof headers === 'object' ? Reflect.get(headers, 'content-type') : undefined;
+  const htmlBody =
+    (typeof contentType === 'string' && /text\/html/i.test(contentType)) ||
+    (typeof body === 'string' && body.trimStart().startsWith('<'));
+  for (const key of htmlBody
+    ? ['lastError', 'cause']
+    : ['responseBody', 'lastError', 'cause', 'error', 'message']) {
+    if (key in error) {
+      const detail = errorDetail(Reflect.get(error, key), depth + 1);
+      if (detail) return detail;
+    }
+  }
+  if ('statusCode' in error || 'status_code' in error) {
+    const status = Reflect.get(error, 'statusCode') ?? Reflect.get(error, 'status_code');
+    const reasons: Record<string, string> = {
+      '401': 'Unauthorized',
+      '403': 'Forbidden',
+      '500': 'Internal Server Error',
+      '502': 'Bad Gateway',
+      '503': 'Service Unavailable',
+    };
+    const reason = Reflect.get(error, 'statusText') || reasons[String(status)];
+    return reason
+      ? _("The assistant didn't answer: {{status}} {{reason}}.", { status, reason })
+      : _("The assistant didn't answer: HTTP {{status}}.", { status });
+  }
+  return undefined;
+}
+
+function assistantErrorMessage(error: unknown, settings: AISettings): string {
+  let detail = errorDetail(error);
+  if (detail) {
+    // Known configured keys and authorization strings must never reach the bubble.
+    for (const key of [settings.aiGatewayApiKey, settings.openrouterApiKey]) {
+      if (key) detail = detail.split(key).join('[redacted]');
+    }
+    detail = detail
+      .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/-]{16,}=*/gi, '$1 [redacted]')
+      .replace(
+        /((?:["']?(?:token|api[-_]?key|x-api-key|authorization|secret|password)["']?)\s*=\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+        '$1[redacted]',
+      )
+      .replace(
+        /(["'](?:token|api[-_]?key|x-api-key|authorization|secret|password)["']\s*:\s*)(["'])[^"']*\2/gi,
+        '$1$2[redacted]$2',
+      )
+      .replace(/\b(?:sk|pk)-[A-Za-z0-9_-]+/g, '[redacted]')
+      .replace(/\b[A-Za-z0-9+/]{24,}={0,2}(?![A-Za-z0-9+/])/g, '[redacted]');
+    return detail;
+  }
+  return _("The assistant didn't answer: unknown error.");
 }
 
 export function createTauriAdapter(getOptions: () => TauriAdapterOptions): ChatModelAdapter {
@@ -106,9 +194,8 @@ export function createTauriAdapter(getOptions: () => TauriAdapterOptions): ChatM
 
       const useApiRoute = typeof window !== 'undefined' && settings.provider === 'ai-gateway';
 
+      let text = '';
       try {
-        let text = '';
-
         if (backend.kind === 'reedy' && backend.buildLookupTool) {
           // Reedy path: model calls lookupPassage on demand; sources flow
           // into the store via the tool's onResult hook. We never use the
@@ -136,7 +223,7 @@ export function createTauriAdapter(getOptions: () => TauriAdapterOptions): ChatM
             stopWhen: stepCountIs(3),
             abortSignal,
           });
-          for await (const chunk of result.textStream) {
+          for await (const chunk of streamSdkText(result)) {
             text += chunk;
             yield { content: [{ type: 'text', text }] };
           }
@@ -184,18 +271,25 @@ export function createTauriAdapter(getOptions: () => TauriAdapterOptions): ChatM
               messages: aiMessages,
               abortSignal,
             });
-            for await (const chunk of result.textStream) {
+            for await (const chunk of streamSdkText(result)) {
               text += chunk;
               yield { content: [{ type: 'text', text }] };
             }
           }
         }
 
+        if (!text.trim() && !abortSignal?.aborted) {
+          throw new Error(_("The assistant didn't answer: empty response."));
+        }
         aiLogger.chat.complete(text.length);
       } catch (error) {
-        if ((error as Error).name !== 'AbortError') {
-          aiLogger.chat.error((error as Error).message);
-          throw error;
+        if (!abortSignal?.aborted && !(error instanceof Error && error.name === 'AbortError')) {
+          const message = assistantErrorMessage(error, settings);
+          aiLogger.chat.error(message);
+          yield {
+            content: [{ type: 'text', text: text ? `${text}\n\n${message}` : message }],
+            status: { type: 'incomplete', reason: 'error', error: message },
+          };
         }
       }
     },
