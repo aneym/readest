@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => (key: string, opts?: Record<string, unknown>) =>
     opts ? Object.entries(opts).reduce((s, [k, v]) => s.replace(`{{${k}}}`, String(v)), key) : key,
 }));
+
+vi.mock('@/services/household', () => ({ isHouseholdBuild: () => true }));
 
 vi.mock('@/hooks/useResponsiveSize', () => ({
   useResponsiveSize: (size: number) => size,
@@ -291,6 +293,46 @@ describe('TTSMiniPlayer', () => {
     // Desktop footer bar (52px) + 8px gap; the card stays interactive.
     expect(card.style.bottom).toBe('60px');
     expect(card.className).not.toContain('pointer-events-none');
+  });
+
+  test('household mobile player tracks the thumb bar height and rests normally when hidden', () => {
+    vi.stubGlobal('innerWidth', 412);
+    vi.stubGlobal('innerHeight', 824);
+    let barHeight = 137;
+    let resize: (() => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resize = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const cell = document.createElement('div');
+    cell.id = 'gridcell-b1';
+    const bar = document.createElement('div');
+    bar.className = 'footer-bar';
+    bar.getBoundingClientRect = () => ({ height: barHeight }) as DOMRect;
+    cell.appendChild(bar);
+    document.body.appendChild(cell);
+    try {
+      readerState.hoveredBookKey = 'b1';
+      const { rerender } = render(<TTSMiniPlayer {...makeProps()} />);
+      expect(screen.getByRole('status').style.bottom).toBe('137px');
+      barHeight = 161;
+      act(() => resize?.());
+      expect(screen.getByRole('status').style.bottom).toBe('161px');
+      readerState.hoveredBookKey = '';
+      rerender(<TTSMiniPlayer {...makeProps()} />);
+      expect(screen.getByRole('status').style.bottom).toBe(
+        `${DEFAULT_BOOK_LAYOUT.marginBottomPx}px`,
+      );
+    } finally {
+      cell.remove();
+      vi.unstubAllGlobals();
+    }
   });
 
   test('rides above an expanded action panel while one is open', () => {

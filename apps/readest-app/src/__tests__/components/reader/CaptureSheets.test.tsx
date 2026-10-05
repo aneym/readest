@@ -143,3 +143,46 @@ test('offline save closes with honest copy; an unpaired save keeps the draft', a
   );
   expect(screen.getByRole<HTMLTextAreaElement>('textbox').value).toBe('Still here');
 });
+
+test.each([
+  'note',
+  'page-note',
+  'voice',
+] as const)('%s sheet follows the mobile keyboard viewport without hiding its actions', async (kind) => {
+  const viewport = Object.assign(new EventTarget(), { height: 824, offsetTop: 0 });
+  vi.stubGlobal('innerWidth', 412);
+  vi.stubGlobal('innerHeight', 824);
+  vi.stubGlobal('visualViewport', viewport);
+  try {
+    render(<CaptureSheets />);
+    await open(kind);
+    const sheet = screen.getByRole('dialog');
+    if (kind !== 'voice') fireEvent.focus(screen.getByRole('textbox'));
+    act(() => {
+      viewport.height = 504;
+      viewport.dispatchEvent(new Event('resize'));
+    });
+    expect(sheet.style.bottom).toBe('320px');
+    if (kind !== 'voice') {
+      expect(sheet.contains(screen.getByRole('textbox'))).toBe(true);
+      expect(sheet.contains(screen.getByRole('button', { name: 'Save' }))).toBe(true);
+    }
+    if (kind !== 'page-note') {
+      expect(sheet.contains(screen.getByRole('button', { name: 'Hold to talk' }))).toBe(true);
+    }
+    act(() => {
+      viewport.offsetTop = 20;
+      viewport.dispatchEvent(new Event('scroll'));
+    });
+    expect(sheet.style.bottom).toBe('300px');
+    act(() => {
+      viewport.height = 824;
+      viewport.offsetTop = 0;
+      viewport.dispatchEvent(new Event('resize'));
+    });
+    expect(sheet.style.bottom).toBe('0px');
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+  }
+});

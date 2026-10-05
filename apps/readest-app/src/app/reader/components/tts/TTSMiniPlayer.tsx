@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { isHouseholdBuild } from '@/services/household';
 import { useLayoutEffect, useState } from 'react';
 import {
   MdAlarm,
@@ -125,6 +126,18 @@ const TTSMiniPlayer = ({
   const safeAreaMargin = appService?.hasSafeAreaInset ? gridInsets.bottom * 0.33 : 0;
   const forceMobileLayout = isForcedMobileLayout(appService?.isMobile);
   const usesMobileBar = forceMobileLayout || window.innerWidth < 640 || window.innerHeight < 640;
+  const householdMobile = isHouseholdBuild() && (forceMobileLayout || window.innerWidth < 640);
+  const [thumbBarHeight, setThumbBarHeight] = useState(0);
+  useLayoutEffect(() => {
+    if (!householdMobile || !barVisible) return;
+    const bar = document.getElementById(`gridcell-${bookKey}`)?.querySelector('.footer-bar');
+    if (!bar) return;
+    const measure = () => setThumbBarHeight(bar.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [householdMobile, barVisible, bookKey]);
 
   // Distance from the bottom edge (safe-area margin excluded) to the top of
   // the expanded action panel, so the card rides above it. Measured from the
@@ -155,9 +168,12 @@ const TTSMiniPlayer = ({
     );
   }, [barVisible, bottomBarTab, bookKey, safeAreaMargin]);
 
-  const bottomOffset = viewSettings
-    ? getTTSMiniPlayerBottomOffset(viewSettings, { barVisible, usesMobileBar, panelTopOffset })
-    : 16;
+  const bottomOffset =
+    householdMobile && barVisible
+      ? Math.max(thumbBarHeight, panelTopOffset ? panelTopOffset + safeAreaMargin + 8 : 0)
+      : viewSettings
+        ? getTTSMiniPlayerBottomOffset(viewSettings, { barVisible, usesMobileBar, panelTopOffset })
+        : 16;
   const playerStyle = viewSettings?.ttsPlayerStyle ?? 'full';
 
   const { ready, position, total, measuredFraction } = playback;
@@ -199,7 +215,7 @@ const TTSMiniPlayer = ({
       )}
       style={{
         bottom: `${bottomOffset}px`,
-        marginBottom: `${safeAreaMargin}px`,
+        marginBottom: `${householdMobile && barVisible ? 0 : safeAreaMargin}px`,
       }}
       onMouseEnter={() => !appService?.isMobile && setHoveredBookKey('')}
       onTouchStart={() => !appService?.isMobile && setHoveredBookKey('')}

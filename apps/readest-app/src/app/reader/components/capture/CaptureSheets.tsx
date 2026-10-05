@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import * as CFI from 'foliate-js/epubcfi.js';
 import { useEnv } from '@/context/EnvContext';
+import { useKeyboardInset } from '@/hooks/useKeyboardInset';
+import { isForcedMobileLayout } from '../../utils/mobileLayout';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useBookDataStore } from '@/store/bookDataStore';
@@ -35,9 +37,12 @@ interface CaptureSession {
 /** One reader-wide host; snapshot the page when opening, not when saving. */
 export function CaptureSheets() {
   const _ = useTranslation();
-  const { envConfig } = useEnv();
+  const { envConfig, appService } = useEnv();
   const settings = useSettingsStore((state) => state.settings);
   const [session, setSession] = useState<CaptureSession | null>(null);
+  const householdMobile =
+    isHouseholdBuild() && (window.innerWidth < 640 || isForcedMobileLayout(appService?.isMobile));
+  const keyboardInset = useKeyboardInset(householdMobile && !!session);
   const [text, setText] = useState('');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
@@ -317,7 +322,10 @@ export function CaptureSheets() {
             session.kind === 'page-note' ? 'Page note' : session.kind === 'note' ? 'Note' : 'Voice',
           )}
           className='bg-base-100 text-base-content fixed bottom-0 left-0 right-0 z-[100] border-t border-base-content/20 px-4 pb-4 pt-3'
-          style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
+          style={{
+            paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+            ...(householdMobile ? { bottom: `${keyboardInset}px` } : {}),
+          }}
         >
           <div className='mb-2 flex items-center justify-between text-sm font-medium'>
             <span>
