@@ -634,7 +634,10 @@ class TransferManager {
           } else if (isQuotaError) {
             this.recordQuotaFailure();
           } else {
-            const errorMessages = getTransferMessages(transfer, _).failure;
+            const errorMessages = getTransferMessages(
+              { ...transfer, error: errorMessage },
+              _,
+            ).failure;
 
             eventDispatcher.dispatch('toast', {
               type: 'error',

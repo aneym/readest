@@ -145,9 +145,8 @@ const FoliateViewer: React.FC<{
   const isViewCreated = useRef(false);
   const doubleClickDisabled = useRef(!!viewSettings?.disableDoubleClick);
   const [toastMessage, setToastMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [navigating, setNavigating] = useState(false);
-  const navSpinnerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const librarySearchHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [scrollMargins, setScrollMargins] = useState({ top: 0, bottom: 0 });
   const docLoaded = useRef(false);
@@ -156,10 +155,9 @@ const FoliateViewer: React.FC<{
   const { registerSpeedListeners, overlayVisible: speedOverlayVisible } =
     useAutoScrollSpeedGesture(autoScroll);
 
-  // A pending anti-flash timer must not fire setNavigating on an unmounted component.
+  // Cancel the pending library search highlight when the view unmounts.
   useEffect(() => {
     return () => {
-      if (navSpinnerTimerRef.current) clearTimeout(navSpinnerTimerRef.current);
       if (librarySearchHighlightTimerRef.current) {
         clearTimeout(librarySearchHighlightTimerRef.current);
       }
@@ -518,16 +516,11 @@ const FoliateViewer: React.FC<{
   };
 
   const navigateStartHandler = useCallback(() => {
-    if (navSpinnerTimerRef.current) clearTimeout(navSpinnerTimerRef.current);
-    // Delay so instant same-section jumps don't flash the spinner.
-    navSpinnerTimerRef.current = setTimeout(() => setNavigating(true), 200);
+    // Spinner owns the 600 ms delay, including section navigation.
+    setNavigating(true);
   }, []);
 
   const navigateEndHandler = useCallback(() => {
-    if (navSpinnerTimerRef.current) {
-      clearTimeout(navSpinnerTimerRef.current);
-      navSpinnerTimerRef.current = null;
-    }
     setNavigating(false);
   }, []);
 
@@ -677,8 +670,6 @@ const FoliateViewer: React.FC<{
   useEffect(() => {
     if (isViewCreated.current) return;
     isViewCreated.current = true;
-
-    setTimeout(() => setLoading(true), 200);
 
     const openBook = async () => {
       console.log('Opening book', bookKey);
@@ -1108,9 +1099,7 @@ const FoliateViewer: React.FC<{
       )}
       <ParagraphControl bookKey={bookKey} viewRef={viewRef} gridInsets={gridInsets} />
       {((!docLoaded.current && loading) || navigating || viewState?.loading) && (
-        <div className='absolute left-0 top-0 z-10 flex h-full w-full items-center justify-center'>
-          <Spinner loading={true} />
-        </div>
+        <Spinner loading className='z-10' />
       )}
       {syncState === 'conflict' && conflictDetails && (
         <KOSyncConflictResolver

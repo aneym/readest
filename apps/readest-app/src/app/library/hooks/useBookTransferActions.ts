@@ -3,6 +3,7 @@ import type { Book } from '@/types/book';
 import type { EnvConfigType } from '@/services/environment';
 import type { AppService } from '@/types/system';
 import { createProgressThrottle, toProgressPercent, type ProgressPayload } from '@/utils/transfer';
+import { getBookDownloadFailureMessage } from '@/services/bookDownloadErrors';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { eventDispatcher } from '@/utils/event';
@@ -190,13 +191,11 @@ export const useBookTransferActions = (
             });
           }
           return true;
-        } catch {
+        } catch (error) {
           tracker.done();
           if (!silent) {
             eventDispatcher.dispatch('toast', {
-              message: _('Failed to download book: {{title}}', {
-                title: book.title,
-              }),
+              message: getBookDownloadFailureMessage(error, book.title, _),
               type: 'error',
             });
           }
