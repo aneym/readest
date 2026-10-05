@@ -1,4 +1,9 @@
-import { isMissingHomebaseBookError } from './bookDownloadErrors';
+import {
+  clearBookDownloadFailureNotification,
+  notifyBookDownloadFailure,
+  markReportedBookDownloadFailure,
+  isMissingHomebaseBookError,
+} from './bookDownloadErrors';
 import { Book } from '@/types/book';
 import { AppService, BaseDir } from '@/types/system';
 import { useTransferStore, TransferItem, ReplicaTransferFile } from '@/store/transferStore';
@@ -97,6 +102,11 @@ class TransferManager {
         !isBookIntegrityError(t.error) &&
         !isMissingHomebaseBookError(t.error)
       ) {
+        if (reason !== 'manual') {
+          useTransferStore.setState((state) => ({
+            transfers: { ...state.transfers, [t.id]: { ...t, isBackground: true } },
+          }));
+        }
         store.retryTransfer(t.id);
         revived++;
       } else if (t.status === 'pending' && t.nextAttemptAt && t.error === OFFLINE_HOLD_MESSAGE) {
@@ -242,7 +252,11 @@ class TransferManager {
         if (current?.status === 'pending' || current?.status === 'in_progress') return;
         unsubscribe();
         if (current?.status === 'completed') resolve();
-        else reject(new Error(current?.error || this._!('Book download cancelled')));
+        else {
+          const error = new Error(current?.error || this._!('Book download cancelled'));
+          if (current?.status === 'failed') markReportedBookDownloadFailure(bookHash, error);
+          reject(error);
+        }
       };
       const unsubscribe = useTransferStore.subscribe(check);
       check();
@@ -279,7 +293,7 @@ class TransferManager {
     return transferId;
   }
 
-  queueDownload(book: Book, priority: number = 10): string | null {
+  queueDownload(book: Book, priority: number = 10, isBackground: boolean = false): string | null {
     if (!this.isReady()) {
       console.warn('TransferManager not initialized');
       return null;
@@ -303,10 +317,21 @@ class TransferManager {
 
     const existing = store.getTransferByBookHash(book.hash, 'download');
     if (existing) {
+      if (!isBackground && existing.isBackground) {
+        clearBookDownloadFailureNotification(book.hash);
+        useTransferStore.setState((state) => ({
+          transfers: {
+            ...state.transfers,
+            [existing.id]: { ...state.transfers[existing.id]!, isBackground: false },
+          },
+        }));
+        this.persistQueue();
+      }
       return existing.id;
     }
 
-    const transferId = store.addTransfer(book.hash, book.title, 'download', priority);
+    if (!isBackground) clearBookDownloadFailureNotification(book.hash);
+    const transferId = store.addTransfer(book.hash, book.title, 'download', priority, isBackground);
     this.persistQueue();
     this.processQueue();
     return transferId;
@@ -438,6 +463,13 @@ class TransferManager {
 
   retryTransfer(transferId: string): void {
     const store = useTransferStore.getState();
+    const transfer = store.transfers[transferId];
+    if (transfer?.kind === 'book' && transfer.type === 'download') {
+      clearBookDownloadFailureNotification(transfer.bookHash);
+      useTransferStore.setState((state) => ({
+        transfers: { ...state.transfers, [transferId]: { ...transfer, isBackground: false } },
+      }));
+    }
     store.retryTransfer(transferId);
     this.persistQueue();
     this.processQueue();
@@ -447,6 +479,12 @@ class TransferManager {
     const store = useTransferStore.getState();
     const failed = store.getFailedTransfers();
     failed.forEach((transfer) => {
+      if (transfer.kind === 'book' && transfer.type === 'download') {
+        clearBookDownloadFailureNotification(transfer.bookHash);
+        useTransferStore.setState((state) => ({
+          transfers: { ...state.transfers, [transfer.id]: { ...transfer, isBackground: false } },
+        }));
+      }
       store.retryTransfer(transfer.id);
     });
     this.persistQueue();
@@ -600,9 +638,12 @@ class TransferManager {
       progressThrottle.flush();
       useTransferStore.getState().setTransferStatus(transfer.id, 'completed');
 
+      if (transfer.kind === 'book' && transfer.type === 'download') {
+        clearBookDownloadFailureNotification(transfer.bookHash);
+      }
       const messages = getTransferMessages(transfer, _);
 
-      if (!transfer.isBackground) {
+      if (!(useTransferStore.getState().transfers[transfer.id] ?? transfer).isBackground) {
         eventDispatcher.dispatch('toast', {
           type: 'info',
           timeout: 2000,
@@ -666,24 +707,34 @@ class TransferManager {
         // fired one toast per file (issue #5675 — sixteen "Failed to download
         // file" toasts for sixteen fonts). The failure is still recorded on
         // the transfer, which is what the Transfer Queue panel reads.
-        if (!transfer.isBackground) {
+        if (!(useTransferStore.getState().transfers[transfer.id] ?? transfer).isBackground) {
           if (errorMessage.includes('Not authenticated')) {
-            eventDispatcher.dispatch('toast', {
-              type: 'error',
-              message: _(transferAuthMessage(isHouseholdBuild())),
-            });
+            const message = _(transferAuthMessage(isHouseholdBuild()));
+            if (transfer.kind === 'book' && transfer.type === 'download') {
+              notifyBookDownloadFailure(transfer.bookHash, error, message);
+            } else {
+              eventDispatcher.dispatch('toast', { type: 'error', message });
+            }
           } else if (isQuotaError) {
-            this.recordQuotaFailure();
+            if (transfer.kind === 'book' && transfer.type === 'download') {
+              notifyBookDownloadFailure(transfer.bookHash, error, _('Insufficient storage quota'));
+            } else {
+              this.recordQuotaFailure();
+            }
           } else {
             const errorMessages = getTransferMessages(
               { ...transfer, error: errorMessage },
               _,
             ).failure;
 
-            eventDispatcher.dispatch('toast', {
-              type: 'error',
-              message: errorMessages[transfer.type],
-            });
+            if (transfer.kind === 'book' && transfer.type === 'download') {
+              notifyBookDownloadFailure(transfer.bookHash, error, errorMessages.download);
+            } else {
+              eventDispatcher.dispatch('toast', {
+                type: 'error',
+                message: errorMessages[transfer.type],
+              });
+            }
           }
         }
 
@@ -859,6 +910,12 @@ class TransferManager {
 
       // Restore all transfers using the store's restore method
       // This preserves the original IDs and handles in_progress -> pending conversion
+      // Restarted work resumes automatically, without a fresh user request.
+      for (const transfer of Object.values(data.transfers)) {
+        if (transfer.type === 'download' && ['pending', 'in_progress'].includes(transfer.status)) {
+          transfer.isBackground = true;
+        }
+      }
       store.restoreTransfers(data.transfers, data.isQueuePaused);
     } catch (error) {
       console.error('Failed to load transfer queue:', error);

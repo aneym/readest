@@ -199,9 +199,10 @@ test('library download is shared with reader open; missing files tell manual cal
   toasts = [];
   expect.soft(await result.current.handleBookDownload(missingBook, { queued: true })).toBe(false);
   expect(requests.filter((url) => url.includes('fileKey=missing-book.epub'))).toHaveLength(1);
-  expect
-    .soft(toasts)
-    .toEqual([
-      expect.objectContaining({ message: expect.stringContaining('Refresh the library') }),
-    ]);
+  expect.soft(toasts).toEqual([
+    expect.objectContaining({
+      type: 'error',
+      message: expect.stringContaining('Refresh the library'),
+    }),
+  ]);
 });

@@ -1,3 +1,4 @@
+import { eventDispatcher } from '@/utils/event';
 import type { TranslationFunc } from '@/hooks/useTranslation';
 
 // Stable, secret-free marker survives transfer queue persistence as a string.
@@ -44,4 +45,29 @@ export const getBookDownloadFailureMessage = (
   if (status === 408 || status === 504)
     return _('Homebase took too long. Check the connection and try again: {{title}}', { title });
   return _('Homebase could not serve this book. Try again: {{title}}', { title });
+};
+
+// One notification per user attempt, shared by queue, direct download and reader.
+// New user actions reset the hash unless they join an already active transfer.
+const notifiedBookHashes = new Set<string>();
+const reportedErrors = new WeakSet<object>();
+
+export const clearBookDownloadFailureNotification = (hash: string): void => {
+  notifiedBookHashes.delete(hash);
+};
+
+// Waiters receive a new Error from the persisted transfer message. Only inherit
+// reporting when this same attempt has already emitted its download toast.
+export const markReportedBookDownloadFailure = (hash: string, error: Error): void => {
+  if (notifiedBookHashes.has(hash)) reportedErrors.add(error);
+};
+
+export const isReportedBookDownloadFailure = (error: unknown): boolean =>
+  error instanceof Error && reportedErrors.has(error);
+
+export const notifyBookDownloadFailure = (hash: string, error: unknown, message: string): void => {
+  if (notifiedBookHashes.has(hash)) return;
+  if (error instanceof Error) reportedErrors.add(error);
+  notifiedBookHashes.add(hash);
+  eventDispatcher.dispatch('toast', { type: 'error', message });
 };

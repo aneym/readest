@@ -1,3 +1,4 @@
+import { isReportedBookDownloadFailure } from '@/services/bookDownloadErrors';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEnv } from '@/context/EnvContext';
@@ -39,7 +40,9 @@ const useBooksManager = () => {
   // know the open failed.
   const handleOpenError = (error: unknown) => {
     console.warn('Failed to open book in reader', error);
-    eventDispatcher.dispatch('toast', { message: _('Unable to open book'), type: 'error' });
+    if (!isReportedBookDownloadFailure(error)) {
+      eventDispatcher.dispatch('toast', { message: _('Unable to open book'), type: 'error' });
+    }
   };
 
   // Append a new book and sync with bookKeys and URL
