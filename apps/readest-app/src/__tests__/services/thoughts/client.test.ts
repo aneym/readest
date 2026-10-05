@@ -52,6 +52,39 @@ describe('Thoughts device client', () => {
     expect(request?.method).toBe('POST');
     expect(request?.signal).toBeInstanceOf(AbortSignal);
   });
+  test('an outage or a rejected token keeps the capture; a refused capture is dropped', async () => {
+    const pending = () =>
+      JSON.parse(localStorage.getItem('homebase-thoughts-pending-v1') ?? '[]') as {
+        captureId: string;
+      }[];
+    http.mockResolvedValueOnce(new Response('down', { status: 503 }));
+    await captureThought({ body: 'During an outage', captureId: 'outage' });
+    http.mockResolvedValueOnce(new Response('no', { status: 401 }));
+    await captureThought({ body: 'Token rejected', captureId: 'revoked' });
+    http.mockResolvedValueOnce(new Response('bad', { status: 400 }));
+    await captureThought({ body: 'Refused', captureId: 'refused' });
+    expect(pending().map((item) => item.captureId)).toEqual(['outage', 'revoked']);
+
+    // Five flushes through an outage lose nothing.
+    for (let i = 0; i < 5; i++) {
+      http.mockImplementation(async () => new Response('down', { status: 503 }));
+      await flushThoughtsQueue();
+    }
+    expect(pending().map((item) => item.captureId)).toEqual(['outage', 'revoked']);
+
+    http.mockImplementation(async (_url, request) =>
+      reply(JSON.parse(String(request?.body)).captureId),
+    );
+    await flushThoughtsQueue();
+    expect(pending()).toEqual([]);
+    for (const [, request] of http.mock.calls.slice(-2)) {
+      expect(Object.keys(JSON.parse(String(request?.body))).sort()).toEqual([
+        'body',
+        'captureId',
+        'capturedAt',
+      ]);
+    }
+  });
   test('unpaired makes no request and retains no offline capture', async () => {
     localStorage.removeItem('token');
     expect(await captureThought({ body: 'Hello' })).toEqual({ ok: false, reason: 'unpaired' });

@@ -77,7 +77,10 @@ async function send(
     );
     if (response.status === 401 || response.status === 403)
       return { ok: false, reason: 'unpaired' };
-    if (!response.ok) return { ok: false, reason: 'error' };
+    // A 4xx means Homebase refused this exact capture; retrying won't help. A 5xx is an
+    // outage, so the capture waits like an offline one.
+    if (response.status >= 400 && response.status < 500) return { ok: false, reason: 'error' };
+    if (!response.ok) return { ok: false, reason: 'offline' };
     const data: unknown = await response.json();
     if (
       data &&
@@ -110,8 +113,12 @@ export async function captureThought(input: ThoughtInput): Promise<ThoughtsResul
     capturedAt: input.capturedAt ?? Date.now(),
   };
   const result = await send('', JSON.stringify(pending), { 'Content-Type': 'application/json' });
-  if (!result.ok && result.reason === 'offline' && !queue(pending))
-    return { ok: false, reason: 'error' };
+  // Keep the capture through an outage or a rejected token; a device that was never paired has
+  // nowhere to send it.
+  const keep =
+    !result.ok &&
+    (result.reason === 'offline' || (result.reason === 'unpaired' && !!thoughtsAuthHeaders()));
+  if (keep && !queue(pending)) return { ok: false, reason: 'error' };
   return result;
 }
 
@@ -138,8 +145,12 @@ export function flushThoughtsQueue(): Promise<void> {
   if (flushing) return flushing;
   flushing = (async () => {
     for (const item of readQueue()) {
-      const result = await send('', JSON.stringify(item), { 'Content-Type': 'application/json' });
-      if (!result.ok && result.reason === 'offline') break;
+      const { attempts: _attempts, ...thought } = item;
+      const result = await send('', JSON.stringify(thought), {
+        'Content-Type': 'application/json',
+      });
+      // Offline, an outage or a lost pairing: keep everything and try again later.
+      if (!result.ok && result.reason !== 'error') break;
       const attempts = (item.attempts ?? 0) + 1;
       localStorage.setItem(
         QUEUE_KEY,
