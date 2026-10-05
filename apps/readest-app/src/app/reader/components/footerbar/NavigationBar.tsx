@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { isHouseholdBuild } from '@/services/household';
 import React from 'react';
 import { IoIosList as TOCIcon } from 'react-icons/io';
 import { RxSlider as SliderIcon } from 'react-icons/rx';
@@ -51,6 +52,92 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
   const tocIconSize = useResponsiveSize(23);
   const fontIconSize = useResponsiveSize(18);
   const navPadding = isMobile ? `${gridInsets.bottom * 0.33 + 16}px` : '0px';
+
+  if (isHouseholdBuild() && (forceMobileLayout || window.innerWidth < 640)) {
+    const capture = (kind: 'page-note' | 'note' | 'voice') => {
+      void eventDispatcher.dispatch('reader-capture-open', { bookKey, kind });
+    };
+    const listen = () => {
+      if (!viewState?.ttsEnabled && shouldOpenNarrationStatus(bookKey, availability)) {
+        void eventDispatcher.dispatch(NARRATION_STATUS_OPEN_EVENT, { bookKey });
+        return;
+      }
+      onSetActionTab('tts');
+    };
+    return (
+      <nav
+        aria-label={_('Reading actions')}
+        className='bg-base-100 text-base-content w-full font-sans'
+      >
+        <div className='grid grid-cols-4 gap-2 px-4 pb-2 pt-3'>
+          <button
+            type='button'
+            className='border-base-content min-h-[50px] border text-xs font-medium'
+            onClick={() => capture('page-note')}
+          >
+            {_('Page note')}
+          </button>
+          <button
+            type='button'
+            className='border-base-content min-h-[50px] border text-xs font-medium'
+            onClick={() => capture('note')}
+          >
+            {_('Note')}
+          </button>
+          <button
+            type='button'
+            className='border-base-content min-h-[50px] border text-xs font-medium'
+            onClick={() => capture('voice')}
+          >
+            {_('Voice')}
+          </button>
+          <button
+            type='button'
+            className='border-base-content min-h-[50px] border text-xs font-medium'
+            onClick={listen}
+          >
+            {_('Listen')}
+          </button>
+        </div>
+        <div
+          className='border-base-content grid grid-cols-4 border-t px-4 text-xs font-medium'
+          style={{
+            paddingBottom: appService?.isAndroidApp
+              ? 'env(safe-area-inset-bottom)'
+              : `${gridInsets.bottom * 0.33}px`,
+          }}
+        >
+          <button
+            type='button'
+            className='min-h-11 text-start'
+            onClick={() => void eventDispatcher.dispatch('reader-library-open', { bookKey })}
+          >
+            {_('‹ Library')}
+          </button>
+          <button type='button' className='min-h-11' onClick={() => onSetActionTab('toc')}>
+            {_('Contents')}
+          </button>
+          <button
+            type='button'
+            className='min-h-11'
+            onClick={() => {
+              useReaderStore.getState().setHoveredBookKey('');
+              void eventDispatcher.dispatch('search-term', { bookKey });
+            }}
+          >
+            {_('Search')}
+          </button>
+          <button
+            type='button'
+            className='min-h-11 text-end'
+            onClick={() => onSetActionTab('font')}
+          >
+            {_('Aa')}
+          </button>
+        </div>
+      </nav>
+    );
+  }
 
   return (
     <div

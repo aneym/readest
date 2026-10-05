@@ -1,4 +1,6 @@
 import clsx from 'clsx';
+import { isHouseholdBuild } from '@/services/household';
+import { eventDispatcher } from '@/utils/event';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { VscLibrary } from 'react-icons/vsc';
 import { MdOutlineMenu } from 'react-icons/md';
@@ -140,6 +142,19 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
     );
   }, []);
 
+  useEffect(() => {
+    if (
+      !isHouseholdBuild() ||
+      !(isForcedMobileLayout(appService?.isMobile) || window.innerWidth < 640)
+    )
+      return;
+    const openLibrary = (event: CustomEvent) => {
+      if (event.detail.bookKey === bookKey) onGoToLibrary();
+    };
+    eventDispatcher.on('reader-library-open', openLibrary);
+    return () => eventDispatcher.off('reader-library-open', openLibrary);
+  }, [bookKey, onGoToLibrary, appService?.isMobile]);
+
   const isHeaderCompact = headerWidth > 0 && headerWidth < 350;
   const insets = window.innerWidth < 640 ? screenInsets : gridInsets;
   const isHeaderVisible = hoveredBookKey === bookKey || isDropdownOpen;
@@ -152,6 +167,8 @@ const HeaderBar: React.FC<HeaderBarProps> = ({
     appService?.hasTrafficLight && !trafficLightInFullscreen && !isSideBarVisible && isTopLeft;
   const windowButtonVisible =
     appService?.hasWindowBar && !isTrafficLightVisible && !trafficLightInHeader;
+
+  if (isHouseholdBuild() && (forceMobileLayout || window.innerWidth < 640)) return null;
 
   return (
     <div
