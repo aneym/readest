@@ -1,4 +1,6 @@
 import { streamText, stepCountIs } from 'ai';
+import { t as _ } from 'i18next';
+import '@/i18n/i18n';
 import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react';
 import { getAIProvider } from '../providers';
 import { aiLogger } from '../logger';
@@ -47,11 +49,11 @@ async function* streamViaApiRoute(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `Chat failed: ${response.status}`);
+    throw { responseBody: await response.text(), statusCode: response.status };
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) throw new Error(_("The assistant didn't answer: empty response."));
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
 
   while (true) {
@@ -59,6 +61,49 @@ async function* streamViaApiRoute(
     if (done) break;
     yield decoder.decode(value, { stream: true });
   }
+}
+
+/** Extract only human-readable error fields, never request metadata or headers. */
+function errorDetail(error: unknown, depth = 0): string | undefined {
+  if (depth > 6 || error == null) return undefined;
+  if (typeof error === 'string') {
+    const value = error.trim();
+    if (!value) return undefined;
+    try {
+      return errorDetail(JSON.parse(value), depth + 1);
+    } catch {
+      return value;
+    }
+  }
+  if (typeof error !== 'object') return undefined;
+  for (const key of ['responseBody', 'lastError', 'cause', 'error', 'message']) {
+    if (key in error) {
+      const detail = errorDetail(Reflect.get(error, key), depth + 1);
+      if (detail) return detail;
+    }
+  }
+  if ('statusCode' in error) {
+    return _("The assistant didn't answer: HTTP {{status}}.", {
+      status: Reflect.get(error, 'statusCode'),
+    });
+  }
+  return undefined;
+}
+
+function assistantErrorMessage(error: unknown, settings: AISettings): string {
+  let detail = errorDetail(error);
+  if (detail) {
+    // Known configured keys and authorization strings must never reach the bubble.
+    for (const key of [settings.aiGatewayApiKey, settings.openrouterApiKey]) {
+      if (key) detail = detail.split(key).join('[redacted]');
+    }
+    detail = detail
+      .replace(/(?:Bearer|Basic)\s+[^\s"',;]+/gi, '[redacted]')
+      .replace(/(?:authorization|x-api-key|api-key)\s*[:=][^\r\n]*/gi, '[redacted]')
+      .replace(/\bsk-[A-Za-z0-9_-]+/g, '[redacted]');
+    return detail;
+  }
+  return _("The assistant didn't answer: unknown error.");
 }
 
 export function createTauriAdapter(getOptions: () => TauriAdapterOptions): ChatModelAdapter {
@@ -106,9 +151,8 @@ export function createTauriAdapter(getOptions: () => TauriAdapterOptions): ChatM
 
       const useApiRoute = typeof window !== 'undefined' && settings.provider === 'ai-gateway';
 
+      let text = '';
       try {
-        let text = '';
-
         if (backend.kind === 'reedy' && backend.buildLookupTool) {
           // Reedy path: model calls lookupPassage on demand; sources flow
           // into the store via the tool's onResult hook. We never use the
@@ -136,8 +180,10 @@ export function createTauriAdapter(getOptions: () => TauriAdapterOptions): ChatM
             stopWhen: stepCountIs(3),
             abortSignal,
           });
-          for await (const chunk of result.textStream) {
-            text += chunk;
+          for await (const chunk of result.fullStream) {
+            if (chunk.type === 'error') throw chunk.error;
+            if (chunk.type !== 'text-delta') continue;
+            text += chunk.text;
             yield { content: [{ type: 'text', text }] };
           }
         } else {
@@ -184,18 +230,27 @@ export function createTauriAdapter(getOptions: () => TauriAdapterOptions): ChatM
               messages: aiMessages,
               abortSignal,
             });
-            for await (const chunk of result.textStream) {
-              text += chunk;
+            for await (const chunk of result.fullStream) {
+              if (chunk.type === 'error') throw chunk.error;
+              if (chunk.type !== 'text-delta') continue;
+              text += chunk.text;
               yield { content: [{ type: 'text', text }] };
             }
           }
         }
 
+        if (!text.trim() && !abortSignal.aborted) {
+          throw new Error(_("The assistant didn't answer: empty response."));
+        }
         aiLogger.chat.complete(text.length);
       } catch (error) {
-        if ((error as Error).name !== 'AbortError') {
-          aiLogger.chat.error((error as Error).message);
-          throw error;
+        if (!abortSignal.aborted && !(error instanceof Error && error.name === 'AbortError')) {
+          const message = assistantErrorMessage(error, settings);
+          aiLogger.chat.error(message);
+          yield {
+            content: [{ type: 'text', text: text ? `${text}\n\n${message}` : message }],
+            status: { type: 'incomplete', reason: 'error', error: message },
+          };
         }
       }
     },
