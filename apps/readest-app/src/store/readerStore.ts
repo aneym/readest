@@ -1,3 +1,9 @@
+import { t } from 'i18next';
+import {
+  notifyBookDownloadFailure,
+  getBookDownloadFailureMessage,
+  clearBookDownloadFailureNotification,
+} from '@/services/bookDownloadErrors';
 import { create } from 'zustand';
 import { transferManager } from '@/services/transferManager';
 import { useTransferStore } from '@/store/transferStore';
@@ -215,12 +221,25 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
           // Deep links enter here without the library's makeBookAvailable step.
           // A synced row (including a newly aligned edition) is not local bytes.
           if (book.uploadedAt && !(await appService.isBookAvailable(book))) {
-            if (useTransferStore.getState().getTransferByBookHash(book.hash, 'download')) {
-              await transferManager.waitForDownload(book.hash);
-            } else if (isHomebaseSyncEnabled()) {
-              // uploadedAt also marks mirror-only books; it is not cloud provenance.
-              await appService.downloadBook(book);
-              await useLibraryStore.getState().updateBook(envConfig, book);
+            try {
+              if (useTransferStore.getState().getTransferByBookHash(book.hash, 'download')) {
+                transferManager.queueDownload(book, 1);
+                await transferManager.waitForDownload(book.hash);
+              } else if (isHomebaseSyncEnabled()) {
+                // uploadedAt also marks mirror-only books; it is not cloud provenance.
+                await appService.downloadBook(book);
+                await useLibraryStore.getState().updateBook(envConfig, book);
+              }
+              clearBookDownloadFailureNotification(book.hash);
+            } catch (error) {
+              notifyBookDownloadFailure(
+                book.hash,
+                error,
+                getBookDownloadFailureMessage(error, book.title, (key, options) =>
+                  t(key, { defaultValue: key, ...options }),
+                ),
+              );
+              throw error;
             }
           }
           const content = (await appService.loadBookContent(book)) as BookContent;

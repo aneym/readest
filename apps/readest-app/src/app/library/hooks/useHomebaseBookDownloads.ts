@@ -100,7 +100,7 @@ export const useHomebaseBookDownloads = () => {
     desired.sort((a, b) => (b.syncedAt ?? b.updatedAt) - (a.syncedAt ?? a.updatedAt));
     let queued = 0;
     for (const book of desired) {
-      if (transferManager.queueDownload(book, AUTO_DOWNLOAD_PRIORITY)) queued++;
+      if (transferManager.queueDownload(book, AUTO_DOWNLOAD_PRIORITY, true)) queued++;
     }
     if (queued > 0) {
       console.info(`[homebase] queued ${queued} book download(s)`);

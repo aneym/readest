@@ -1,5 +1,7 @@
 'use client';
 
+import { isReportedBookDownloadFailure } from '@/services/bookDownloadErrors';
+
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
@@ -112,6 +114,7 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
         initViewState(envConfig, id, key, isPrimary).catch((error) => {
           console.log('Error initializing book', key, error);
           setErrorLoading(true);
+          if (isReportedBookDownloadFailure(error)) return;
           eventDispatcher.dispatch('toast', {
             message: _('Unable to open book'),
             callback: async () => {

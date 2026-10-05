@@ -5,6 +5,8 @@ import type { AppService } from '@/types/system';
 import { createProgressThrottle, toProgressPercent, type ProgressPayload } from '@/utils/transfer';
 import {
   getBookDownloadFailureMessage,
+  notifyBookDownloadFailure,
+  clearBookDownloadFailureNotification,
   isMissingHomebaseBookError,
 } from '@/services/bookDownloadErrors';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -157,6 +159,7 @@ export const useBookTransferActions = (
         }
         if (ok) {
           await updateBook(envConfig, book);
+          clearBookDownloadFailureNotification(book.hash);
           if (!silent) {
             eventDispatcher.dispatch('toast', {
               type: 'info',
@@ -188,10 +191,11 @@ export const useBookTransferActions = (
       );
       if (missing) {
         if (!silent) {
-          eventDispatcher.dispatch('toast', {
-            type: 'error',
-            message: getBookDownloadFailureMessage(missing.error, book.title, _),
-          });
+          notifyBookDownloadFailure(
+            book.hash,
+            missing.error,
+            getBookDownloadFailureMessage(missing.error, book.title, _),
+          );
         }
         return false;
       }
@@ -202,6 +206,7 @@ export const useBookTransferActions = (
           await appService?.downloadBook(book, false, redownload, tracker.onProgress);
           tracker.done();
           await updateBook(envConfig, book);
+          clearBookDownloadFailureNotification(book.hash);
           if (!silent) {
             eventDispatcher.dispatch('toast', {
               type: 'info',
@@ -215,17 +220,20 @@ export const useBookTransferActions = (
         } catch (error) {
           tracker.done();
           if (!silent) {
-            eventDispatcher.dispatch('toast', {
-              message: getBookDownloadFailureMessage(error, book.title, _),
-              type: 'error',
-            });
+            notifyBookDownloadFailure(
+              book.hash,
+              error,
+              getBookDownloadFailureMessage(error, book.title, _),
+            );
           }
           return false;
         }
       }
 
       // Use transfer queue for normal downloads - priority 1 for manual downloads
-      const transferId = transferManager.queueDownload(book, 1);
+      const transferId = silent
+        ? transferManager.queueDownload(book, 1, true)
+        : transferManager.queueDownload(book, 1);
       if (transferId) {
         if (!silent) {
           eventDispatcher.dispatch('toast', {

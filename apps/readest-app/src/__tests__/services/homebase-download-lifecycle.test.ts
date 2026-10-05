@@ -187,21 +187,12 @@ test('library download is shared with reader open; missing files tell manual cal
   );
   expect.soft(await result.current.handleBookDownload(missingBook, { queued: true })).toBe(false);
   expect(requests.filter((url) => url.includes('fileKey=missing-book.epub'))).toHaveLength(1);
-  expect.soft(toasts).toEqual([
-    expect.objectContaining({
-      type: 'error',
-      message: expect.stringContaining('Refresh the library'),
-    }),
-  ]);
+  expect.soft(toasts).toEqual([]);
   // Upgrades must also recognize the previous build's persisted marker.
   useTransferStore.getState().setTransferStatus(id, 'failed', 'Homebase download URL failed: 410');
   expect(transferManager.reviveTransientFailures('manual')).toBe(0);
   toasts = [];
   expect.soft(await result.current.handleBookDownload(missingBook, { queued: true })).toBe(false);
   expect(requests.filter((url) => url.includes('fileKey=missing-book.epub'))).toHaveLength(1);
-  expect
-    .soft(toasts)
-    .toEqual([
-      expect.objectContaining({ message: expect.stringContaining('Refresh the library') }),
-    ]);
+  expect.soft(toasts).toEqual([]);
 });
