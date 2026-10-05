@@ -8,13 +8,22 @@ export type ThoughtsResult =
   | { ok: true; id: string; transcript?: string }
   | { ok: false; reason: 'offline' | 'unpaired' | 'error'; queued?: boolean };
 
+export interface ThoughtAttachment {
+  kind: 'book';
+  key: string;
+  title: string;
+  location?: string;
+  page?: number;
+}
+
 export interface ThoughtInput {
+  attachment?: ThoughtAttachment;
   body: string;
   captureId?: string;
   capturedAt?: number;
 }
 interface PendingThought {
-  attempts?: number;
+  attachment?: ThoughtAttachment;
   body: string;
   captureId: string;
   capturedAt: number;
@@ -77,9 +86,13 @@ async function send(
     );
     if (response.status === 401 || response.status === 403)
       return { ok: false, reason: 'unpaired' };
-    // A 4xx means Homebase refused this exact capture; retrying won't help. A 5xx is an
-    // outage, so the capture waits like an offline one.
-    if (response.status >= 400 && response.status < 500 && response.status !== 429)
+    // Request timeouts and rate limits are retryable, like server outages.
+    if (
+      response.status >= 400 &&
+      response.status < 500 &&
+      response.status !== 429 &&
+      response.status !== 408
+    )
       return { ok: false, reason: 'error' };
     if (!response.ok) return { ok: false, reason: 'offline' };
     const data: unknown = await response.json();
@@ -113,8 +126,11 @@ export async function captureThought(input: ThoughtInput): Promise<ThoughtsResul
     body: input.body,
     captureId: input.captureId ?? crypto.randomUUID(),
     capturedAt: input.capturedAt ?? Date.now(),
+    ...(input.attachment ? { attachment: input.attachment } : {}),
   };
-  const result = await send('', JSON.stringify(pending), { 'Content-Type': 'application/json' });
+  const result = await send('', JSON.stringify({ ...pending, source: 'readest' }), {
+    'Content-Type': 'application/json',
+  });
   // Keep the capture through an outage or a rejected token; a device that was never paired has
   // nowhere to send it.
   const keep =
@@ -124,21 +140,45 @@ export async function captureThought(input: ThoughtInput): Promise<ThoughtsResul
   return result;
 }
 
+function voiceHeaders(
+  id: string,
+  recordedAt: string,
+  attachment?: ThoughtAttachment,
+): Record<string, string> {
+  return {
+    'Content-Type': 'audio/wav',
+    'X-Intent-Id': id,
+    'X-Recorded-At': recordedAt,
+    'X-Thought-Source': 'readest',
+    ...(attachment
+      ? {
+          'X-Thought-Attachment': btoa(
+            String.fromCharCode(...new TextEncoder().encode(JSON.stringify(attachment))),
+          )
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, ''),
+        }
+      : {}),
+  };
+}
+
 /** The current server accepts raw AAC/MP4 or WAV, not multipart or WebM. */
 export async function captureVoice(
   audio: Blob,
   id = crypto.randomUUID(),
   recordedAt = new Date().toISOString(),
+  attachment?: ThoughtAttachment,
 ): Promise<ThoughtsResult> {
   if (audio.type !== 'audio/wav' || audio.size < 256 || audio.size > 32 * 1024 * 1024)
     return { ok: false, reason: 'error' };
-  const result = await send('/voice', audio, {
-    'Content-Type': audio.type,
-    'X-Intent-Id': id,
-    'X-Recorded-At': recordedAt,
-  });
-  if (!result.ok && result.reason === 'offline')
-    return { ...result, queued: await queueVoice({ audio, id, recordedAt }) };
+  const result = await send('/voice', audio, voiceHeaders(id, recordedAt, attachment));
+  if (
+    !result.ok &&
+    (result.reason === 'offline' || (result.reason === 'unpaired' && !!thoughtsAuthHeaders()))
+  )
+    return { ...result, queued: await queueVoice({ audio, id, recordedAt, attachment }) };
+  if (!result.ok && result.reason === 'error') await removeVoice(id).catch(() => {});
   if (result.ok) await removeVoice(id).catch(() => {});
   return result;
 }
@@ -147,33 +187,31 @@ export function flushThoughtsQueue(): Promise<void> {
   if (flushing) return flushing;
   flushing = (async () => {
     for (const item of readQueue()) {
-      const { attempts: _attempts, ...thought } = item;
-      const result = await send('', JSON.stringify(thought), {
-        'Content-Type': 'application/json',
-      });
-      // Offline, an outage or a lost pairing: keep everything and try again later.
-      if (!result.ok && result.reason !== 'error') break;
-      const attempts = (item.attempts ?? 0) + 1;
+      const result = await send(
+        '',
+        JSON.stringify({
+          body: item.body,
+          captureId: item.captureId,
+          capturedAt: item.capturedAt,
+          source: 'readest',
+          ...(item.attachment ? { attachment: item.attachment } : {}),
+        }),
+        { 'Content-Type': 'application/json' },
+      );
+      // Stop the entire flush on an outage or lost pairing, retaining both queues.
+      if (!result.ok && result.reason !== 'error') return;
       localStorage.setItem(
         QUEUE_KEY,
-        JSON.stringify(
-          readQueue().flatMap((entry) =>
-            entry.captureId !== item.captureId
-              ? [entry]
-              : !result.ok && attempts < 5
-                ? [{ ...entry, attempts }]
-                : [],
-          ),
-        ),
+        JSON.stringify(readQueue().filter((entry) => entry.captureId !== item.captureId)),
       );
     }
     for (const take of await readVoiceQueue().catch(() => [])) {
-      const result = await send('/voice', take.audio, {
-        'Content-Type': 'audio/wav',
-        'X-Intent-Id': take.id,
-        'X-Recorded-At': take.recordedAt,
-      });
-      if (!result.ok) break;
+      const result = await send(
+        '/voice',
+        take.audio,
+        voiceHeaders(take.id, take.recordedAt, take.attachment),
+      );
+      if (!result.ok && result.reason !== 'error') return;
       await removeVoice(take.id);
     }
   })()

@@ -9,30 +9,44 @@ import {
 } from '@/services/thoughts/client';
 
 vi.mock('@tauri-apps/plugin-http', () => ({ fetch: vi.fn() }));
-vi.mock('@/services/household', () => ({ isHouseholdBuild: () => true }));
-vi.mock('@/services/environment', () => ({ isTauriAppPlatform: () => true }));
-vi.mock('@/services/sync/homebase/config', () => ({
-  getHomebaseBaseUrl: () => 'https://studio.tailf266ac.ts.net:3148/api/readest',
-}));
+// Integration at the HTTP/storage boundary; only the external Tauri transport is faked.
 const http = vi.mocked(tauriFetch);
 const reply = (id: string) =>
-  new Response(JSON.stringify({ ok: true, thought: { captureId: id } }));
+  new Response(JSON.stringify({ ok: true, thought: { captureId: id }, deduped: false }), {
+    status: 201,
+  });
 beforeEach(() => {
+  vi.stubEnv('NEXT_PUBLIC_HOUSEHOLD_BUILD', '1');
+  vi.stubEnv('NEXT_PUBLIC_APP_PLATFORM', 'tauri');
+  vi.stubEnv('HOMEBASE_API_BASE_URL', 'https://studio.tailf266ac.ts.net:3148/api/readest');
   localStorage.clear();
   localStorage.setItem('token', 'test-device-token');
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
   http.mockReset();
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe('Thoughts device client', () => {
-  test('posts exact server body at the host origin with device headers', async () => {
+  test.each([
+    undefined,
+    {
+      kind: 'book' as const,
+      key: 'shelf:titan',
+      title: 'Titan',
+      location: 'epubcfi(/6/2)',
+      page: 12,
+    },
+  ])('posts exact server body at the host origin with device headers (%j)', async (attachment) => {
     http.mockResolvedValue(reply('thought-1'));
     expect(
       await captureThought({
         body: 'Keep this exactly.\n',
         captureId: 'thought-1',
         capturedAt: 123,
+        ...(attachment ? { attachment } : {}),
       }),
     ).toEqual({ ok: true, id: 'thought-1' });
     const [url, request] = http.mock.calls[0]!;
@@ -41,6 +55,8 @@ describe('Thoughts device client', () => {
       body: 'Keep this exactly.\n',
       captureId: 'thought-1',
       capturedAt: 123,
+      source: 'readest',
+      ...(attachment ? { attachment } : {}),
     });
     expect(request?.headers).toEqual({
       Authorization: 'Bearer test-device-token',
@@ -65,6 +81,8 @@ describe('Thoughts device client', () => {
     await captureThought({ body: 'Rate limited', captureId: 'limited' });
     http.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
     await captureThought({ body: 'Unacknowledged', captureId: 'unacked' });
+    http.mockResolvedValueOnce(new Response('timeout', { status: 408 }));
+    await captureThought({ body: 'Timeout', captureId: 'timeout' });
     http.mockResolvedValueOnce(new Response('bad', { status: 400 }));
     await captureThought({ body: 'Refused', captureId: 'refused' });
     expect(pending().map((item) => item.captureId)).toEqual([
@@ -72,6 +90,7 @@ describe('Thoughts device client', () => {
       'revoked',
       'limited',
       'unacked',
+      'timeout',
     ]);
     // A capture that was refused once before carries a retry count the server must not see.
     localStorage.setItem(
@@ -89,6 +108,7 @@ describe('Thoughts device client', () => {
       'revoked',
       'limited',
       'unacked',
+      'timeout',
     ]);
 
     http.mockImplementation(async (_url, request) =>
@@ -96,11 +116,12 @@ describe('Thoughts device client', () => {
     );
     await flushThoughtsQueue();
     expect(pending()).toEqual([]);
-    for (const [, request] of http.mock.calls.slice(-4)) {
+    for (const [, request] of http.mock.calls.slice(-5)) {
       expect(Object.keys(JSON.parse(String(request?.body))).sort()).toEqual([
         'body',
         'captureId',
         'capturedAt',
+        'source',
       ]);
     }
   });
@@ -122,7 +143,10 @@ describe('Thoughts device client', () => {
     http.mockResolvedValue(reply('offline-1'));
     window.dispatchEvent(new Event('online'));
     await flushThoughtsQueue();
-    expect(JSON.parse(String(http.mock.calls[0]![1]?.body))).toEqual(input);
+    expect(JSON.parse(String(http.mock.calls[0]![1]?.body))).toEqual({
+      ...input,
+      source: 'readest',
+    });
     expect(JSON.parse(localStorage.getItem('homebase-thoughts-pending-v1')!)).toEqual([]);
     stop();
   });
@@ -138,7 +162,7 @@ describe('Thoughts device client', () => {
     http.mockResolvedValueOnce(new Response('', { status: 403 }));
     expect(await captureThought({ body: 'Refused' })).toEqual({ ok: false, reason: 'unpaired' });
   });
-  test('a rejected queued item does not block later captures and expires after five attempts', async () => {
+  test('a rejected queued item is dropped immediately without blocking later captures', async () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     await captureThought({ body: 'Invalid', captureId: 'bad', capturedAt: 1 });
     await captureThought({ body: 'Valid', captureId: 'good', capturedAt: 2 });
@@ -149,19 +173,23 @@ describe('Thoughts device client', () => {
     });
     await flushThoughtsQueue();
     expect(http).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(localStorage.getItem('homebase-thoughts-pending-v1')!)).toEqual([
-      { body: 'Invalid', captureId: 'bad', capturedAt: 1, attempts: 1 },
-    ]);
-    for (let attempt = 2; attempt <= 5; attempt++) await flushThoughtsQueue();
     expect(JSON.parse(localStorage.getItem('homebase-thoughts-pending-v1')!)).toEqual([]);
-    expect(http).toHaveBeenCalledTimes(6);
+    expect(http).toHaveBeenCalledTimes(2);
   });
   test('voice uses raw audio and required intent and recorded-at headers', async () => {
     http.mockResolvedValue(
       new Response(JSON.stringify({ thought: { captureId: 'voice-1', body: 'Spoken thought' } })),
     );
     const audio = new Blob([encodeWav([new Float32Array(1600)], 16000)], { type: 'audio/wav' });
-    expect(await captureVoice(audio, 'voice-1')).toEqual({
+    const attachment = {
+      kind: 'book' as const,
+      key: 'calibre:42',
+      title: 'Títan',
+      location: 'epubcfi(/6/2)',
+      page: 12,
+    };
+    const recordedAt = '2026-10-05T12:00:00.000Z';
+    expect(await captureVoice(audio, 'voice-1', recordedAt, attachment)).toEqual({
       ok: true,
       id: 'voice-1',
       transcript: 'Spoken thought',
@@ -172,7 +200,96 @@ describe('Thoughts device client', () => {
       Authorization: 'Bearer test-device-token',
       'Content-Type': 'audio/wav',
       'X-Intent-Id': 'voice-1',
-      'X-Recorded-At': expect.any(String),
+      'X-Recorded-At': recordedAt,
+      'X-Thought-Source': 'readest',
     });
+    const headers = http.mock.calls[0]![1]?.headers as Record<string, string>;
+    expect(headers['X-Thought-Attachment']).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(
+      JSON.parse(Buffer.from(headers['X-Thought-Attachment']!, 'base64url').toString('utf8')),
+    ).toEqual(attachment);
   });
+});
+
+// Browser IndexedDB edge: opaque records only; the real queue/client own attachment persistence
+// and replay. jsdom has no IndexedDB. This does not prove browser disk durability.
+test('queued voice replays its attachment, keeps 408/auth/unacknowledged takes and drops 400', async () => {
+  const records = new Map<string, unknown>();
+  const db = {
+    close() {},
+    createObjectStore() {},
+    transaction() {
+      const tx = {
+        oncomplete: null as (() => void) | null,
+        objectStore: () => ({
+          getAll() {
+            const request = {
+              result: [...records.values()],
+              onsuccess: null as (() => void) | null,
+            };
+            setTimeout(() => {
+              request.onsuccess?.();
+              tx.oncomplete?.();
+            }, 0);
+            return request;
+          },
+          put(value: { id: string }) {
+            records.set(value.id, value);
+          },
+          delete(id: string) {
+            records.delete(id);
+            setTimeout(() => tx.oncomplete?.(), 0);
+          },
+        }),
+      };
+      return tx;
+    },
+  };
+  vi.stubGlobal('indexedDB', {
+    open() {
+      const request = { result: db, onsuccess: null as (() => void) | null };
+      setTimeout(() => request.onsuccess?.(), 0);
+      return request;
+    },
+  });
+  try {
+    const attachment = { kind: 'book' as const, key: 'shelf:titan', title: 'Titan', page: 12 };
+    const audio = new Blob([encodeWav([new Float32Array(1600)], 16000)], { type: 'audio/wav' });
+    const recordedAt = '2026-10-05T12:00:00.000Z';
+    http.mockResolvedValueOnce(new Response('', { status: 408 }));
+    expect(await captureVoice(audio, 'queued', recordedAt, attachment)).toEqual({
+      ok: false,
+      reason: 'offline',
+      queued: true,
+    });
+    for (const status of [408, 401, 403, 200]) {
+      http.mockResolvedValueOnce(new Response('{}', { status }));
+      await flushThoughtsQueue();
+      expect(records.size).toBe(1);
+    }
+    http.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, thought: { captureId: 'queued' }, deduped: true }), {
+        status: 200,
+      }),
+    );
+    await flushThoughtsQueue();
+    expect(records.size).toBe(0);
+    const headers = http.mock.calls.at(-1)![1]?.headers as Record<string, string>;
+    expect(headers['X-Recorded-At']).toBe(recordedAt);
+    expect(headers['X-Thought-Source']).toBe('readest');
+    expect(
+      JSON.parse(Buffer.from(headers['X-Thought-Attachment']!, 'base64url').toString('utf8')),
+    ).toEqual(attachment);
+    http.mockResolvedValueOnce(new Response('', { status: 401 }));
+    expect(await captureVoice(audio, 'refused', recordedAt, attachment)).toEqual({
+      ok: false,
+      reason: 'unpaired',
+      queued: true,
+    });
+    http.mockResolvedValueOnce(new Response('', { status: 400 }));
+    await flushThoughtsQueue();
+    expect(records.size).toBe(0);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

@@ -1,9 +1,12 @@
+import type { ThoughtAttachment } from './client';
+
 const MAX_TAKE_BYTES = 1024 * 1024;
 const MAX_QUEUE_BYTES = 4 * MAX_TAKE_BYTES;
 export interface PendingVoice {
   audio: Blob;
   id: string;
   recordedAt: string;
+  attachment?: ThoughtAttachment;
 }
 
 async function database(): Promise<IDBDatabase> {

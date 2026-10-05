@@ -68,7 +68,7 @@ beforeEach(() => {
     booksData: {
       voice: {
         id: 'voice',
-        book: { hash: 'voice', title: 'Book', author: 'Author' } as Book,
+        book: { hash: 'voice', title: 'Book', author: 'Author', calibreId: 42 } as Book,
         file: null,
         config: { booknotes: [] } as unknown as BookConfig,
         bookDoc: null,
@@ -124,7 +124,10 @@ test('hold records static status; release posts WAV with device auth and closes 
     'Content-Type': 'audio/wav',
     Authorization: 'Bearer test-device-token',
     'X-Intent-Id': expect.any(String),
+    'X-Thought-Source': 'readest',
+    'X-Recorded-At': expect.any(String),
   });
+  expect(request.headers['X-Thought-Attachment']).toBeUndefined();
   expect(request.body.type).toBe('audio/wav');
   expect(request.body.size).toBe(3244);
 });
@@ -140,6 +143,16 @@ test.each([
   const posts = network.mock.calls.filter(([, request]) => request?.method === 'POST');
   expect(posts).toHaveLength(1);
   expect(posts[0]![0]).toBe('https://studio.tailf266ac.ts.net:3148/api/thoughts/voice');
+  const encoded = posts[0]![1].headers['X-Thought-Attachment'];
+  if (kind === 'page-note') {
+    expect(JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'))).toEqual({
+      kind: 'book',
+      key: 'calibre:42',
+      title: 'Book',
+      location: 'epubcfi(/6/2!/4/2/1:0)',
+      page: 12,
+    });
+  } else expect(encoded).toBeUndefined();
   expect(useBookDataStore.getState().getConfig('voice-book')!.booknotes).toEqual(
     kind === 'page-note'
       ? [expect.objectContaining({ type: 'bookmark', note: 'Remember this idea', page: 12 })]
@@ -197,4 +210,82 @@ test('pointer hold/release sends; cancelled gesture discards audio', async () =>
   fireEvent(button, new MouseEvent('pointerup', { bubbles: true, button: 0 }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(network).toHaveBeenCalledOnce();
+});
+
+// Real sheet -> client -> HTTP: protects the page-context contract without mocking our client.
+test.each([
+  {
+    kind: 'note',
+    shelfKey: null,
+    calibreId: 42,
+    location: 'epubcfi(/6/2!/4/2/1:0)',
+    page: 12,
+    attachment: undefined,
+  },
+  {
+    kind: 'page-note',
+    shelfKey: 'shelf:book',
+    calibreId: 42,
+    location: 'epubcfi(/6/2!/4/2/1:0)',
+    page: 12,
+    attachment: {
+      kind: 'book',
+      key: 'shelf:book',
+      title: 'Book',
+      location: 'epubcfi(/6/2!/4/2/1:0)',
+      page: 12,
+    },
+  },
+  {
+    kind: 'page-note',
+    shelfKey: null,
+    calibreId: 42,
+    location: 'x'.repeat(501),
+    page: 0,
+    attachment: { kind: 'book', key: 'calibre:42', title: 'Book' },
+  },
+  {
+    kind: 'page-note',
+    shelfKey: null,
+    calibreId: undefined,
+    location: 'epubcfi(/6/2!/4/2/1:0)',
+    page: 12,
+    attachment: undefined,
+  },
+])('text $kind sends structured context ($shelfKey, $calibreId)', async ({
+  kind,
+  shelfKey,
+  calibreId,
+  location,
+  page,
+  attachment,
+}) => {
+  const data = useBookDataStore.getState().booksData['voice']!;
+  if (!data.book) throw new Error('Missing fixture book');
+  data.book.calibreId = calibreId;
+  setBookProgress('voice-book', { location, page } as BookProgress);
+  const discovery = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ work: { owned: { ebook: { shelfKey, calibreId: 42 } } } })),
+  );
+  vi.stubGlobal('fetch', (url: string, request?: RequestInit) =>
+    url.includes('/api/thoughts') ? network(url, request) : discovery(),
+  );
+  await open(kind);
+  if (kind === 'page-note') {
+    await waitFor(() => expect(discovery).toHaveBeenCalledOnce());
+    await act(async () => {});
+  }
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'My exact note\n' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  const [url, request] = network.mock.calls[0]!;
+  expect(url).toBe('https://studio.tailf266ac.ts.net:3148/api/thoughts');
+  expect(JSON.parse(request.body)).toEqual({
+    body: 'My exact note\n',
+    captureId: expect.any(String),
+    capturedAt: expect.any(Number),
+    source: 'readest',
+    ...(attachment ? { attachment } : {}),
+  });
 });

@@ -6,10 +6,17 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { getBookProgress } from '@/store/readerProgressStore';
 import { isHouseholdBuild } from '@/services/household';
-import { captureThought, postVoiceThought, watchThoughtsQueue } from '@/services/thoughts/client';
+import {
+  captureThought,
+  postVoiceThought,
+  watchThoughtsQueue,
+  type ThoughtAttachment,
+} from '@/services/thoughts/client';
 import { startWavRecording, type WavRecording } from '@/services/thoughts/wavRecorder';
 import { eventDispatcher } from '@/utils/event';
 import { isCfiInLocation } from '@/utils/cfi';
+import { discoverClient } from '@/services/discover/client';
+import type { PendingVoice } from '@/services/thoughts/voiceQueue';
 import type { BookNote } from '@/types/book';
 
 interface CaptureSession {
@@ -20,7 +27,7 @@ interface CaptureSession {
   page?: number;
   title: string;
   author: string;
-  calibreId?: number;
+  attachment?: ThoughtAttachment;
   existing: boolean;
   pageNotes: BookNote[];
 }
@@ -38,7 +45,7 @@ export function CaptureSheets() {
   const [recording, setRecording] = useState(false);
   const held = useRef(false);
   const recorder = useRef<Promise<WavRecording> | null>(null);
-  const pendingVoice = useRef<{ audio: Blob; id: string; recordedAt: string } | null>(null);
+  const pendingVoice = useRef<PendingVoice | null>(null);
 
   useEffect(
     () => () => {
@@ -78,7 +85,12 @@ export function CaptureSheets() {
     try {
       const pending = pendingVoice.current;
       if (!pending) return;
-      const result = await postVoiceThought(pending.audio, pending.id, pending.recordedAt);
+      const result = await postVoiceThought(
+        pending.audio,
+        pending.id,
+        pending.recordedAt,
+        pending.attachment,
+      );
       if (result.ok) {
         pendingVoice.current = null;
         if (session.kind === 'page-note' && result.transcript) {
@@ -128,6 +140,7 @@ export function CaptureSheets() {
         audio,
         id: crypto.randomUUID(),
         recordedAt: new Date().toISOString(),
+        attachment: session?.attachment,
       };
     } catch {
       // Startup displays the specific permission error above.
@@ -157,13 +170,27 @@ export function CaptureSheets() {
       const note = data?.config?.booknotes?.find(
         (item) => item.id === detail.id && !item.deletedAt,
       );
-      let cfi = note?.cfi ?? progress?.location ?? '';
+      const location = note?.cfi ?? progress?.location ?? '';
+      let cfi = location;
       try {
         cfi = CFI.collapse(cfi);
       } catch {
         /* Fixed-layout locators already name the page. */
       }
-      setSession({
+      const page = note?.page ?? progress?.page;
+      const title = data?.book?.title ?? '';
+      const calibreId = data?.book?.calibreId;
+      const attachment: ThoughtAttachment | undefined =
+        detail.kind === 'page-note' && calibreId != null && title
+          ? {
+              kind: 'book',
+              key: `calibre:${calibreId}`,
+              title: title.slice(0, 300),
+              ...(location && location.length <= 500 ? { location } : {}),
+              ...(page != null && Number.isInteger(page) && page > 0 ? { page } : {}),
+            }
+          : undefined;
+      const nextSession: CaptureSession = {
         bookKey: detail.bookKey,
         kind: detail.kind,
         id: note?.id ?? crypto.randomUUID(),
@@ -171,7 +198,7 @@ export function CaptureSheets() {
         page: note?.page ?? progress?.page,
         title: data?.book?.title ?? '',
         author: data?.book?.author ?? '',
-        calibreId: data?.book?.calibreId,
+        attachment,
         existing: !!note,
         pageNotes:
           detail.kind === 'page-note'
@@ -185,7 +212,29 @@ export function CaptureSheets() {
                 )
                 .sort((a, b) => b.createdAt - a.createdAt)
             : [],
-      });
+      };
+      setSession(nextSession);
+      // Book metadata only stores calibreId. Discover owns the shelf work-key mapping.
+      if (detail.kind === 'page-note' && title) {
+        void discoverClient
+          .work({ title, author: data?.book?.author })
+          .then((result) => {
+            if (!result.ok) return;
+            const ebook = result.data.work.owned.ebook;
+            if (!ebook?.shelfKey || (calibreId != null && ebook.calibreId !== calibreId)) return;
+            const resolved: ThoughtAttachment = {
+              kind: 'book',
+              key: ebook.shelfKey,
+              title: title.slice(0, 300),
+              ...(location && location.length <= 500 ? { location } : {}),
+              ...(page != null && Number.isInteger(page) && page > 0 ? { page } : {}),
+            };
+            setSession((current) =>
+              current === nextSession ? { ...current, attachment: resolved } : current,
+            );
+          })
+          .catch(() => {});
+      }
       pendingVoice.current = null;
       setText(note?.note ?? '');
       setMessage('');
@@ -228,18 +277,17 @@ export function CaptureSheets() {
     setSaving(true);
     setMessage('');
     try {
-      let body = text;
       if (session.kind === 'page-note') {
         await savePageNote(text);
         if (session.existing) {
           setSession(null);
           return;
         }
-        // The server ignores unknown JSON fields; put the attachment in its supported body.
-        body += `\n\n${session.title} — ${session.author}\np. ${session.page ?? '?'}\n${session.cfi}`;
-        if (session.calibreId != null) body += `\ncalibreId: ${session.calibreId}`;
       }
-      const result = await captureThought({ body });
+      const result = await captureThought({
+        body: text,
+        ...(session.attachment ? { attachment: session.attachment } : {}),
+      });
       if (result.ok || result.reason === 'offline') {
         setSession(null);
         if (!result.ok) setMessage(_("Saved offline. It sends when you're back."));

@@ -100,7 +100,8 @@ test('page note persists a bookmark, is page scoped, and reopens for editing', a
   });
   expect(saveConfig).toHaveBeenCalledOnce();
   expect(capture).toHaveBeenCalledWith({
-    body: `Consistency compounds\n\nTitan — Ron Chernow\np. 112\n${location}\ncalibreId: 42`,
+    body: 'Consistency compounds',
+    attachment: { kind: 'book', key: 'calibre:42', title: 'Titan', location, page: 112 },
   });
   expect(hook.result.current.notesOnCurrentPage.map((item) => item.text)).toEqual([
     'Consistency compounds',
