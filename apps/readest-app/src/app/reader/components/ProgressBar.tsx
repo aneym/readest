@@ -1,4 +1,7 @@
 import clsx from 'clsx';
+import { isHouseholdBuild } from '@/services/household';
+import { isForcedMobileLayout } from '../utils/mobileLayout';
+import { PageNoteProgress } from './footerbar/PageNoteProgress';
 import React, { useMemo, useState } from 'react';
 import { Trans } from 'react-i18next';
 import type { Insets } from '@/types/misc';
@@ -34,6 +37,8 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
 }) => {
   const _ = useTranslation();
   const { appService } = useEnv();
+  const householdMobile =
+    isHouseholdBuild() && (isForcedMobileLayout(appService?.isMobile) || window.innerWidth < 640);
   const getBookData = useBookDataStore((s) => s.getBookData);
   const getViewSettings = useReaderStore((s) => s.getViewSettings);
   const getView = useReaderStore((s) => s.getView);
@@ -206,7 +211,7 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
       }
     >
       <div
-        aria-hidden='true'
+        aria-hidden={householdMobile ? undefined : true}
         onClick={hasFooterContent ? () => setDismissed((prev) => !prev) : undefined}
         className={clsx(
           'progress-strip flex items-center',
@@ -220,6 +225,7 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
         )}
         style={isVertical ? {} : { height: `${viewSettings.marginBottomPx}px` }}
       >
+        {householdMobile && <PageNoteProgress bookKey={bookKey} />}
         {stickyBarActive && (
           <StickyProgressBar
             className='h-3 flex-1'

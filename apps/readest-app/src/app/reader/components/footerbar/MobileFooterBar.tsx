@@ -1,4 +1,5 @@
 import React from 'react';
+import { isHouseholdBuild } from '@/services/household';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { FooterBarChildProps } from './types';
 import { NavigationPanel } from './NavigationPanel';
@@ -19,7 +20,12 @@ const MobileFooterBar: React.FC<FooterBarChildProps> = ({
   const isMobile = forceMobileLayout || window.innerWidth < 640 || window.innerHeight < 640;
   const sliderHeight = useResponsiveSize(28);
   const marginIconSize = useResponsiveSize(20);
-  const bottomOffset = isMobile ? `${gridInsets.bottom * 0.33 + 64}px` : '64px';
+  const householdMobile = isHouseholdBuild() && (forceMobileLayout || window.innerWidth < 640);
+  const bottomOffset = householdMobile
+    ? `${gridInsets.bottom * 0.33 + 120}px`
+    : isMobile
+      ? `${gridInsets.bottom * 0.33 + 64}px`
+      : '64px';
 
   return (
     <>

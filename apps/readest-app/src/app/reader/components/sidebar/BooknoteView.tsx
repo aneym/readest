@@ -19,6 +19,7 @@ import {
   HighlightColor,
   HighlightStyle,
 } from '@/types/book';
+import { isHouseholdBuild } from '@/services/household';
 import { useTranslation } from '@/hooks/useTranslation';
 import { eventDispatcher } from '@/utils/event';
 import {
@@ -117,7 +118,9 @@ const BooknoteView: React.FC<{
   // config fields change (e.g. viewSettings, lastUpdated).
   const filteredNotes = useMemo(() => {
     if (type !== 'annotation') {
-      return allNotes.filter((note) => note.type === type && !note.deletedAt);
+      return allNotes.filter(
+        (note) => note.type === type && (!isHouseholdBuild() || !note.note) && !note.deletedAt,
+      );
     }
     return filterBooknotes(liveAnnotations, {
       kind: filterKind,

@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { isHouseholdBuild } from '@/services/household';
 import React, { useCallback, useMemo, useEffect, useRef } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useSpatialNavigation } from '@/app/reader/hooks/useSpatialNavigation';
@@ -209,6 +210,8 @@ const FooterBar: React.FC<FooterBarProps> = ({
 
   const forceMobileLayout = isForcedMobileLayout(appService?.isMobile);
 
+  const householdMobile = isHouseholdBuild() && (forceMobileLayout || window.innerWidth < 640);
+
   const commonProps: FooterBarChildProps = {
     bookKey,
     gridInsets,
@@ -229,11 +232,11 @@ const FooterBar: React.FC<FooterBarProps> = ({
     'footer-bar shadow-xs bottom-0 left-0 z-10 flex w-full flex-col',
     !forceMobileLayout && 'sm:h-[52px] sm:bg-base-100 sm:border-none',
     'not-eink:border-base-300/50 eink:border-base-content border-t',
-    'transition-[opacity,transform] duration-300',
+    !householdMobile && 'transition-[opacity,transform] duration-300',
     getFooterBarPosition(forceMobileLayout || window.innerWidth < 640, isSideBarPinned),
     appService?.hasRoundedWindow && 'rounded-window-bottom-right',
     !isSideBarVisible && appService?.hasRoundedWindow && 'rounded-window-bottom-left',
-    isHoveredAnim && 'hover-bar-anim',
+    !householdMobile && isHoveredAnim && 'hover-bar-anim',
     !forceMobileLayout &&
       (needHorizontalScroll ? 'sm:!bottom-3 sm:!h-10 sm:justify-end' : 'sm:justify-center'),
     isVisible
@@ -271,7 +274,7 @@ const FooterBar: React.FC<FooterBarProps> = ({
         onMouseLeave={() => window.innerWidth >= 640 && setHoveredBookKey('')}
       >
         <MobileFooterBar {...commonProps} />
-        <DesktopFooterBar {...commonProps} />
+        {!householdMobile && <DesktopFooterBar {...commonProps} />}
       </div>
       {isVisible && needHorizontalScroll && (
         <div className='bg-base-100 pointer-events-none absolute bottom-0 left-0 hidden h-3 w-full sm:block' />
