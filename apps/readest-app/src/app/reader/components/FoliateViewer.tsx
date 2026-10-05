@@ -147,6 +147,7 @@ const FoliateViewer: React.FC<{
   const [toastMessage, setToastMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [navigating, setNavigating] = useState(false);
+  const navSpinnerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const librarySearchHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [scrollMargins, setScrollMargins] = useState({ top: 0, bottom: 0 });
   const docLoaded = useRef(false);
@@ -158,6 +159,7 @@ const FoliateViewer: React.FC<{
   // Cancel the pending library search highlight when the view unmounts.
   useEffect(() => {
     return () => {
+      if (navSpinnerTimerRef.current) clearTimeout(navSpinnerTimerRef.current);
       if (librarySearchHighlightTimerRef.current) {
         clearTimeout(librarySearchHighlightTimerRef.current);
       }
@@ -516,11 +518,16 @@ const FoliateViewer: React.FC<{
   };
 
   const navigateStartHandler = useCallback(() => {
-    // Spinner owns the 600 ms delay, including section navigation.
-    setNavigating(true);
+    if (navSpinnerTimerRef.current) clearTimeout(navSpinnerTimerRef.current);
+    // Delay so instant same-section jumps don't flash the spinner.
+    navSpinnerTimerRef.current = setTimeout(() => setNavigating(true), 200);
   }, []);
 
   const navigateEndHandler = useCallback(() => {
+    if (navSpinnerTimerRef.current) {
+      clearTimeout(navSpinnerTimerRef.current);
+      navSpinnerTimerRef.current = null;
+    }
     setNavigating(false);
   }, []);
 
@@ -1099,7 +1106,7 @@ const FoliateViewer: React.FC<{
       )}
       <ParagraphControl bookKey={bookKey} viewRef={viewRef} gridInsets={gridInsets} />
       {((!docLoaded.current && loading) || navigating || viewState?.loading) && (
-        <Spinner loading className='z-10' />
+        <Spinner loading bookOpen={loading} className='z-10' />
       )}
       {syncState === 'conflict' && conflictDetails && (
         <KOSyncConflictResolver

@@ -24,7 +24,13 @@ export const getBookDownloadFailureMessage = (
 ): string => {
   const message = error instanceof Error ? error.message : String(error ?? '');
   const match = /Homebase book download failed \((\d+); ([A-Z_]+)\)/.exec(message);
-  if (!match) return _('Failed to download book: {{title}}', { title });
+  if (!match && !isMissingHomebaseBookError(error))
+    return _('Failed to download book: {{title}}', { title });
+  if (!match)
+    return _(
+      'Homebase cannot find {{title}}. Refresh the library; if it still fails, restore the book file on Homebase',
+      { title },
+    );
   const status = Number(match[1]);
   if (match[2] === 'MEDIA_TAILNET_ONLY')
     return _('Connect to the household network or Tailscale to download {{title}}', { title });

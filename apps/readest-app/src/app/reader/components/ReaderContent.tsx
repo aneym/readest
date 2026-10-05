@@ -314,7 +314,7 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   const bookData = getBookData(bookKeys[0]!);
   const viewSettings = getViewSettings(bookKeys[0]!);
   if (!bookData || !bookData.book || !bookData.bookDoc || !viewSettings) {
-    return !errorLoading && <Spinner loading />;
+    return !errorLoading && <Spinner loading bookOpen />;
   }
 
   return (

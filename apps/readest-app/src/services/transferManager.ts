@@ -232,6 +232,23 @@ class TransferManager {
     return this.readyPromise;
   }
 
+  /** Join a library download without starting a second HTTP/file write. */
+  async waitForDownload(bookHash: string): Promise<void> {
+    const transfer = useTransferStore.getState().getTransferByBookHash(bookHash, 'download');
+    if (!transfer) return;
+    await new Promise<void>((resolve, reject) => {
+      const check = () => {
+        const current = useTransferStore.getState().transfers[transfer.id];
+        if (current?.status === 'pending' || current?.status === 'in_progress') return;
+        unsubscribe();
+        if (current?.status === 'completed') resolve();
+        else reject(new Error(current?.error || this._!('Book download cancelled')));
+      };
+      const unsubscribe = useTransferStore.subscribe(check);
+      check();
+    });
+  }
+
   queueUpload(book: Book, priority: number = 10): string | null {
     if (!this.isReady()) {
       console.warn('TransferManager not initialized');
@@ -282,7 +299,7 @@ class TransferManager {
         t.status === 'failed' &&
         isMissingHomebaseBookError(t.error),
     );
-    if (missing) return missing.id;
+    if (missing) return null;
 
     const existing = store.getTransferByBookHash(book.hash, 'download');
     if (existing) {
@@ -649,7 +666,7 @@ class TransferManager {
         // fired one toast per file (issue #5675 — sixteen "Failed to download
         // file" toasts for sixteen fonts). The failure is still recorded on
         // the transfer, which is what the Transfer Queue panel reads.
-        if (!transfer.isBackground && !isMissingBook) {
+        if (!transfer.isBackground) {
           if (errorMessage.includes('Not authenticated')) {
             eventDispatcher.dispatch('toast', {
               type: 'error',
