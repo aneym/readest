@@ -49,7 +49,11 @@ async function* streamViaApiRoute(
   });
 
   if (!response.ok) {
-    throw { responseBody: await response.text(), statusCode: response.status };
+    throw {
+      responseBody: await response.text(),
+      statusCode: response.status,
+      responseHeaders: { 'content-type': response.headers.get('content-type') },
+    };
   }
 
   if (!response.body) throw new Error(_("The assistant didn't answer: empty response."));
@@ -60,6 +64,19 @@ async function* streamViaApiRoute(
     const { done, value } = await reader.read();
     if (done) break;
     yield decoder.decode(value, { stream: true });
+  }
+}
+
+async function* streamSdkText(
+  result: Pick<ReturnType<typeof streamText>, 'fullStream' | 'textStream'>,
+): AsyncGenerator<string> {
+  if (!result.fullStream) {
+    yield* result.textStream;
+    return;
+  }
+  for await (const chunk of result.fullStream) {
+    if (chunk.type === 'error') throw chunk.error;
+    if (chunk.type === 'text-delta') yield chunk.text;
   }
 }
 
@@ -76,16 +93,34 @@ function errorDetail(error: unknown, depth = 0): string | undefined {
     }
   }
   if (typeof error !== 'object') return undefined;
-  for (const key of ['responseBody', 'lastError', 'cause', 'error', 'message']) {
+  const body = Reflect.get(error, 'responseBody') ?? Reflect.get(error, 'message');
+  const headers = Reflect.get(error, 'responseHeaders');
+  const contentType =
+    headers && typeof headers === 'object' ? Reflect.get(headers, 'content-type') : undefined;
+  const htmlBody =
+    (typeof contentType === 'string' && /text\/html/i.test(contentType)) ||
+    (typeof body === 'string' && body.trimStart().startsWith('<'));
+  for (const key of htmlBody
+    ? ['lastError', 'cause']
+    : ['responseBody', 'lastError', 'cause', 'error', 'message']) {
     if (key in error) {
       const detail = errorDetail(Reflect.get(error, key), depth + 1);
       if (detail) return detail;
     }
   }
-  if ('statusCode' in error) {
-    return _("The assistant didn't answer: HTTP {{status}}.", {
-      status: Reflect.get(error, 'statusCode'),
-    });
+  if ('statusCode' in error || 'status_code' in error) {
+    const status = Reflect.get(error, 'statusCode') ?? Reflect.get(error, 'status_code');
+    const reasons: Record<string, string> = {
+      '401': 'Unauthorized',
+      '403': 'Forbidden',
+      '500': 'Internal Server Error',
+      '502': 'Bad Gateway',
+      '503': 'Service Unavailable',
+    };
+    const reason = Reflect.get(error, 'statusText') || reasons[String(status)];
+    return reason
+      ? _("The assistant didn't answer: {{status}} {{reason}}.", { status, reason })
+      : _("The assistant didn't answer: HTTP {{status}}.", { status });
   }
   return undefined;
 }
@@ -98,9 +133,17 @@ function assistantErrorMessage(error: unknown, settings: AISettings): string {
       if (key) detail = detail.split(key).join('[redacted]');
     }
     detail = detail
-      .replace(/(?:Bearer|Basic)\s+[^\s"',;]+/gi, '[redacted]')
-      .replace(/(?:authorization|x-api-key|api-key)\s*[:=][^\r\n]*/gi, '[redacted]')
-      .replace(/\bsk-[A-Za-z0-9_-]+/g, '[redacted]');
+      .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/-]{16,}=*/gi, '$1 [redacted]')
+      .replace(
+        /((?:["']?(?:token|api[-_]?key|x-api-key|authorization|secret|password)["']?)\s*=\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+        '$1[redacted]',
+      )
+      .replace(
+        /(["'](?:token|api[-_]?key|x-api-key|authorization|secret|password)["']\s*:\s*)(["'])[^"']*\2/gi,
+        '$1$2[redacted]$2',
+      )
+      .replace(/\b(?:sk|pk)-[A-Za-z0-9_-]+/g, '[redacted]')
+      .replace(/\b[A-Za-z0-9+/]{24,}={0,2}(?![A-Za-z0-9+/])/g, '[redacted]');
     return detail;
   }
   return _("The assistant didn't answer: unknown error.");
@@ -180,10 +223,8 @@ export function createTauriAdapter(getOptions: () => TauriAdapterOptions): ChatM
             stopWhen: stepCountIs(3),
             abortSignal,
           });
-          for await (const chunk of result.fullStream) {
-            if (chunk.type === 'error') throw chunk.error;
-            if (chunk.type !== 'text-delta') continue;
-            text += chunk.text;
+          for await (const chunk of streamSdkText(result)) {
+            text += chunk;
             yield { content: [{ type: 'text', text }] };
           }
         } else {
@@ -230,21 +271,19 @@ export function createTauriAdapter(getOptions: () => TauriAdapterOptions): ChatM
               messages: aiMessages,
               abortSignal,
             });
-            for await (const chunk of result.fullStream) {
-              if (chunk.type === 'error') throw chunk.error;
-              if (chunk.type !== 'text-delta') continue;
-              text += chunk.text;
+            for await (const chunk of streamSdkText(result)) {
+              text += chunk;
               yield { content: [{ type: 'text', text }] };
             }
           }
         }
 
-        if (!text.trim() && !abortSignal.aborted) {
+        if (!text.trim() && !abortSignal?.aborted) {
           throw new Error(_("The assistant didn't answer: empty response."));
         }
         aiLogger.chat.complete(text.length);
       } catch (error) {
-        if (!abortSignal.aborted && !(error instanceof Error && error.name === 'AbortError')) {
+        if (!abortSignal?.aborted && !(error instanceof Error && error.name === 'AbortError')) {
           const message = assistantErrorMessage(error, settings);
           aiLogger.chat.error(message);
           yield {

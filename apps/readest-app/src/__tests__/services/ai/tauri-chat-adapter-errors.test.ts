@@ -204,6 +204,39 @@ for (const provider of ['homebase', 'openrouter', 'ollama', 'ai-gateway'] as con
       expect(text(results.at(-1))).toBe(pairing);
       expect(results.at(-1)?.status).toMatchObject({ type: 'incomplete', reason: 'error' });
     });
+    it.each([
+      'Invalid api-key: check settings',
+      'Bearer token is invalid',
+    ])('preserves credential terminology in %s', async (body) => {
+      fetchEdge.mockImplementation(async () => new Response(body, { status: 401 }));
+      expect(text((await run(provider)).at(-1))).toBe(body);
+    });
+    it.each([
+      ['Bearer abcdefghijklmnop', 'Bearer [redacted]'],
+      ['Denied sk-example-key pk-example-key', 'Denied [redacted] [redacted]'],
+      ['Denied abcdef0123456789abcdef0123456789', 'Denied [redacted]'],
+      ['Denied YWJjZGVmZ2hpamtsbW5vcHFy', 'Denied [redacted]'],
+      ['api-key=short-value', 'api-key=[redacted]'],
+      ['"token":"short-value"', '"token":"[redacted]"'],
+    ])('redacts credential values in %s', async (body, expected) => {
+      fetchEdge.mockImplementation(async () => new Response(body, { status: 401 }));
+      expect(text((await run(provider)).at(-1))).toBe(expected);
+    });
+    it.each([
+      ['  <!doctype html><html>proxy failed</html>', 'text/plain'],
+      ...(provider === 'ollama' ? [] : [['Proxy diagnostic page', 'text/html; charset=utf-8']]),
+    ])(
+      'summarizes HTML error bodies instead of displaying %s',
+      async (body, contentType) => {
+        fetchEdge.mockImplementation(
+          async () => new Response(body, { status: 502, headers: { 'Content-Type': contentType } }),
+        );
+        expect(text((await run(provider)).at(-1))).toBe(
+          "The assistant didn't answer: 502 Bad Gateway.",
+        );
+      },
+      15000,
+    );
     it('shows network failure', async () => {
       fetchEdge.mockRejectedValue(new TypeError('Network unreachable'));
       expect(text((await run(provider)).at(-1))).toContain('Network unreachable');
@@ -251,7 +284,7 @@ it('redacts keys and authorization headers from error text', async () => {
   expect(result).toContain('Denied');
   expect(result).not.toContain('test-provider-key');
   expect(result).not.toContain('test-device-token');
-  expect(result).not.toContain('Authorization');
+  expect(result).toContain('Authorization');
 });
 it('does not turn user cancellation into an error reply', async () => {
   const controller = new AbortController();
