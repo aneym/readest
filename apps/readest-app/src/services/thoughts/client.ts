@@ -79,7 +79,8 @@ async function send(
       return { ok: false, reason: 'unpaired' };
     // A 4xx means Homebase refused this exact capture; retrying won't help. A 5xx is an
     // outage, so the capture waits like an offline one.
-    if (response.status >= 400 && response.status < 500) return { ok: false, reason: 'error' };
+    if (response.status >= 400 && response.status < 500 && response.status !== 429)
+      return { ok: false, reason: 'error' };
     if (!response.ok) return { ok: false, reason: 'offline' };
     const data: unknown = await response.json();
     if (
@@ -98,7 +99,8 @@ async function send(
           ? { transcript: data.thought.body }
           : {}),
       };
-    return { ok: false, reason: 'error' };
+    // No acknowledgement: send again later. Homebase dedupes on captureId.
+    return { ok: false, reason: 'offline' };
   } catch {
     return { ok: false, reason: 'offline' };
   } finally {

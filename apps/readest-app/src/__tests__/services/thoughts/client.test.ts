@@ -61,23 +61,42 @@ describe('Thoughts device client', () => {
     await captureThought({ body: 'During an outage', captureId: 'outage' });
     http.mockResolvedValueOnce(new Response('no', { status: 401 }));
     await captureThought({ body: 'Token rejected', captureId: 'revoked' });
+    http.mockResolvedValueOnce(new Response('slow down', { status: 429 }));
+    await captureThought({ body: 'Rate limited', captureId: 'limited' });
+    http.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
+    await captureThought({ body: 'Unacknowledged', captureId: 'unacked' });
     http.mockResolvedValueOnce(new Response('bad', { status: 400 }));
     await captureThought({ body: 'Refused', captureId: 'refused' });
-    expect(pending().map((item) => item.captureId)).toEqual(['outage', 'revoked']);
+    expect(pending().map((item) => item.captureId)).toEqual([
+      'outage',
+      'revoked',
+      'limited',
+      'unacked',
+    ]);
+    // A capture that was refused once before carries a retry count the server must not see.
+    localStorage.setItem(
+      'homebase-thoughts-pending-v1',
+      JSON.stringify(pending().map((item, i) => (i === 0 ? { ...item, attempts: 2 } : item))),
+    );
 
     // Five flushes through an outage lose nothing.
     for (let i = 0; i < 5; i++) {
       http.mockImplementation(async () => new Response('down', { status: 503 }));
       await flushThoughtsQueue();
     }
-    expect(pending().map((item) => item.captureId)).toEqual(['outage', 'revoked']);
+    expect(pending().map((item) => item.captureId)).toEqual([
+      'outage',
+      'revoked',
+      'limited',
+      'unacked',
+    ]);
 
     http.mockImplementation(async (_url, request) =>
       reply(JSON.parse(String(request?.body)).captureId),
     );
     await flushThoughtsQueue();
     expect(pending()).toEqual([]);
-    for (const [, request] of http.mock.calls.slice(-2)) {
+    for (const [, request] of http.mock.calls.slice(-4)) {
       expect(Object.keys(JSON.parse(String(request?.body))).sort()).toEqual([
         'body',
         'captureId',
