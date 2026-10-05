@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { encodeWav } from '@/services/thoughts/wavRecorder';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import {
   captureThought,
@@ -86,12 +87,19 @@ describe('Thoughts device client', () => {
     expect(await captureThought({ body: 'Refused' })).toEqual({ ok: false, reason: 'unpaired' });
   });
   test('voice uses raw audio and required intent and recorded-at headers', async () => {
-    http.mockResolvedValue(reply('voice-1'));
-    const audio = new Blob(['RIFF audio fixture'], { type: 'audio/wav' });
-    expect(await captureVoice(audio, 'voice-1')).toEqual({ ok: true, id: 'voice-1' });
+    http.mockResolvedValue(
+      new Response(JSON.stringify({ thought: { captureId: 'voice-1', body: 'Spoken thought' } })),
+    );
+    const audio = new Blob([encodeWav([new Float32Array(1600)], 16000)], { type: 'audio/wav' });
+    expect(await captureVoice(audio, 'voice-1')).toEqual({
+      ok: true,
+      id: 'voice-1',
+      transcript: 'Spoken thought',
+    });
     expect(http.mock.calls[0]![0]).toBe('https://studio.tailf266ac.ts.net:3148/api/thoughts/voice');
     expect(http.mock.calls[0]![1]?.body).toBe(audio);
     expect(http.mock.calls[0]![1]?.headers).toMatchObject({
+      Authorization: 'Bearer test-device-token',
       'Content-Type': 'audio/wav',
       'X-Intent-Id': 'voice-1',
       'X-Recorded-At': expect.any(String),

@@ -26,6 +26,7 @@ vi.mock('@/hooks/useTranslation', () => ({
 }));
 vi.mock('@/services/thoughts/client', () => ({
   captureThought: vi.fn(),
+  postVoiceThought: vi.fn(),
   watchThoughtsQueue: () => () => {},
 }));
 const capture = vi.mocked(captureThought);
@@ -136,16 +137,4 @@ test('offline save closes with honest copy; an unpaired save keeps the draft', a
     expect(screen.getByText('Pair this reader with Homebase to save to Thoughts.')).toBeTruthy(),
   );
   expect(screen.getByRole<HTMLTextAreaElement>('textbox').value).toBe('Still here');
-});
-
-test('Voice and Hold to talk are honestly unavailable, never silently record', async () => {
-  render(<CaptureSheets />);
-  await open('voice');
-  expect(
-    screen.getByText('Voice is unavailable in this build. Type your note instead.'),
-  ).toBeTruthy();
-  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Hold to talk' }).disabled).toBe(
-    true,
-  );
-  expect(capture).not.toHaveBeenCalled();
 });

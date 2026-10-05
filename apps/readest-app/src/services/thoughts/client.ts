@@ -1,11 +1,12 @@
+import { queueVoice, readVoiceQueue, removeVoice } from './voiceQueue';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { isTauriAppPlatform } from '@/services/environment';
 import { isHouseholdBuild } from '@/services/household';
 import { getHomebaseBaseUrl } from '@/services/sync/homebase/config';
 
 export type ThoughtsResult =
-  | { ok: true; id: string }
-  | { ok: false; reason: 'offline' | 'unpaired' | 'error' };
+  | { ok: true; id: string; transcript?: string }
+  | { ok: false; reason: 'offline' | 'unpaired' | 'error'; queued?: boolean };
 
 export interface ThoughtInput {
   body: string;
@@ -86,7 +87,13 @@ async function send(
       'captureId' in data.thought &&
       typeof data.thought.captureId === 'string'
     )
-      return { ok: true, id: data.thought.captureId };
+      return {
+        ok: true,
+        id: data.thought.captureId,
+        ...(path === '/voice' && 'body' in data.thought && typeof data.thought.body === 'string'
+          ? { transcript: data.thought.body }
+          : {}),
+      };
     return { ok: false, reason: 'error' };
   } catch {
     return { ok: false, reason: 'offline' };
@@ -108,12 +115,22 @@ export async function captureThought(input: ThoughtInput): Promise<ThoughtsResul
 }
 
 /** The current server accepts raw AAC/MP4 or WAV, not multipart or WebM. */
-export async function captureVoice(audio: Blob, id = crypto.randomUUID()): Promise<ThoughtsResult> {
-  return send('/voice', audio, {
+export async function captureVoice(
+  audio: Blob,
+  id = crypto.randomUUID(),
+  recordedAt = new Date().toISOString(),
+): Promise<ThoughtsResult> {
+  if (audio.type !== 'audio/wav' || audio.size < 256 || audio.size > 32 * 1024 * 1024)
+    return { ok: false, reason: 'error' };
+  const result = await send('/voice', audio, {
     'Content-Type': audio.type,
     'X-Intent-Id': id,
-    'X-Recorded-At': new Date().toISOString(),
+    'X-Recorded-At': recordedAt,
   });
+  if (!result.ok && result.reason === 'offline')
+    return { ...result, queued: await queueVoice({ audio, id, recordedAt }) };
+  if (result.ok) await removeVoice(id).catch(() => {});
+  return result;
 }
 let flushing: Promise<void> | null = null;
 export function flushThoughtsQueue(): Promise<void> {
@@ -126,6 +143,15 @@ export function flushThoughtsQueue(): Promise<void> {
         QUEUE_KEY,
         JSON.stringify(readQueue().filter((entry) => entry.captureId !== item.captureId)),
       );
+    }
+    for (const take of await readVoiceQueue().catch(() => [])) {
+      const result = await send('/voice', take.audio, {
+        'Content-Type': 'audio/wav',
+        'X-Intent-Id': take.id,
+        'X-Recorded-At': take.recordedAt,
+      });
+      if (!result.ok) break;
+      await removeVoice(take.id);
     }
   })()
     .catch(() => {})
@@ -151,3 +177,6 @@ export function watchThoughtsQueue(): () => void {
     document.removeEventListener('visibilitychange', resume);
   };
 }
+
+export const postThought = captureThought;
+export const postVoiceThought = captureVoice;

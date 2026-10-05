@@ -6,7 +6,8 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { getBookProgress } from '@/store/readerProgressStore';
 import { isHouseholdBuild } from '@/services/household';
-import { captureThought, watchThoughtsQueue } from '@/services/thoughts/client';
+import { captureThought, postVoiceThought, watchThoughtsQueue } from '@/services/thoughts/client';
+import { startWavRecording, type WavRecording } from '@/services/thoughts/wavRecorder';
 import { eventDispatcher } from '@/utils/event';
 import type { BookNote } from '@/types/book';
 
@@ -31,12 +32,118 @@ export function CaptureSheets() {
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const [recording, setRecording] = useState(false);
+  const held = useRef(false);
+  const recorder = useRef<Promise<WavRecording> | null>(null);
+  const pendingVoice = useRef<{ audio: Blob; id: string; recordedAt: string } | null>(null);
+
+  useEffect(
+    () => () => {
+      held.current = false;
+      void recorder.current?.then((take) => take.cancel()).catch(() => {});
+    },
+    [],
+  );
+
+  const beginVoice = () => {
+    if (savingRef.current || recorder.current || !session) return;
+    held.current = true;
+    setMessage('');
+    setRecording(true);
+    const take = startWavRecording();
+    recorder.current = take;
+    void take
+      .then(() => {
+        if (held.current) setRecording(true);
+      })
+      .catch((error: unknown) => {
+        held.current = false;
+        recorder.current = null;
+        setRecording(false);
+        setMessage(
+          error instanceof DOMException && ['NotAllowedError', 'SecurityError'].includes(error.name)
+            ? _('Microphone access is off. Allow it in Settings to record.')
+            : _('Could not start recording. Try again.'),
+        );
+      });
+  };
+
+  const sendVoice = async () => {
+    if (!session || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const pending = pendingVoice.current;
+      if (!pending) return;
+      const result = await postVoiceThought(pending.audio, pending.id, pending.recordedAt);
+      if (result.ok) {
+        pendingVoice.current = null;
+        if (session.kind !== 'voice' && result.transcript) {
+          setText((previous) => [previous, result.transcript].filter(Boolean).join('\n'));
+          setMessage(_('Transcript added. Save to keep your note.'));
+        } else {
+          setSession(null);
+        }
+      } else if (result.reason === 'offline' && result.queued) {
+        pendingVoice.current = null;
+        setSession(null);
+        setMessage(_("Saved offline. It sends when you're back."));
+      } else {
+        setMessage(
+          result.reason === 'unpaired'
+            ? _('Pair this reader with Homebase to save to Thoughts.')
+            : _("Couldn't send. Try again when you're back online."),
+        );
+      }
+    } catch {
+      setMessage(_("Couldn't send. Try again when you're back online."));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const finishVoice = async (cancel = false) => {
+    if (!held.current) return;
+    held.current = false;
+    const take = recorder.current;
+    // Block a second press while permission/AudioContext startup is pending.
+    savingRef.current = true;
+    setSaving(true);
+    setRecording(false);
+    try {
+      const active = await take;
+      if (!active) return;
+      if (cancel) {
+        active.cancel();
+        return;
+      }
+      const audio = await active.stop();
+      if (audio.size < 256) {
+        setMessage(_('No audio recorded. Hold to talk again.'));
+        return;
+      }
+      pendingVoice.current = {
+        audio,
+        id: crypto.randomUUID(),
+        recordedAt: new Date().toISOString(),
+      };
+    } catch {
+      // Startup displays the specific permission error above.
+      return;
+    } finally {
+      recorder.current = null;
+      savingRef.current = false;
+      setSaving(false);
+    }
+    if (!cancel) await sendVoice();
+  };
 
   useEffect(() => {
     if (!isHouseholdBuild()) return;
     const stopQueue = watchThoughtsQueue();
     const open = (event: CustomEvent) => {
-      if (savingRef.current) return;
+      if (savingRef.current || recorder.current) return;
       const detail = event.detail;
       if (
         !detail ||
@@ -65,6 +172,7 @@ export function CaptureSheets() {
         author: data?.book?.author ?? '',
         calibreId: data?.book?.calibreId,
       });
+      pendingVoice.current = null;
       setText(note?.note ?? '');
       setMessage('');
     };
@@ -128,7 +236,6 @@ export function CaptureSheets() {
   };
 
   if (!isHouseholdBuild()) return null;
-  const voiceUnavailable = _('Voice is unavailable in this build. Type your note instead.');
   return (
     <>
       {session && (
@@ -151,9 +258,12 @@ export function CaptureSheets() {
             </span>
             <button
               type='button'
-              disabled={saving}
+              disabled={saving || recording}
               className='min-h-11 px-2'
-              onClick={() => setSession(null)}
+              onClick={() => {
+                pendingVoice.current = null;
+                setSession(null);
+              }}
             >
               {_('Cancel')}
             </button>
@@ -164,7 +274,7 @@ export function CaptureSheets() {
                 aria-label={_('Note text')}
                 value={text}
                 maxLength={18_000}
-                disabled={saving}
+                disabled={saving || recording}
                 onChange={(event) => setText(event.target.value)}
                 className='min-h-24 w-full resize-none border-2 border-current bg-transparent p-2 text-base select-text'
               />
@@ -180,22 +290,54 @@ export function CaptureSheets() {
               </p>
             </>
           )}
-          <p id='capture-voice-reason' className='my-2 text-sm'>
-            {voiceUnavailable}
-          </p>
+          {recording && (
+            <p role='status' className='my-2 text-sm'>
+              {_('Recording…')}
+            </p>
+          )}
           <div className='flex gap-2'>
             <button
               type='button'
-              disabled
-              aria-describedby='capture-voice-reason'
-              className='min-h-11 border-2 border-current px-3'
+              disabled={saving || !!pendingVoice.current}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.currentTarget.setPointerCapture?.(event.pointerId);
+                beginVoice();
+              }}
+              onPointerUp={() => void finishVoice()}
+              onPointerCancel={() => void finishVoice(true)}
+              onLostPointerCapture={() => void finishVoice(true)}
+              onKeyDown={(event) => {
+                if ([' ', 'Enter'].includes(event.key)) {
+                  event.preventDefault();
+                  if (!event.repeat) beginVoice();
+                }
+              }}
+              onKeyUp={(event) => {
+                if ([' ', 'Enter'].includes(event.key)) {
+                  event.preventDefault();
+                  void finishVoice();
+                }
+              }}
+              onBlur={() => void finishVoice(true)}
+              className='min-h-11 touch-none select-none border-2 border-current px-3'
             >
               {_('Hold to talk')}
             </button>
+            {pendingVoice.current && !recording && (
+              <button
+                type='button'
+                disabled={saving}
+                className='min-h-11 border-2 border-current px-3'
+                onClick={() => void sendVoice()}
+              >
+                {_('Retry')}
+              </button>
+            )}
             {session.kind !== 'voice' && (
               <button
                 type='button'
-                disabled={saving || !text.trim()}
+                disabled={saving || recording || !text.trim()}
                 className='min-h-11 flex-1 border-2 border-current px-3 font-semibold'
                 onClick={() => void save()}
               >
