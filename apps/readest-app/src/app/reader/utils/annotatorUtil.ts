@@ -417,7 +417,7 @@ export function drawAnnotationOverlay(
   };
   if (kind === 'bubble') {
     const { writingMode } = doc.defaultView!.getComputedStyle(startElement());
-    draw(Overlayer.bubble, { writingMode });
+    draw(Overlayer.bubble, isBwEink ? { writingMode, color: '#000', opacity: 1 } : { writingMode });
   } else if (kind === 'highlight') {
     draw(Overlayer.highlight, {
       color: getAnnotationOverlayColor('highlight', hexColor, { isBwEink, isDarkMode }),
