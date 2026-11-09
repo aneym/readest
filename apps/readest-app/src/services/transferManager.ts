@@ -3,6 +3,7 @@ import {
   notifyBookDownloadFailure,
   markReportedBookDownloadFailure,
   isMissingHomebaseBookError,
+  isPermanentDownloadError,
 } from './bookDownloadErrors';
 import { Book } from '@/types/book';
 import { AppService, BaseDir } from '@/types/system';
@@ -14,7 +15,6 @@ import { createProgressThrottle, ProgressHandler, ProgressPayload } from '@/util
 import { eventDispatcher } from '@/utils/event';
 import { isAudiobook } from '@/utils/audiobook';
 import { getTransferMessages } from './transferMessages';
-import { isBookIntegrityError } from './bookIntegrity';
 import { isHouseholdBuild } from './household';
 
 export const transferAuthMessage = (household: boolean): string =>
@@ -22,15 +22,28 @@ export const transferAuthMessage = (household: boolean): string =>
 
 const TRANSFER_QUEUE_KEY = 'readest_transfer_queue';
 const RETRY_DELAY_BASE_MS = 2000;
-// While the device reports itself offline a failed transfer is held, not
-// retried: the attempt cannot succeed and would only burn the retry budget.
-// The hold is re-checked on this cadence in case the `online` event never
-// fires (some WebViews only flip navigator.onLine).
 const OFFLINE_HOLD_MS = 30_000;
 export const OFFLINE_HOLD_MESSAGE = 'Waiting for network';
-// Reconnect/foreground revival is coalesced so a flapping connection cannot
-// re-queue the same rows in a tight loop.
 const REVIVAL_THROTTLE_MS = 5_000;
+
+const isDue = (t: TransferItem): boolean => !t.nextAttemptAt || t.nextAttemptAt <= Date.now();
+
+const isBookDownload = (t: TransferItem): boolean => t.kind === 'book' && t.type === 'download';
+
+const isRunBackground = (t: TransferItem): boolean =>
+  !!(useTransferStore.getState().transfers[t.id] ?? t).isBackground;
+
+const setBackground = (id: string, isBackground: boolean): void =>
+  useTransferStore.setState((state) => {
+    const t = state.transfers[id];
+    return t ? { transfers: { ...state.transfers, [id]: { ...t, isBackground } } } : state;
+  });
+
+const releaseForUser = (t: TransferItem): void => {
+  if (!isBookDownload(t)) return;
+  clearBookDownloadFailureNotification(t.bookHash);
+  setBackground(t.id, false);
+};
 // Coalesce per-chunk progress emissions to at most ~10/sec per transfer so the
 // transfer-store fan-out cannot sustain a synchronous React update storm (a
 // buffered download emits progress once per chunk in a microtask burst, and
@@ -75,15 +88,6 @@ class TransferManager {
     return typeof navigator !== 'undefined' && navigator.onLine === false;
   }
 
-  /**
-   * Downloads that failed for a transient reason (network, server, auth
-   * hiccup) are given a fresh retry budget when connectivity returns or the
-   * app comes back to the foreground. Rows that failed because the served
-   * bytes are not a book (`BookIntegrityError`) stay failed and visible:
-   * fetching the same bytes again cannot fix them, and re-queuing them would
-   * only delay the books that can succeed. Explicit user cancellations are
-   * never revived.
-   */
   reviveTransientFailures(reason: 'online' | 'foreground' | 'manual' = 'manual'): number {
     if (!this.isReady()) return 0;
     if (reason !== 'manual') {
@@ -97,20 +101,11 @@ class TransferManager {
     let revived = 0;
     Object.values(store.transfers).forEach((t) => {
       if (t.type !== 'download') return;
-      if (
-        t.status === 'failed' &&
-        !isBookIntegrityError(t.error) &&
-        !isMissingHomebaseBookError(t.error)
-      ) {
-        if (reason !== 'manual') {
-          useTransferStore.setState((state) => ({
-            transfers: { ...state.transfers, [t.id]: { ...t, isBackground: true } },
-          }));
-        }
+      if (t.status === 'failed' && !isPermanentDownloadError(t.error)) {
+        if (reason !== 'manual') setBackground(t.id, true);
         store.retryTransfer(t.id);
         revived++;
       } else if (t.status === 'pending' && t.nextAttemptAt && t.error === OFFLINE_HOLD_MESSAGE) {
-        // An offline hold is over the moment we are back online.
         store.setTransferStatus(t.id, 'pending', undefined);
         store.setNextAttemptAt(t.id, undefined);
         revived++;
@@ -242,7 +237,6 @@ class TransferManager {
     return this.readyPromise;
   }
 
-  /** Join a library download without starting a second HTTP/file write. */
   async waitForDownload(bookHash: string): Promise<void> {
     const transfer = useTransferStore.getState().getTransferByBookHash(bookHash, 'download');
     if (!transfer) return;
@@ -304,8 +298,6 @@ class TransferManager {
 
     const store = useTransferStore.getState();
 
-    // A refresh must supply a new hash; foreground/reconciliation cannot repair
-    // a server object that no longer exists. Explicit Retry remains available.
     const missing = Object.values(store.transfers).find(
       (t) =>
         t.type === 'download' &&
@@ -318,13 +310,7 @@ class TransferManager {
     const existing = store.getTransferByBookHash(book.hash, 'download');
     if (existing) {
       if (!isBackground && existing.isBackground) {
-        clearBookDownloadFailureNotification(book.hash);
-        useTransferStore.setState((state) => ({
-          transfers: {
-            ...state.transfers,
-            [existing.id]: { ...state.transfers[existing.id]!, isBackground: false },
-          },
-        }));
+        releaseForUser(existing);
         this.persistQueue();
       }
       return existing.id;
@@ -464,12 +450,7 @@ class TransferManager {
   retryTransfer(transferId: string): void {
     const store = useTransferStore.getState();
     const transfer = store.transfers[transferId];
-    if (transfer?.kind === 'book' && transfer.type === 'download') {
-      clearBookDownloadFailureNotification(transfer.bookHash);
-      useTransferStore.setState((state) => ({
-        transfers: { ...state.transfers, [transferId]: { ...transfer, isBackground: false } },
-      }));
-    }
+    if (transfer) releaseForUser(transfer);
     store.retryTransfer(transferId);
     this.persistQueue();
     this.processQueue();
@@ -479,12 +460,7 @@ class TransferManager {
     const store = useTransferStore.getState();
     const failed = store.getFailedTransfers();
     failed.forEach((transfer) => {
-      if (transfer.kind === 'book' && transfer.type === 'download') {
-        clearBookDownloadFailureNotification(transfer.bookHash);
-        useTransferStore.setState((state) => ({
-          transfers: { ...state.transfers, [transfer.id]: { ...transfer, isBackground: false } },
-        }));
-      }
+      releaseForUser(transfer);
       store.retryTransfer(transfer.id);
     });
     this.persistQueue();
@@ -541,13 +517,8 @@ class TransferManager {
 
     if (store.isQueuePaused) return;
 
-    const now = Date.now();
-    const isDue = (t: TransferItem) => !t.nextAttemptAt || t.nextAttemptAt <= now;
     const runnable = store.getPendingTransfers().filter((t) => !this.isDeferredBookUpload(t));
     const pending = runnable.filter(isDue);
-    // A backoff or offline hold is honoured by sleeping until the earliest
-    // due row, never by re-scanning every 100ms (which is what let the old
-    // loop burn every retry inside half a second).
     this.scheduleWake(runnable);
     const activeCount = store.getActiveTransfers().length;
     const maxConcurrent = store.maxConcurrent;
@@ -569,12 +540,9 @@ class TransferManager {
     // not yet hydrated) don't count — re-looping on them every 100ms
     // would busy-wait; the settings subscription wakes them instead.
     const newStore = useTransferStore.getState();
-    const after = Date.now();
     const processable = newStore
       .getPendingTransfers()
-      .filter(
-        (t) => !this.isDeferredBookUpload(t) && (!t.nextAttemptAt || t.nextAttemptAt <= after),
-      );
+      .filter((t) => !this.isDeferredBookUpload(t) && isDue(t));
     if (processable.length > 0 && !newStore.isQueuePaused) {
       setTimeout(() => this.processQueue(), 100);
     }
@@ -638,12 +606,10 @@ class TransferManager {
       progressThrottle.flush();
       useTransferStore.getState().setTransferStatus(transfer.id, 'completed');
 
-      if (transfer.kind === 'book' && transfer.type === 'download') {
-        clearBookDownloadFailureNotification(transfer.bookHash);
-      }
+      if (isBookDownload(transfer)) clearBookDownloadFailureNotification(transfer.bookHash);
       const messages = getTransferMessages(transfer, _);
 
-      if (!(useTransferStore.getState().transfers[transfer.id] ?? transfer).isBackground) {
+      if (!isRunBackground(transfer)) {
         eventDispatcher.dispatch('toast', {
           type: 'info',
           timeout: 2000,
@@ -663,32 +629,13 @@ class TransferManager {
       // Quota exhaustion is permanent for this account state; retrying
       // burns three backoff rounds per book for the same 403.
       const isQuotaError = errorMessage.includes('Insufficient storage quota');
-      // Served bytes that are not a book cannot be fixed by fetching them
-      // again; fail now, keep the reason visible, let the rest of the queue run.
-      const isIntegrityError = isBookIntegrityError(errorMessage);
-      const isMissingBook = isMissingHomebaseBookError(errorMessage);
+      const retryable = !isQuotaError && !isPermanentDownloadError(errorMessage) && currentTransfer;
 
-      if (
-        !isQuotaError &&
-        !isIntegrityError &&
-        !isMissingBook &&
-        currentTransfer &&
-        this.isOffline()
-      ) {
-        // No network: hold the row without spending a retry. The `online`
-        // listener releases it; the timed wake is only a fallback.
+      if (retryable && this.isOffline()) {
         currentStore.setTransferStatus(transfer.id, 'pending', OFFLINE_HOLD_MESSAGE);
         currentStore.setNextAttemptAt(transfer.id, Date.now() + OFFLINE_HOLD_MS);
-      } else if (
-        !isQuotaError &&
-        !isIntegrityError &&
-        !isMissingBook &&
-        currentTransfer &&
-        currentTransfer.retryCount < currentTransfer.maxRetries
-      ) {
-        // Schedule retry with exponential backoff. The delay is enforced by
-        // `nextAttemptAt` (persisted), not by the timer alone, so neither the
-        // 100ms continuation loop nor an app restart can run it early.
+      } else if (retryable && currentTransfer.retryCount < currentTransfer.maxRetries) {
+        // Schedule retry with exponential backoff
         const delay = RETRY_DELAY_BASE_MS * Math.pow(2, currentTransfer.retryCount);
         currentStore.incrementRetryCount(transfer.id);
         currentStore.setTransferStatus(
@@ -707,36 +654,7 @@ class TransferManager {
         // fired one toast per file (issue #5675 — sixteen "Failed to download
         // file" toasts for sixteen fonts). The failure is still recorded on
         // the transfer, which is what the Transfer Queue panel reads.
-        if (!(useTransferStore.getState().transfers[transfer.id] ?? transfer).isBackground) {
-          if (errorMessage.includes('Not authenticated')) {
-            const message = _(transferAuthMessage(isHouseholdBuild()));
-            if (transfer.kind === 'book' && transfer.type === 'download') {
-              notifyBookDownloadFailure(transfer.bookHash, error, message);
-            } else {
-              eventDispatcher.dispatch('toast', { type: 'error', message });
-            }
-          } else if (isQuotaError) {
-            if (transfer.kind === 'book' && transfer.type === 'download') {
-              notifyBookDownloadFailure(transfer.bookHash, error, _('Insufficient storage quota'));
-            } else {
-              this.recordQuotaFailure();
-            }
-          } else {
-            const errorMessages = getTransferMessages(
-              { ...transfer, error: errorMessage },
-              _,
-            ).failure;
-
-            if (transfer.kind === 'book' && transfer.type === 'download') {
-              notifyBookDownloadFailure(transfer.bookHash, error, errorMessages.download);
-            } else {
-              eventDispatcher.dispatch('toast', {
-                type: 'error',
-                message: errorMessages[transfer.type],
-              });
-            }
-          }
-        }
+        if (!isRunBackground(transfer)) this.notifyFailure(transfer, error, errorMessage);
 
         useTransferStore.getState().setTransferStatus(transfer.id, 'failed', errorMessage);
       }
@@ -753,6 +671,24 @@ class TransferManager {
       // Continue processing
       setTimeout(() => this.processQueue(), 100);
     }
+  }
+
+  private notifyFailure(transfer: TransferItem, error: unknown, errorMessage: string): void {
+    const _ = this._!;
+    const bookDownload = isBookDownload(transfer);
+    const isAuthError = errorMessage.includes('Not authenticated');
+    const isQuotaError = errorMessage.includes('Insufficient storage quota');
+    if (isQuotaError && !isAuthError && !bookDownload) {
+      this.recordQuotaFailure();
+      return;
+    }
+    const message = isAuthError
+      ? _(transferAuthMessage(isHouseholdBuild()))
+      : isQuotaError
+        ? _('Insufficient storage quota')
+        : getTransferMessages({ ...transfer, error: errorMessage }, _).failure[transfer.type];
+    if (bookDownload) notifyBookDownloadFailure(transfer.bookHash, error, message);
+    else eventDispatcher.dispatch('toast', { type: 'error', message });
   }
 
   private recordQuotaFailure(): void {
@@ -795,10 +731,6 @@ class TransferManager {
       book.uploadedAt = Date.now();
       await this.updateBook!(book);
     } else if (transfer.type === 'download') {
-      // `downloadBook` stamps `downloadedAt` itself, and only after the file
-      // passed verification. Stamping here unconditionally turned every
-      // resolved-but-unverified transfer into a durable "downloaded" shelf
-      // state, which then suppressed the re-fetch on open.
       await this.appService!.downloadBook(book, false, false, progressHandler);
       if (!book.downloadedAt) {
         throw new Error(_('Book download did not produce a readable file'));
@@ -910,7 +842,6 @@ class TransferManager {
 
       // Restore all transfers using the store's restore method
       // This preserves the original IDs and handles in_progress -> pending conversion
-      // Restarted work resumes automatically, without a fresh user request.
       for (const transfer of Object.values(data.transfers)) {
         if (transfer.type === 'download' && ['pending', 'in_progress'].includes(transfer.status)) {
           transfer.isBackground = true;

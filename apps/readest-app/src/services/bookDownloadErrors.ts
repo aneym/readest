@@ -1,5 +1,6 @@
 import { eventDispatcher } from '@/utils/event';
 import type { TranslationFunc } from '@/hooks/useTranslation';
+import { isBookIntegrityError } from './bookIntegrity';
 
 // Stable, secret-free marker survives transfer queue persistence as a string.
 export const homebaseDownloadError = (status: number, code: string): Error =>
@@ -17,6 +18,9 @@ export const isMissingHomebaseBookError = (error: unknown): boolean => {
     /^Homebase download URL failed: (404|410)$/.test(message)
   );
 };
+
+export const isPermanentDownloadError = (message: string | undefined): boolean =>
+  isBookIntegrityError(message) || isMissingHomebaseBookError(message);
 
 export const getBookDownloadFailureMessage = (
   error: unknown,

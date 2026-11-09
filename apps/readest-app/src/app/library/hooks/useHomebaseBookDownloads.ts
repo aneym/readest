@@ -1,4 +1,4 @@
-import { isMissingHomebaseBookError } from '@/services/bookDownloadErrors';
+import { isPermanentDownloadError } from '@/services/bookDownloadErrors';
 import { useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useEnv } from '@/context/EnvContext';
@@ -8,7 +8,6 @@ import { useTransferStore } from '@/store/transferStore';
 import { transferManager } from '@/services/transferManager';
 import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
 import { isReadestCloudEnabled } from '@/services/sync/cloudSyncProvider';
-import { isBookIntegrityError } from '@/services/bookIntegrity';
 import { isFeedBook } from '@/services/rss/feedBookUrl';
 import { isDemoBook } from '@/services/demoBooks';
 import { isAudiobook } from '@/utils/audiobook';
@@ -86,8 +85,7 @@ export const useHomebaseBookDownloads = () => {
             t.type === 'download' &&
             (t.status === 'pending' ||
               t.status === 'in_progress' ||
-              (t.status === 'failed' &&
-                (isBookIntegrityError(t.error) || isMissingHomebaseBookError(t.error))) ||
+              (t.status === 'failed' && isPermanentDownloadError(t.error)) ||
               (t.status === 'cancelled' && t.cancelReason === 'user')),
         )
         .map((t) => t.bookHash),
