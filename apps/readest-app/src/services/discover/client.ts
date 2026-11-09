@@ -49,14 +49,6 @@ export type DiscoverSearchKind = 'all' | 'ebook' | 'audiobook';
 
 export const DISCOVER_TIMEOUT_MS = 10_000;
 
-/**
- * The server's mutation guard only accepts POSTs from loopback or the tailnet
- * host. A native client has no browser origin of its own, so it names the
- * tailnet host explicitly (tauri-plugin-http is built with `unsafe-headers`).
- * Browsers drop a script-set Origin and send their own.
- */
-export const DISCOVER_POST_ORIGIN = 'https://studio.tailf266ac.ts.net';
-
 const BASE_PATH = '/api/books/discover';
 
 export const isDeviceOnline = (): boolean =>
@@ -123,7 +115,7 @@ const call = async <T>(
   if (method === 'POST') {
     headers['Content-Type'] = 'application/json';
     headers['X-Homebase-Media-Action'] = '1';
-    headers['Origin'] = DISCOVER_POST_ORIGIN;
+    headers['Origin'] = origin;
   }
 
   const controller = new AbortController();

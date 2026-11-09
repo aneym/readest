@@ -34,12 +34,13 @@ export const THOUGHTS_TIMEOUT_MS = 10_000;
 /** Single seam for the household reader-device authorization contract. */
 export function thoughtsAuthHeaders(): Record<string, string> | null {
   const token = localStorage.getItem('token');
-  if (!token) return null;
+  const base = getHomebaseBaseUrl();
+  if (!token || !base) return null;
   return {
     Authorization: `Bearer ${token}`,
     Accept: 'application/json',
     'X-Homebase-Media-Action': '1',
-    Origin: 'https://studio.tailf266ac.ts.net',
+    Origin: new URL(base).origin,
   };
 }
 

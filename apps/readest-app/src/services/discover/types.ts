@@ -7,8 +7,7 @@
 // at /api/books/discover/*, consumed by the web Discover page and the Readest
 // fork. Household/tailnet only (classifyMediaRequest); the Cloudflare lane is
 // denied. POST routes need `content-type: application/json`,
-// `x-homebase-media-action: 1` and an allowed Origin (loopback or
-// https://studio.tailf266ac.ts.net). Contract doc:
+// `x-homebase-media-action: 1` and the server's own Origin. Contract doc:
 // docs/wiki/books/discover/contract.md.
 
 export type DiscoverKind = 'ebook' | 'audiobook';
