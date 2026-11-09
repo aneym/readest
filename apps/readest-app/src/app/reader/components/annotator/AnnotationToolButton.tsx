@@ -31,7 +31,7 @@ const AnnotationToolButton: React.FC<AnnotationToolButtonProps> = ({
         aria-label={tooltipText}
         disabled={disabled}
         className={clsx(
-          'flex h-full min-w-12 flex-1 flex-col items-center justify-center gap-1 rounded-md p-0',
+          'flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-md p-0',
           disabled && 'cursor-not-allowed opacity-50',
         )}
       >

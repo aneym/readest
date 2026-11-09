@@ -69,7 +69,7 @@ const AnnotationPopup: React.FC<AnnotationPopupProps> = ({
           <div
             className={clsx(
               'selection-buttons flex h-full w-full items-center justify-between',
-              labeled && !isVertical ? 'gap-1 px-1 py-1' : 'p-2',
+              labeled && !isVertical ? 'gap-0 px-1 py-1' : 'p-2',
               isVertical ? 'flex-col overflow-y-auto' : 'flex-row overflow-x-auto',
               notes.length > 0 && 'hidden',
             )}

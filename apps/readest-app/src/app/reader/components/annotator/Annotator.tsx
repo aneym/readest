@@ -33,7 +33,7 @@ import { useNotesSync } from '../../hooks/useNotesSync';
 import { useReadwiseSync } from '../../hooks/useReadwiseSync';
 import { useHardcoverSync } from '../../hooks/useHardcoverSync';
 import { useTextSelector } from '../../hooks/useTextSelector';
-import { Point, Position, TextSelection } from '@/utils/sel';
+import { Point, Position, TextSelection, getSelectionBottom } from '@/utils/sel';
 import {
   getPopupPosition,
   getPosition,
@@ -1460,7 +1460,11 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
     if (!selection || !selection.text) return;
     if (isHouseholdBuild()) {
       if (selection.popup && !selection.cfi) return;
-      await eventDispatcher.dispatch('reader-selection-note-open', { bookKey, selection });
+      await eventDispatcher.dispatch('reader-selection-note-open', {
+        bookKey,
+        selection,
+        anchorBottom: getSelectionBottom(selection),
+      });
       handleDismissPopupAndSelection();
       return;
     }

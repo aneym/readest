@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useKeyboardInset } from '@/hooks/useKeyboardInset';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -21,6 +21,7 @@ interface NoteSession {
   text: string;
   page: number;
   mark: MarginMark | null;
+  anchorBottom: number;
 }
 
 export function SelectionNoteSheet() {
@@ -32,13 +33,14 @@ export function SelectionNoteSheet() {
   const [mark, setMark] = useState<MarginMark | null>(null);
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sheetRef = useRef<HTMLElement>(null);
   const keyboardInset = useKeyboardInset(!!session);
 
   useEffect(() => {
     if (!isHouseholdBuild()) return;
     const open = (event: CustomEvent) => {
       const detail = event.detail as
-        | { bookKey?: string; selection?: TextSelection; mark?: MarginMark }
+        | { bookKey?: string; selection?: TextSelection; mark?: MarginMark; anchorBottom?: number }
         | undefined;
       const selection = detail?.selection;
       if (!detail?.bookKey || !selection?.text) return;
@@ -56,6 +58,7 @@ export function SelectionNoteSheet() {
         text: selection.text,
         page: selection.page,
         mark: parsed.mark,
+        anchorBottom: detail.anchorBottom ?? 0,
       });
       setText(parsed.body);
       setMark(detail.mark ?? parsed.mark);
@@ -70,6 +73,17 @@ export function SelectionNoteSheet() {
     const timer = setTimeout(() => inputRef.current?.focus(), 50);
     return () => clearTimeout(timer);
   }, [session]);
+
+  useLayoutEffect(() => {
+    if (!session) return;
+    const cell = document.querySelector<HTMLElement>(`#gridcell-${session.bookKey}`);
+    const sheetTop = sheetRef.current?.getBoundingClientRect().top ?? window.innerHeight;
+    const shift = Math.max(0, Math.ceil(session.anchorBottom + 16 - sheetTop));
+    if (cell) cell.style.transform = shift > 0 ? `translateY(-${shift}px)` : '';
+    return () => {
+      if (cell) cell.style.transform = '';
+    };
+  }, [session, keyboardInset]);
 
   const close = () => {
     inputRef.current?.blur();
@@ -134,6 +148,7 @@ export function SelectionNoteSheet() {
         }}
       />
       <section
+        ref={sheetRef}
         role='dialog'
         aria-modal='true'
         aria-label={_('Note')}

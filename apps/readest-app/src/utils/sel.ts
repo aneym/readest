@@ -277,6 +277,14 @@ const getWebviewRects = (target: Range | Element): Rect[] => {
   );
 };
 
+export const getSelectionBottom = (selection: TextSelection): number => {
+  const ranges =
+    selection.segments && selection.segments.length > 1
+      ? selection.segments.map((segment) => segment.range)
+      : [selection.range];
+  return Math.max(0, ...ranges.flatMap(getWebviewRects).map((rect) => rect.bottom));
+};
+
 export const getPosition = (
   targetElement: Range | Element | TextSelection,
   rect: Rect,
