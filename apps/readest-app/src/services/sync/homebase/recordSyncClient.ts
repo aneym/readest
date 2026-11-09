@@ -1,36 +1,13 @@
-/**
- * The client seam (REVIEW-ONLY SPIKE).
- *
- * This is the whole point of the spike. `libs/sync.ts` exports a CONCRETE
- * `SyncClient` class, and exactly two places consume it:
- *
- *   - `context/SyncContext.tsx:6` constructs one and hands it to every reader
- *     surface through `useSyncContext()`.
- *   - `services/statistics/statsSync.ts:5-6` already depends on it
- *     STRUCTURALLY, via `Pick<SyncClient, 'pushChanges'>`.
- *
- * So the seam is a two-method structural interface. `SyncClient` satisfies it
- * as written — no edit to shipping code — and so does {@link HomebaseSyncClient}
- * below. Routing books/configs/notes/stats to Homebase is then a ONE-LINE change
- * in `SyncContext.tsx`:
- *
- *     -const syncClient = new SyncClient();
- *     +const syncClient = resolveRecordSyncClient();
- *
- * `src/__tests__/services/sync/homebase/seam.test.ts` proves both halves of that
- * claim (the type-level conformance and the runtime drop-in) without the edit
- * being applied, which is what keeps this branch review-only.
- *
- * KOSync is untouched by all of this. `services/sync/KOSyncClient.ts` speaks its
- * own protocol to its own server and shares nothing with `SyncClient`;
- * KOReader-compatible progress keeps flowing through it whichever record backend
- * is selected. See `homebase-kosync-isolation.test.ts`.
- */
-
-import type { SyncClient, SyncData, SyncResult, SyncType } from '@/libs/sync';
-import { HomebaseSyncError, type HomebaseSyncAdapter } from './adapter';
+import type { SyncData, SyncResult, SyncType } from '@/libs/sync';
+import type { HomebaseSyncAdapter, HomebaseSyncError } from './adapter';
 import { decodeEnvelope, encodeSyncData } from './wire';
-import { isDefiniteRejection, type SyncOutbox } from './outbox';
+import {
+  envelopeRejectionKeys,
+  isDefiniteRejection,
+  toSyncError,
+  type FlushResult,
+  type SyncOutbox,
+} from './outbox';
 import type { HomebaseEnvelope } from './types';
 import { recordDiagnostic } from './diagnostics';
 import {
@@ -42,11 +19,6 @@ import {
   reportSyncSuccess,
 } from './syncStatus';
 
-/**
- * The two methods the app actually calls on a record-sync backend. Written to
- * match `SyncClient`'s signatures exactly so `SyncClient` conforms without
- * being modified.
- */
 export type RecordPushResult = SyncResult & {
   queued?: boolean;
   rejected?: HomebaseEnvelope['rejected'];
@@ -61,24 +33,12 @@ export interface RecordSyncClient {
     limit?: number,
   ): Promise<SyncResult>;
   pushChanges(payload: SyncData): Promise<RecordPushResult>;
-  flushOutbox?(): Promise<import('./outbox').FlushResult | null>;
+  flushOutbox?(): Promise<FlushResult | null>;
 }
-
-/** Compile-time proof that the stock client already satisfies the seam. */
-export type StockClientConformsToSeam = SyncClient extends RecordSyncClient ? true : never;
-
-const EMPTY_RESULT: SyncResult = { books: null, configs: null, notes: null };
 
 export interface HomebaseSyncClientOptions {
   adapter: HomebaseSyncAdapter;
-  /**
-   * Optional offline outbox. With one, all non-terminal failures (including
-   * auth pauses and unknown failures) queue durably and resolve as queued.
-   * Definite client rejections still propagate; without an outbox every failure
-   * propagates exactly as the stock client's does.
-   */
   outbox?: SyncOutbox;
-  /** Called when rows are queued instead of sent, so the UI can show a badge. */
   onQueued?: (count: number, error: HomebaseSyncError) => void;
 }
 
@@ -89,8 +49,35 @@ const countRecords = (payload: SyncData): number =>
   (payload.statBooks?.length ?? 0) +
   (payload.statPages?.length ?? 0);
 
+const drainDiagnostic = (result: FlushResult) => {
+  const counts = {
+    pushed: result.pushed,
+    remaining: result.remaining,
+    rejected: result.newlyPoisoned,
+  };
+  const { stoppedBy } = result;
+  const detail = stoppedBy
+    ? { ...counts, code: stoppedBy.code, status: stoppedBy.status ?? null }
+    : counts;
+  if (stoppedBy && !isDefiniteRejection(stoppedBy)) {
+    recordDiagnostic('sync.drain', 'warn', 'outbox drain paused; rows stay queued', detail);
+  } else if (result.newlyPoisoned > 0) {
+    recordDiagnostic('sync.drain', 'warn', 'outbox drain: server rejected rows', detail);
+  } else if (result.pushed > 0) {
+    recordDiagnostic('sync.drain', 'info', 'outbox drained', counts);
+  }
+};
+
 export class HomebaseSyncClient implements RecordSyncClient {
   private readonly adapter: HomebaseSyncAdapter;
+  private readonly outbox?: SyncOutbox;
+  private readonly onQueued?: HomebaseSyncClientOptions['onQueued'];
+
+  constructor(options: HomebaseSyncClientOptions) {
+    this.adapter = options.adapter;
+    this.outbox = options.outbox;
+    this.onQueued = options.onQueued;
+  }
 
   private async request<T>(run: () => Promise<T>): Promise<T> {
     beginSyncRequest();
@@ -105,13 +92,14 @@ export class HomebaseSyncClient implements RecordSyncClient {
       endSyncRequest();
     }
   }
-  private readonly outbox?: SyncOutbox;
-  private readonly onQueued?: HomebaseSyncClientOptions['onQueued'];
 
-  constructor(options: HomebaseSyncClientOptions) {
-    this.adapter = options.adapter;
-    this.outbox = options.outbox;
-    this.onQueued = options.onQueued;
+  private async push(envelope: HomebaseEnvelope): Promise<HomebaseEnvelope> {
+    const response = await this.request(() => this.adapter.push(envelope));
+    reportPushAck(envelopeRejectionKeys(envelope), response.rejected);
+    for (const row of response.rejected ?? []) {
+      recordDiagnostic('sync.rejected', 'warn', 'server rejected sync row', { ...row });
+    }
+    return response;
   }
 
   async pullChanges(
@@ -124,8 +112,6 @@ export class HomebaseSyncClient implements RecordSyncClient {
     const envelope = await this.request(() =>
       this.adapter.pull({
         since,
-        // `SyncType` has no 'statBooks'/'statPages' members — 'stats' selects both
-        // and the adapter expands it, matching how `statsSync.pullStats` calls in.
         ...(type ? { channel: type } : {}),
         ...(book ? { bookHash: book } : {}),
         ...(metaHash ? { metaHash } : {}),
@@ -137,87 +123,33 @@ export class HomebaseSyncClient implements RecordSyncClient {
 
   async pushChanges(payload: SyncData): Promise<RecordPushResult> {
     const envelope = encodeSyncData(payload);
+    let response: HomebaseEnvelope;
     try {
-      const response = await this.request(() => this.adapter.push(envelope));
-      this.handleRejected(envelope, response.rejected);
-      if (this.outbox) {
-        try {
-          reportOutboxQueue(await this.outbox.settleAccepted(envelope, response.rejected));
-        } catch (error) {
-          recordDiagnostic('sync.outbox', 'warn', 'could not settle accepted sync rows', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-      return decodeEnvelope(response);
+      response = await this.push(envelope);
     } catch (err) {
-      const error =
-        err instanceof HomebaseSyncError
-          ? err
-          : new HomebaseSyncError(err instanceof Error ? err.message : String(err));
+      const error = toSyncError(err);
       if (!this.outbox || isDefiniteRejection(error)) throw error;
       await this.outbox.enqueueEnvelope(envelope, error);
       this.onQueued?.(countRecords(payload), error);
-      return { ...EMPTY_RESULT, queued: true };
+      return { books: null, configs: null, notes: null, queued: true };
     }
+    if (this.outbox) {
+      try {
+        reportOutboxQueue(await this.outbox.settleAccepted(envelope, response.rejected));
+      } catch (error) {
+        recordDiagnostic('sync.outbox', 'warn', 'could not settle accepted sync rows', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return decodeEnvelope(response);
   }
 
-  private handleRejected(envelope: HomebaseEnvelope, rejected: HomebaseEnvelope['rejected']) {
-    const sent = Object.entries(envelope).flatMap(([family, rows]) =>
-      !Array.isArray(rows)
-        ? []
-        : rows.map((row: { book_hash?: string; bookHash?: string; id?: string }) => ({
-            family,
-            // Configs are keyed by book hash; the wire backfills `id` from it
-            // because Homebase reports config rejections using record.id.
-            id:
-              family === 'configs'
-                ? (row.book_hash ?? row.bookHash ?? row.id ?? '')
-                : (row.id ?? row.book_hash ?? ''),
-          })),
-    );
-    reportPushAck(sent, rejected);
-    for (const row of rejected ?? []) {
-      recordDiagnostic('sync.rejected', 'warn', 'server rejected sync row', row);
-    }
-  }
-
-  /** Drain the outbox on startup, reconnect, resume, or manual Sync. */
   async flushOutbox() {
     if (!this.outbox) return null;
-    const result = await this.outbox.flush(async (envelope) => {
-      const response = await this.request(() => this.adapter.push(envelope));
-      this.handleRejected(envelope, response.rejected);
-      return response;
-    });
-    const pending = await this.outbox.pending();
-    reportOutboxQueue([...pending, ...result.poisoned]);
-    // Drains are the only path a queued offline write takes to the server, so
-    // they must leave a trace an operator can read after the device reconnects.
-    // Messages are fixed strings: server error text can echo row content.
-    // A drain that moved nothing (empty outbox, or only old poisoned rows)
-    // stays silent.
-    const counts = {
-      pushed: result.pushed,
-      remaining: result.remaining,
-      rejected: result.newlyPoisoned,
-    };
-    const stop = result.stoppedBy
-      ? { code: result.stoppedBy.code, status: result.stoppedBy.status ?? null }
-      : {};
-    if (result.stoppedBy && !isDefiniteRejection(result.stoppedBy)) {
-      recordDiagnostic('sync.drain', 'warn', 'outbox drain paused; rows stay queued', {
-        ...counts,
-        ...stop,
-      });
-    } else if (result.newlyPoisoned > 0) {
-      recordDiagnostic('sync.drain', 'warn', 'outbox drain: server rejected rows', {
-        ...counts,
-        ...stop,
-      });
-    } else if (result.pushed > 0) {
-      recordDiagnostic('sync.drain', 'info', 'outbox drained', counts);
-    }
+    const result = await this.outbox.flush((envelope) => this.push(envelope));
+    reportOutboxQueue([...(await this.outbox.pending()), ...result.poisoned]);
+    drainDiagnostic(result);
     return result;
   }
 }

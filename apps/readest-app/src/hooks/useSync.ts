@@ -15,7 +15,7 @@ import { navigateToLogin } from '@/utils/nav';
 import { isHouseholdBuild } from '@/services/household';
 import { useReaderStore } from '@/store/readerStore';
 import { recordDiagnostic } from '@/services/sync/homebase/diagnostics';
-import { HomebaseSyncError } from '@/services/sync/homebase';
+import { HomebaseSyncError } from '@/services/sync/homebase/adapter';
 import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
 import { syncErrorMessage, useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
 

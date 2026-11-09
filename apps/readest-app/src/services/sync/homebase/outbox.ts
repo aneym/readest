@@ -1,22 +1,14 @@
-/** Durable write-ahead sync queue. Coalesce by identity, serialize store
- * mutations, and remove only acknowledged revisions. Retryable and auth
- * failures remain queued; permanent row failures remain recoverable. */
-
 import { HomebaseSyncError } from './adapter';
-import { clockMs } from './clocks';
-import type { HomebaseChannel, HomebaseEnvelope, HomebaseRecord } from './types';
-import { HOMEBASE_CHANNELS } from './types';
+import type { HomebaseChannel, HomebaseEnvelope, HomebaseRecord, HomebaseRejection } from './types';
+import { channelRecords, HOMEBASE_CHANNELS } from './types';
 
 export interface OutboxEntry {
-  /** `${channel}:${primaryKey}` — the coalescing key. */
   key: string;
   channel: HomebaseChannel;
   record: HomebaseRecord;
-  /** Local enqueue time, the flush ordering key. */
   queuedAt: number;
   attempts: number;
   revision?: number;
-  /** Set only for a permanent record failure; transient retries never expire. */
   poisoned?: boolean;
   lastError?: string;
   lastErrorCode?: string;
@@ -40,27 +32,28 @@ export const createMemoryOutboxStore = (initial: OutboxEntry[] = []): OutboxStor
 export const isDefiniteRejection = (error: HomebaseSyncError): boolean =>
   error.status !== undefined && [400, 404, 409, 422].includes(error.status);
 
+export const toSyncError = (err: unknown, code: HomebaseSyncError['code'] = 'UNKNOWN') =>
+  err instanceof HomebaseSyncError
+    ? err
+    : new HomebaseSyncError(err instanceof Error ? err.message : String(err), code);
+
 export interface FlushResult {
   pushed: number;
-  /** Entries still queued (a retryable failure stopped the drain). */
   remaining: number;
   poisoned: OutboxEntry[];
-  /** Rows this flush poisoned (declined inside a 200, or a definite 4xx). */
   newlyPoisoned: number;
-  /** The failure that stopped this flush, if one did. */
   stoppedBy?: HomebaseSyncError;
 }
 
 export interface OutboxOptions {
   store: OutboxStore;
-  /** Rows per push request. Mirrors `statsSync`'s PUSH_CHUNK bound. */
   batchSize?: number;
-  /** Deprecated compatibility option; transient failures never expire. */
-  maxAttempts?: number;
   now?: () => number;
 }
 
-/** Same keys as the server's upsert keys — see `memoryAdapter.primaryKey`. */
+const clockMs = (at?: number | string | null): number =>
+  at === null || at === undefined ? 0 : typeof at === 'number' ? at : new Date(at).getTime();
+
 export const outboxKey = (channel: HomebaseChannel, rec: HomebaseRecord): string => {
   if (channel === 'notes') return `notes:${rec.book_hash}:${(rec as { id: string }).id}`;
   if (channel === 'statPages') {
@@ -70,15 +63,11 @@ export const outboxKey = (channel: HomebaseChannel, rec: HomebaseRecord): string
   return `${channel}:${rec.book_hash}`;
 };
 
-/** Homebase names rejected rows `config/<book hash>` or `note/<id>`; channel
- * names map onto those families so both spellings meet on one key. */
 export const rejectionKey = (family: string, id: string): string => {
   const canonical = { books: 'book', configs: 'config', notes: 'note' }[family] ?? family;
   return `${canonical}/${id}`;
 };
 
-/** The rejection key the server would report for a queued record. Configs are
- * keyed by book hash; the wire backfills `id` from it for the server. */
 export const recordRejectionKey = (channel: HomebaseChannel, rec: HomebaseRecord): string => {
   const row = rec as { book_hash?: string; bookHash?: string; id?: string };
   return rejectionKey(
@@ -89,33 +78,48 @@ export const recordRejectionKey = (channel: HomebaseChannel, rec: HomebaseRecord
   );
 };
 
-type PushRejection = { family: string; id: string; reason: string };
-const rejectionsOf = (response: unknown): PushRejection[] => {
+export const envelopeRejectionKeys = (envelope: HomebaseEnvelope): string[] =>
+  HOMEBASE_CHANNELS.flatMap((channel) =>
+    channelRecords(envelope, channel).map((record) => recordRejectionKey(channel, record)),
+  );
+
+const envelopeOutboxKeys = (envelope: HomebaseEnvelope, skip: Set<string> = new Set()) =>
+  new Set(
+    HOMEBASE_CHANNELS.flatMap((channel) =>
+      channelRecords(envelope, channel)
+        .filter((record) => !skip.has(recordRejectionKey(channel, record)))
+        .map((record) => outboxKey(channel, record)),
+    ),
+  );
+
+const rejectionsOf = (response: unknown): HomebaseRejection[] => {
   const rows = (response as { rejected?: unknown } | null | undefined)?.rejected;
-  return Array.isArray(rows) ? (rows as PushRejection[]) : [];
+  return Array.isArray(rows) ? (rows as HomebaseRejection[]) : [];
 };
+
+const failed = (entry: OutboxEntry, error: string, code: string, poisoned?: boolean) => ({
+  ...entry,
+  attempts: entry.attempts + 1,
+  lastError: error,
+  lastErrorCode: code,
+  ...(poisoned === undefined ? {} : { poisoned }),
+});
 
 export interface SyncOutbox {
   enqueue(channel: HomebaseChannel, records: HomebaseRecord[]): Promise<void>;
-  /** Enqueue a whole push payload — the shape `pushChanges` receives. */
   enqueueEnvelope(envelope: HomebaseEnvelope, failedWith?: HomebaseSyncError): Promise<void>;
-  /** `push` may resolve with a response carrying `rejected` rows (an HTTP 200
-   * that declined some records); those stay queued as poisoned, not acked. */
   flush(push: (envelope: HomebaseEnvelope) => Promise<unknown>): Promise<FlushResult>;
   pending(): Promise<OutboxEntry[]>;
-  /** Settle previously rejected rows accepted by a direct push. */
   settleAccepted(
     envelope: HomebaseEnvelope,
-    rejected: PushRejection[] | undefined,
+    rejected: HomebaseRejection[] | undefined,
   ): Promise<OutboxEntry[]>;
-  /** Drop poisoned entries once the caller has reported them. */
   clearPoisoned(): Promise<OutboxEntry[]>;
 }
 
-// One serialized store transaction chain and drain per store instance. Network
-// requests never hold the transaction lock: edits can persist while offline.
 const transactions = new WeakMap<OutboxStore, Promise<unknown>>();
 const drains = new WeakMap<OutboxStore, Promise<FlushResult>>();
+
 export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
   const { store } = options;
   const batchSize = Math.max(1, options.batchSize ?? 500);
@@ -128,81 +132,115 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
     );
     return next;
   };
+  const update = (map: (entries: OutboxEntry[]) => OutboxEntry[]) =>
+    transaction(async () => {
+      const entries = map(await store.read());
+      await store.write(entries);
+      return entries;
+    });
   const sameRevision = (a: OutboxEntry, b: OutboxEntry) =>
     a.key === b.key &&
     a.revision === b.revision &&
     JSON.stringify(a.record) === JSON.stringify(b.record);
-  const box: SyncOutbox = {
-    enqueue(channel, records) {
-      return transaction(async () => {
-        const entries = await store.read();
-        const byKey = new Map(entries.map((entry) => [entry.key, entry]));
-        for (const record of records) {
-          const key = outboxKey(channel, record),
-            existing = byKey.get(key);
-          if (existing && clockMs(record.updated_at) < clockMs(existing.record.updated_at))
-            continue;
-          byKey.set(key, {
-            key,
-            channel,
-            record: structuredClone(record),
-            queuedAt: existing?.queuedAt ?? now(),
-            attempts: 0,
-            revision: (existing?.revision ?? 0) + 1,
-          });
-        }
-        await store.write([...byKey.values()].sort((a, b) => a.queuedAt - b.queuedAt));
-      });
-    },
-    async enqueueEnvelope(envelope, failedWith) {
-      for (const channel of HOMEBASE_CHANNELS) {
-        const records = envelope[channel] as HomebaseRecord[] | null | undefined;
-        if (records?.length) await box.enqueue(channel, records);
-      }
-      if (failedWith) {
-        const keys = new Set(
-          HOMEBASE_CHANNELS.flatMap((channel) =>
-            ((envelope[channel] ?? []) as HomebaseRecord[]).map((record) =>
-              outboxKey(channel, record),
-            ),
-          ),
-        );
-        await transaction(async () => {
-          const entries = await store.read();
-          await store.write(
-            entries.map((entry) =>
-              keys.has(entry.key)
-                ? {
-                    ...entry,
-                    attempts: entry.attempts + 1,
-                    lastError: failedWith.message,
-                    lastErrorCode: failedWith.code,
-                  }
-                : entry,
-            ),
-          );
+
+  const enqueue = async (channel: HomebaseChannel, records: HomebaseRecord[]) => {
+    await update((entries) => {
+      const byKey = new Map(entries.map((entry) => [entry.key, entry]));
+      for (const record of records) {
+        const key = outboxKey(channel, record);
+        const existing = byKey.get(key);
+        if (existing && clockMs(record.updated_at) < clockMs(existing.record.updated_at)) continue;
+        byKey.set(key, {
+          key,
+          channel,
+          record: structuredClone(record),
+          queuedAt: existing?.queuedAt ?? now(),
+          attempts: 0,
+          revision: (existing?.revision ?? 0) + 1,
         });
       }
+      return [...byKey.values()].sort((a, b) => a.queuedAt - b.queuedAt);
+    });
+  };
+
+  const drain = async (push: (envelope: HomebaseEnvelope) => Promise<unknown>) => {
+    const queue = (await transaction(() => store.read())).filter((entry) => !entry.poisoned);
+    let pushed = 0;
+    let newlyPoisoned = 0;
+    let stoppedBy: HomebaseSyncError | undefined;
+    for (let index = 0; index < queue.length && !stoppedBy; index += batchSize) {
+      const batch = queue.slice(index, index + batchSize);
+      const inBatch = (entry: OutboxEntry) => batch.some((sent) => sameRevision(entry, sent));
+      const envelope: HomebaseEnvelope = {};
+      for (const entry of batch) {
+        ((envelope as Record<string, HomebaseRecord[]>)[entry.channel] ??= []).push(entry.record);
+      }
+      try {
+        const response = await push(envelope);
+        const rejected = new Map(
+          rejectionsOf(response).map((row) => [rejectionKey(row.family, row.id), row.reason]),
+        );
+        const reasonFor = (entry: OutboxEntry) =>
+          rejected.get(recordRejectionKey(entry.channel, entry.record));
+        pushed += batch.filter((sent) => reasonFor(sent) === undefined).length;
+        await update((live) =>
+          live.flatMap((entry) => {
+            if (!inBatch(entry)) return [entry];
+            const reason = reasonFor(entry);
+            if (reason === undefined) return [];
+            newlyPoisoned += 1;
+            return [failed(entry, reason, 'REJECTED', true)];
+          }),
+        );
+      } catch (err) {
+        const error = toSyncError(err, 'NETWORK');
+        const poisons = isDefiniteRejection(error);
+        stoppedBy = error;
+        await update((live) =>
+          live.map((entry) => {
+            if (!inBatch(entry)) return entry;
+            if (poisons) newlyPoisoned += 1;
+            return failed(entry, error.message, error.code, poisons);
+          }),
+        );
+      }
+    }
+    const live = await transaction(() => store.read());
+    const result: FlushResult = {
+      pushed,
+      remaining: live.filter((e) => !e.poisoned).length,
+      poisoned: live.filter((e) => e.poisoned),
+      newlyPoisoned,
+      ...(stoppedBy ? { stoppedBy } : {}),
+    };
+    return result;
+  };
+
+  return {
+    enqueue,
+    async enqueueEnvelope(envelope, failedWith) {
+      for (const channel of HOMEBASE_CHANNELS) {
+        const records = channelRecords(envelope, channel);
+        if (records.length) await enqueue(channel, records);
+      }
+      if (!failedWith) return;
+      const keys = envelopeOutboxKeys(envelope);
+      await update((entries) =>
+        entries.map((entry) =>
+          keys.has(entry.key) ? failed(entry, failedWith.message, failedWith.code) : entry,
+        ),
+      );
     },
     pending: () => transaction(async () => (await store.read()).filter((entry) => !entry.poisoned)),
-    settleAccepted: (envelope, rejected) =>
-      transaction(async () => {
-        const rejectedKeys = new Set(
-          (rejected ?? []).map((row) => rejectionKey(row.family, row.id)),
-        );
-        const acceptedKeys = new Set(
-          HOMEBASE_CHANNELS.flatMap((channel) =>
-            ((envelope[channel] ?? []) as HomebaseRecord[])
-              .filter((record) => !rejectedKeys.has(recordRejectionKey(channel, record)))
-              .map((record) => outboxKey(channel, record)),
-          ),
-        );
-        const entries = (await store.read()).filter(
-          (entry) => !entry.poisoned || !acceptedKeys.has(entry.key),
-        );
-        await store.write(entries);
-        return entries;
-      }),
+    settleAccepted: (envelope, rejected) => {
+      const accepted = envelopeOutboxKeys(
+        envelope,
+        new Set((rejected ?? []).map((row) => rejectionKey(row.family, row.id))),
+      );
+      return update((entries) =>
+        entries.filter((entry) => !entry.poisoned || !accepted.has(entry.key)),
+      );
+    },
     clearPoisoned: () =>
       transaction(async () => {
         const entries = await store.read();
@@ -212,103 +250,14 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
     flush(push) {
       const running = drains.get(store);
       if (running) return running;
-      const drain = (async (): Promise<FlushResult> => {
-        const snapshot = await transaction(() => store.read());
-        const queue = snapshot.filter((entry) => !entry.poisoned);
-        let pushed = 0,
-          newlyPoisoned = 0,
-          stoppedBy: HomebaseSyncError | undefined;
-        for (let index = 0; index < queue.length; index += batchSize) {
-          const batch = queue.slice(index, index + batchSize);
-          const envelope: HomebaseEnvelope = {};
-          for (const entry of batch) {
-            const target = envelope as Record<string, HomebaseRecord[]>;
-            (target[entry.channel] ??= []).push(entry.record);
-          }
-          try {
-            const response = await push(envelope);
-            const rejected = new Map(
-              rejectionsOf(response).map((row) => [rejectionKey(row.family, row.id), row.reason]),
-            );
-            const rejectedInBatch = batch.filter((sent) =>
-              rejected.has(recordRejectionKey(sent.channel, sent.record)),
-            ).length;
-            // Delete only the exact revision acknowledged; a newer edit stays.
-            // A row the server declined inside a 200 is not acknowledged: it
-            // stays durable as poisoned so its blocked status survives restart.
-            await transaction(async () => {
-              const live = await store.read();
-              let poisonedHere = 0;
-              await store.write(
-                live.flatMap((entry) => {
-                  if (!batch.some((sent) => sameRevision(entry, sent))) return [entry];
-                  const reason = rejected.get(recordRejectionKey(entry.channel, entry.record));
-                  if (reason === undefined) return [];
-                  poisonedHere += 1;
-                  return [
-                    {
-                      ...entry,
-                      attempts: entry.attempts + 1,
-                      lastError: reason,
-                      lastErrorCode: 'REJECTED',
-                      poisoned: true,
-                    },
-                  ];
-                }),
-              );
-              newlyPoisoned += poisonedHere;
-            });
-            pushed += batch.length - rejectedInBatch;
-          } catch (err) {
-            stoppedBy =
-              err instanceof HomebaseSyncError
-                ? err
-                : new HomebaseSyncError(
-                    err instanceof Error ? err.message : String(err),
-                    'NETWORK',
-                  );
-            const error = stoppedBy;
-            await transaction(async () => {
-              const live = await store.read();
-              const poisons = isDefiniteRejection(error);
-              let poisonedHere = 0;
-              await store.write(
-                live.map((entry) => {
-                  if (!batch.some((sent) => sameRevision(entry, sent))) return entry;
-                  if (poisons) poisonedHere += 1;
-                  return {
-                    ...entry,
-                    attempts: entry.attempts + 1,
-                    lastError: error.message,
-                    lastErrorCode: error.code,
-                    // Only an explicit client rejection is terminal. Unknown
-                    // failures and auth pauses retain the durable row.
-                    poisoned: poisons,
-                  };
-                }),
-              );
-              newlyPoisoned += poisonedHere;
-            });
-            break;
-          }
-        }
-        const live = await transaction(() => store.read());
-        return {
-          pushed,
-          remaining: live.filter((e) => !e.poisoned).length,
-          poisoned: live.filter((e) => e.poisoned),
-          newlyPoisoned,
-          ...(stoppedBy ? { stoppedBy } : {}),
-        };
-      })();
-      drains.set(store, drain);
-      void drain
+      const run = drain(push);
+      drains.set(store, run);
+      void run
         .finally(() => {
-          if (drains.get(store) === drain) drains.delete(store);
+          if (drains.get(store) === run) drains.delete(store);
         })
         .catch(() => undefined);
-      return drain;
+      return run;
     },
   };
-  return box;
 };

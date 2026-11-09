@@ -37,7 +37,6 @@ export interface OutboxFs {
   remove(path: string): Promise<void>;
 }
 
-/** File paths exposed by OutboxFs are relative to the app's Data directory. */
 export const createTauriOutboxFs = async (): Promise<OutboxFs> => {
   const [fs, appService] = await Promise.all([
     import('@tauri-apps/plugin-fs'),
@@ -49,12 +48,7 @@ export const createTauriOutboxFs = async (): Promise<OutboxFs> => {
       try {
         return await fs.readTextFile(await resolve(path));
       } catch (error) {
-        // Missing is distinct from access/IO errors: never treat a permission
-        // failure as an empty queue and subsequently overwrite the original.
         const text = String(error);
-        // Anchor the OS error number: "(os error 2)" / "(os error 3)" only, so
-        // EMFILE (24), ENFILE (23), EISDIR (21) or a sharing violation (32)
-        // throw instead of reading as a missing (empty) queue.
         if (
           /not found|no such file|ENOENT|\(os error [23]\)|cannot find the (path|file)/i.test(text)
         )
@@ -127,13 +121,9 @@ export const createFileOutboxStore = (opts: {
       const tmpText = await fs.readText(tmp);
       entries = parseEntries(tmpText);
       if (entries) {
-        // Keep an invalid main for recovery even when the tmp is usable.
         if (mainText !== null) await fs.rename(path, `${path}.corrupt-${Date.now()}`);
         await fs.rename(tmp, path);
       } else if (mainText !== null) {
-        // An invalid main may hold acknowledged data, so retain it and refuse
-        // to overwrite it. A lone invalid tmp is an interrupted first write;
-        // ignore it so the next enqueue or legacy migration can proceed.
         await fs.writeText(`${path}.corrupt-${Date.now()}`, mainText);
         throw invalidQueue();
       }
@@ -154,8 +144,6 @@ export const createFileOutboxStore = (opts: {
     read: () => serialize(read),
     write: (entries) =>
       serialize(async () => {
-        // A direct write before the first read must not discard legacy rows
-        // omitted from the new snapshot. Normal post-migration writes replace it.
         const hasLegacy = Boolean(legacy?.getItem(HOMEBASE_OUTBOX_STORAGE_KEY));
         const existing = await read();
         await persist(hasLegacy ? mergeEntries(existing, entries) : entries);

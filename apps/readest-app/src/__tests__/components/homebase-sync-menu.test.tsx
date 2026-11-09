@@ -48,8 +48,6 @@ describe('actual sync request receipts and menu', () => {
     const order: string[] = [];
     const client = new HomebaseSyncClient({
       adapter: {
-        endpointId: 'fixture',
-        capabilities: async () => null,
         pull: async () => {
           order.push('pull');
           await gate;
@@ -82,8 +80,6 @@ describe('actual sync request receipts and menu', () => {
     const client = new HomebaseSyncClient({
       outbox: box,
       adapter: {
-        endpointId: 'fixture',
-        capabilities: async () => null,
         pull: async () => ({}),
         push: async () => {
           throw new HomebaseSyncError('Failed to fetch', 'NETWORK');
@@ -132,8 +128,6 @@ describe('actual sync request receipts and menu', () => {
   it('does not erase a failure when a concurrent unrelated request succeeds', async () => {
     const client = new HomebaseSyncClient({
       adapter: {
-        endpointId: 'fixture',
-        capabilities: async () => null,
         pull: async () => ({}),
         push: async () => {
           throw new HomebaseSyncError('offline', 'NETWORK');

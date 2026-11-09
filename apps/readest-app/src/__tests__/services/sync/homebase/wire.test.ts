@@ -5,8 +5,7 @@ import {
   encodeBook,
   encodeConfig,
   encodeNote,
-  encodeStatBook,
-  encodeStatPage,
+  encodeStat,
   encodeSyncData,
 } from '@/services/sync/homebase/wire';
 import type { StatBookRecord, StatPageRecord, SyncData } from '@/libs/sync';
@@ -219,7 +218,7 @@ describe('stat encoding', () => {
   test('never sends updated_at_ms upward', () => {
     // It is a RESPONSE-only cursor field; echoing it back is meaningless and
     // invites a server that trusts it.
-    const row = encodeStatPage(page);
+    const row = encodeStat(page);
     expect('updated_at_ms' in row).toBe(false);
     expect(row.page).toBe(3);
     expect(row.updated_at).toBe(ISO(1));
@@ -233,13 +232,13 @@ describe('stat encoding', () => {
       updated_at: ISO(1),
       updated_at_ms: 999,
     } as StatBookRecord;
-    expect('updated_at_ms' in encodeStatBook(book)).toBe(false);
+    expect('updated_at_ms' in encodeStat(book)).toBe(false);
   });
 
   test('the stats ISO updated_at is NOT coerced to ms', () => {
     // Stats are the one family whose updated_at really is ISO on both sides
     // (`libs/sync.ts:20`, `:32`). Normalising it here would break the server.
-    expect(typeof encodeStatPage(page).updated_at).toBe('string');
+    expect(typeof encodeStat(page).updated_at).toBe('string');
   });
 });
 

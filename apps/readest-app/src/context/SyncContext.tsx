@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import type { RecordSyncClient } from '@/services/sync/homebase/recordSyncClient';
-import { resolveRecordSyncClient } from '@/services/sync/homebase';
+import { resolveRecordSyncClient } from '@/services/sync/homebase/resolveRecordSyncClient';
 import { subscribeHomebasePaired } from '@/services/sync/homebase/pairingSignal';
 
 const syncClient = resolveRecordSyncClient();

@@ -10,13 +10,12 @@ import { useEnv } from '@/context/EnvContext';
 import { CSPostHogProvider } from '@/context/PHContext';
 import { SyncProvider } from '@/context/SyncContext';
 import { initSystemThemeListener, loadDataTheme, useThemeStore } from '@/store/themeStore';
+import { isHomebaseSyncEnabled } from '@/services/sync/homebase/config';
+import { recordDiagnostic, startDiagnosticsReporter } from '@/services/sync/homebase/diagnostics';
 import {
   getHomebaseToken,
   getOrCreateHomebaseClientId,
-  isHomebaseSyncEnabled,
-  recordDiagnostic,
-  startDiagnosticsReporter,
-} from '@/services/sync/homebase';
+} from '@/services/sync/homebase/persistence';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useCustomTextureStore } from '@/store/customTextureStore';
 import { useSafeAreaInsets } from '@/hooks/useSafeAreaInsets';

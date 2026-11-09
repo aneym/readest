@@ -1,17 +1,3 @@
-/**
- * Household diagnostics: a small, durable event log the fork ships to the
- * Homebase server so a reconnecting operator can see what the reader did
- * while it was out of reach (theme schedule transitions, sync failures,
- * unhandled errors, app starts with the build that produced them).
- *
- * Events are appended to a localStorage ring buffer synchronously — the
- * write path never awaits — and flushed in batches to
- * `{base}/reader/diagnostics` with the paired device token. A failed flush
- * keeps the batch; a 2xx drops exactly the events that were sent. Nothing
- * here runs unless Homebase sync is configured and enabled, and no event
- * carries book text, positions, or credentials.
- */
-
 import { getHomebaseBaseUrl, isHomebaseSyncEnabled } from './config';
 
 declare global {
@@ -27,11 +13,8 @@ declare global {
 export type DiagnosticLevel = 'info' | 'warn' | 'error';
 
 export interface DiagnosticEvent {
-  /** Monotonic per-install sequence; the server dedupes on (clientId, seq). */
   seq: number;
-  /** Device wall clock, ms since epoch. */
   ts: number;
-  /** Local wall clock as the device saw it, for schedule debugging. */
   local: string;
   kind: string;
   level: DiagnosticLevel;
@@ -48,17 +31,13 @@ export interface DiagnosticsBatch {
 export const DIAGNOSTICS_STORAGE_KEY = 'readest-homebase-diagnostics';
 export const DIAGNOSTICS_SEQ_KEY = 'readest-homebase-diagnostics-seq';
 export const DIAGNOSTICS_PATH = '/reader/diagnostics';
-/** Ring buffer cap; oldest events drop first so storage stays bounded. */
 export const DIAGNOSTICS_MAX_EVENTS = 300;
 export const DIAGNOSTICS_FLUSH_INTERVAL_MS = 60_000;
-/** Cap per POST so a long-offline backlog still fits one request. */
 export const DIAGNOSTICS_BATCH_SIZE = 100;
-/** A diagnostics POST is abandoned after this; the batch waits for the next flush. */
 export const DIAGNOSTICS_TIMEOUT_MS = 5_000;
 
 const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
-// Reading window.localStorage itself throws (SecurityError) where storage is denied.
 const hasStorage = () => {
   try {
     return typeof window !== 'undefined' && !!window.localStorage;
@@ -69,7 +48,6 @@ const hasStorage = () => {
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** "YYYY-MM-DD HH:MM:SS" in the device's local timezone. */
 export const formatLocalClock = (date: Date): string =>
   `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
   `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
@@ -88,9 +66,7 @@ const writeDiagnosticEvents = (events: DiagnosticEvent[]) => {
   if (!hasStorage()) return;
   try {
     localStorage.setItem(DIAGNOSTICS_STORAGE_KEY, JSON.stringify(events));
-  } catch {
-    // Quota or private mode: diagnostics are best-effort by design.
-  }
+  } catch {}
 };
 
 const nextSeq = (): number => {
@@ -100,14 +76,8 @@ const nextSeq = (): number => {
   return seq;
 };
 
-/** Listeners fire after an event is stored, so the reporter can flush early. */
 const listeners = new Set<(event: DiagnosticEvent) => void>();
 
-/**
- * Append one event. Safe to call from anywhere, including before the
- * reporter starts and when Homebase is unconfigured (the buffer just stays
- * local). Never throws.
- */
 export const recordDiagnostic = (
   kind: string,
   level: DiagnosticLevel,
@@ -139,8 +109,6 @@ export const recordDiagnostic = (
 };
 
 export const getAppBuildInfo = (): DiagnosticsBatch['app'] => ({
-  // Dot notation is load-bearing: Next only inlines literal member access.
-  // The build id is "<version>+<fork sha>", stamped by scripts/household-build.sh.
   build: process.env.NEXT_PUBLIC_HOMEBASE_BUILD_ID || 'unknown',
   platform: process.env.NEXT_PUBLIC_APP_PLATFORM || 'web',
 });
@@ -150,7 +118,6 @@ export interface DiagnosticsReporterDeps {
   getToken: () => Promise<string | null>;
   fetchImpl?: typeof fetch;
   intervalMs?: number;
-  /** Injectable for tests; defaults to the real window. */
   target?: Pick<
     Window,
     'addEventListener' | 'removeEventListener' | 'setInterval' | 'clearInterval'
@@ -159,14 +126,7 @@ export interface DiagnosticsReporterDeps {
   };
 }
 
-/**
- * Send pending events once. Resolves to the number of events the server
- * accepted; 0 when nothing was pending, Homebase is off, the device is not
- * paired, or the request failed (the batch is kept for the next attempt).
- */
 export const flushDiagnostics = async (deps: DiagnosticsReporterDeps): Promise<number> => {
-  // Callers fire and forget this. It never throws, returns before touching
-  // the network while offline, and aborts the POST after DIAGNOSTICS_TIMEOUT_MS.
   if (isOffline()) return 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -197,7 +157,6 @@ export const flushDiagnostics = async (deps: DiagnosticsReporterDeps): Promise<n
       ...(controller ? { signal: controller.signal } : {}),
     });
     if (!response.ok) return 0;
-    // Re-read: events recorded during the request must survive the trim.
     const lastSent = batch[batch.length - 1]!.seq;
     writeDiagnosticEvents(readDiagnosticEvents().filter((event) => event.seq > lastSent));
     return batch.length;
@@ -208,12 +167,6 @@ export const flushDiagnostics = async (deps: DiagnosticsReporterDeps): Promise<n
   }
 };
 
-/**
- * Start the background reporter: flush now, on an interval, whenever the app
- * comes back to the foreground, and shortly after any warn/error event.
- * Also captures unhandled errors and promise rejections. Returns a stop
- * function. Calling it twice is a no-op until stopped.
- */
 let reporterActive = false;
 
 export const startDiagnosticsReporter = (deps: DiagnosticsReporterDeps): (() => void) => {

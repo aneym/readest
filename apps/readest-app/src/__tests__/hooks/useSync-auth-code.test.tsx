@@ -28,7 +28,7 @@ vi.mock('@/store/readerStore', () => ({ useReaderStore: () => ({ setIsSyncing: v
 vi.mock('@/utils/nav', () => ({ navigateToLogin: h.navigate }));
 
 import { useSync } from '@/hooks/useSync';
-import { HomebaseSyncError } from '@/services/sync/homebase';
+import { HomebaseSyncError } from '@/services/sync/homebase/adapter';
 import { syncErrorMessage, useHomebaseSyncStatus } from '@/services/sync/homebase/syncStatus';
 
 beforeEach(() => {

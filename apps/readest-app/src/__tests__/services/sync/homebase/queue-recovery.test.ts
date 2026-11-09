@@ -32,7 +32,7 @@ describe('durable queue regressions', () => {
   });
   it('persists each acknowledged batch before the next request and never poisons offline rows', async () => {
     const store = createMemoryOutboxStore(),
-      box = createSyncOutbox({ store, batchSize: 1, maxAttempts: 1 });
+      box = createSyncOutbox({ store, batchSize: 1 });
     await box.enqueue('notes', [note('a'), note('b')]);
     let calls = 0;
     const result = await box.flush(async () => {

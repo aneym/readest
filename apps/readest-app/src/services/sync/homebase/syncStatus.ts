@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { HomebaseSyncError } from './adapter';
 import { recordRejectionKey, rejectionKey, type OutboxEntry } from './outbox';
+import type { HomebaseRejection } from './types';
 
 const SUCCESS_KEY = 'readest-homebase-last-successful-sync';
 export const PRIVATE_SERVER_UNAVAILABLE =
@@ -12,7 +13,6 @@ export const syncErrorMessage = (error: unknown): string => {
   }
   if (error instanceof HomebaseSyncError && error.code === 'NETWORK')
     return PRIVATE_SERVER_UNAVAILABLE;
-  // Do not surface server bodies, signed URLs, or credentials in the menu.
   return 'Sync failed. Try Sync now again. Your local books and queued changes are kept.';
 };
 
@@ -31,8 +31,6 @@ export const useHomebaseSyncStatus = create<{
   retrying: number;
   authPaused: number;
   blocked: number;
-  /** Rejection keys of poisoned outbox rows, so a row that is both poisoned
-   * and in `rejectedRows` counts once in `blocked`. */
   poisonedKeys: string[];
   rejectedCount: number;
   rejectedRows: Record<string, string>;
@@ -56,7 +54,6 @@ export const useHomebaseSyncStatus = create<{
 const blockedCount = (poisonedKeys: string[], rejectedRows: Record<string, string>): number =>
   new Set([...poisonedKeys, ...Object.keys(rejectedRows)]).size;
 
-/** Publish the durable queue's counts. Every outbox read and write lands here. */
 export const reportOutboxQueue = (entries: OutboxEntry[]) =>
   useHomebaseSyncStatus.setState((s) => {
     const poisonedKeys = entries
@@ -73,17 +70,10 @@ export const reportOutboxQueue = (entries: OutboxEntry[]) =>
     };
   });
 
-export const reportPushAck = (
-  sent: { family: string; id: string }[],
-  rejected: { family: string; id: string; reason: string }[] = [],
-) =>
+export const reportPushAck = (sentKeys: string[], rejected: HomebaseRejection[] = []) =>
   useHomebaseSyncStatus.setState((s) => {
     const rejectedRows = { ...s.rejectedRows };
-    const rejectedKeys = new Set(rejected.map((row) => rejectionKey(row.family, row.id)));
-    for (const row of sent) {
-      const key = rejectionKey(row.family, row.id);
-      if (!rejectedKeys.has(key)) delete rejectedRows[key];
-    }
+    for (const key of sentKeys) delete rejectedRows[key];
     for (const row of rejected) rejectedRows[rejectionKey(row.family, row.id)] = row.reason;
     const rejectedCount = Object.keys(rejectedRows).length;
     return {
@@ -107,7 +97,5 @@ export const reportSyncSuccess = () => {
   useHomebaseSyncStatus.setState({ lastSuccessAt });
   try {
     globalThis.localStorage?.setItem(SUCCESS_KEY, String(lastSuccessAt));
-  } catch {
-    /* Reading must survive unavailable storage. */
-  }
+  } catch {}
 };

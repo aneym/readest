@@ -8,7 +8,7 @@ const mock = vi.hoisted(() => ({
   client: null as HomebaseSyncClient | null,
   flush: vi.fn<() => Promise<unknown>>(async () => null),
 }));
-vi.mock('@/services/sync/homebase', () => ({
+vi.mock('@/services/sync/homebase/resolveRecordSyncClient', () => ({
   resolveRecordSyncClient: () => ({ flushOutbox: () => mock.flush() }),
 }));
 vi.mock('@/utils/supabase', () => ({ supabase: {} }));
@@ -33,8 +33,6 @@ test('startup drains durable rows; reconnect retries without a manual Sync', asy
   mock.client = new HomebaseSyncClient({
     outbox: box,
     adapter: {
-      endpointId: 'fixture',
-      capabilities: async () => null,
       pull: async () => ({}),
       push,
     },
@@ -79,8 +77,6 @@ test('visible resume drains and teardown removes visibility listener', async () 
   mock.client = new HomebaseSyncClient({
     outbox: box,
     adapter: {
-      endpointId: 'fixture',
-      capabilities: async () => null,
       pull: async () => ({}),
       push,
     },
