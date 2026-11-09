@@ -282,7 +282,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({ bookKey, results, onSelec
   // searchResultIndex). See readerProgressStore for why this is a dedicated
   // store instead of readerStore.
   const progress = useBookProgress(bookKey);
-  const { searchProgress, searchError } = getSearchNavState(bookKey);
+  const { searchProgress, searchError, searchTerm } = getSearchNavState(bookKey);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => new Set());
 
   // Starting a search resets progress to 0 while the previous results stay
@@ -338,7 +338,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({ bookKey, results, onSelec
   // The error itself is surfaced in the search bar; once the search has finished
   // with no hits, say so instead of leaving a blank panel.
   if (results.length === 0) {
-    if (searchError || searchProgress < 1) return null;
+    if (searchError || searchProgress < 1 || !searchTerm?.trim()) return null;
     return (
       <div className='search-results text-base-content/60 p-4 text-center text-sm'>
         {_('No results found')}

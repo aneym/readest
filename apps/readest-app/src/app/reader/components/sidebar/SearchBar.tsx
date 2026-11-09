@@ -21,6 +21,7 @@ import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { debounce } from '@/utils/debounce';
 import { isCJKStr } from '@/utils/lang';
 import Dropdown from '@/components/Dropdown';
+import { isHouseholdBuild } from '@/services/household';
 import SearchOptions from './SearchOptions';
 
 const MINIMUM_SEARCH_TERM_LENGTH_DEFAULT = 2;
@@ -137,7 +138,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ isVisible, bookKey, onHideSearchB
       inputRef.current.onfocus = () => {
         inputFocusedRef.current = true;
       };
-      if (!appService?.isMobile) {
+      if (!appService?.isMobile || isHouseholdBuild()) {
         inputRef.current.focus();
       }
     }
