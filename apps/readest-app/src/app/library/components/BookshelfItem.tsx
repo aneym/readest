@@ -232,7 +232,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
         },
       },
       markAbandoned: {
-        text: _('Mark as Paused'),
+        text: _('Mark as On hold'),
         action: async () => {
           handleUpdateReadingStatus(book, 'abandoned');
         },
