@@ -48,6 +48,7 @@ const ShelfFilterBar: React.FC<ShelfFilterBarProps> = ({ value, counts, onChange
     nonfiction: _('Nonfiction'),
     volumes: _('Volumes'),
     all: _('All'),
+    paused: _('Paused'),
     finished: _('Finished'),
   };
   return (

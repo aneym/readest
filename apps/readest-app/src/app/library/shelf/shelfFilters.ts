@@ -10,7 +10,14 @@ import type { Book, ReadingStatus } from '@/types/book';
  * label, and "All" still excludes what is finished, abandoned or hidden —
  * those live under their own chip so the everyday shelf stays short.
  */
-export type ShelfFilterId = 'reading' | 'fiction' | 'nonfiction' | 'volumes' | 'all' | 'finished';
+export type ShelfFilterId =
+  | 'reading'
+  | 'fiction'
+  | 'nonfiction'
+  | 'volumes'
+  | 'all'
+  | 'paused'
+  | 'finished';
 
 export const SHELF_FILTER_IDS: readonly ShelfFilterId[] = [
   'reading',
@@ -18,6 +25,7 @@ export const SHELF_FILTER_IDS: readonly ShelfFilterId[] = [
   'nonfiction',
   'volumes',
   'all',
+  'paused',
   'finished',
 ];
 
@@ -61,6 +69,8 @@ const DONE: ReadonlySet<ReadingStatus> = new Set<ReadingStatus>(['finished', 'ab
 export const isDoneBook = (book: Book): boolean =>
   !!book.readingStatus && DONE.has(book.readingStatus);
 
+export const isPausedBook = (book: Book): boolean => book.readingStatus === 'abandoned';
+
 export const readFraction = (book: Book): number => {
   const [current, total] = book.progress ?? [];
   if (!current || !total || total <= 0) return 0;
@@ -93,7 +103,9 @@ export const matchesShelfFilter = (
   if (isHiddenBook(book)) return false;
   switch (filter) {
     case 'finished':
-      return isDoneBook(book);
+      return book.readingStatus === 'finished';
+    case 'paused':
+      return isPausedBook(book);
     case 'all':
       return !isDoneBook(book);
     case 'reading':
@@ -114,7 +126,15 @@ export const shelfFilterCounts = (
   books: Book[],
   now = Date.now(),
 ): Record<ShelfFilterId, number> => {
-  const counts = { reading: 0, fiction: 0, nonfiction: 0, volumes: 0, all: 0, finished: 0 };
+  const counts = {
+    reading: 0,
+    fiction: 0,
+    nonfiction: 0,
+    volumes: 0,
+    all: 0,
+    paused: 0,
+    finished: 0,
+  };
   for (const book of books) {
     for (const id of SHELF_FILTER_IDS) if (matchesShelfFilter(book, id, now)) counts[id]++;
   }

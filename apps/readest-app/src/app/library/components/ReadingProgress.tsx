@@ -56,7 +56,7 @@ const ReadingProgress: React.FC<ReadingProgressProps> = memo(
           className='text-neutral-content flex items-center justify-between gap-2 text-xs'
           role='status'
         >
-          <StatusBadge status={book.readingStatus}>{_('On hold')}</StatusBadge>
+          <StatusBadge status={book.readingStatus}>{_('Paused')}</StatusBadge>
           {progressPercentage !== null && !Number.isNaN(progressPercentage) && (
             <span>{progressPercentage}%</span>
           )}
