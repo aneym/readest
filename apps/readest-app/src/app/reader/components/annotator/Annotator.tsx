@@ -226,7 +226,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
   const annotPopupMaxWidthBase = Math.min(useResponsiveSize(300), maxWidth);
   const labeledToolbar = isHouseholdBuild() && !viewSettings.vertical;
   const annotPopupMaxWidth = labeledToolbar ? maxWidth : annotPopupMaxWidthBase;
-  const annotPopupToolSize = useResponsiveSize(labeledToolbar ? 52 : 44);
+  const annotPopupToolSize = useResponsiveSize(labeledToolbar ? 46 : 44);
   const visibleToolCount = getToolbarToolTypes(
     viewSettings.annotationToolbarItems,
     canShare,
@@ -2043,7 +2043,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
         };
       case 'annotate':
         return {
-          tooltipText: _(label),
+          tooltipText: labeledToolbar ? _('Note') : _(label),
           Icon,
           onClick: handleAnnotate,
           disabled: popupSelectionNoCfi,
