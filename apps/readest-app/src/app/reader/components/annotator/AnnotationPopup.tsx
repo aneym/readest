@@ -27,6 +27,7 @@ interface AnnotationPopupProps {
   popupWidth: number;
   popupHeight: number;
   globalToggleAvailable?: boolean;
+  labeled?: boolean;
   globalToggleActive?: boolean;
   onToggleGlobal?: () => void;
   onHighlight: (update?: boolean) => void;
@@ -47,6 +48,7 @@ const AnnotationPopup: React.FC<AnnotationPopupProps> = ({
   popupWidth,
   popupHeight,
   globalToggleAvailable,
+  labeled,
   globalToggleActive,
   onToggleGlobal,
   onHighlight,
@@ -66,7 +68,8 @@ const AnnotationPopup: React.FC<AnnotationPopupProps> = ({
         <div className={clsx('flex h-full gap-4', isVertical ? 'flex-row' : 'flex-col')}>
           <div
             className={clsx(
-              'selection-buttons flex h-full w-full items-center justify-between p-2',
+              'selection-buttons flex h-full w-full items-center justify-between',
+              labeled && !isVertical ? 'gap-1 px-1 py-1' : 'p-2',
               isVertical ? 'flex-col overflow-y-auto' : 'flex-row overflow-x-auto',
               notes.length > 0 && 'hidden',
             )}
@@ -82,6 +85,7 @@ const AnnotationPopup: React.FC<AnnotationPopupProps> = ({
                   Icon={button.Icon}
                   onClick={button.onClick}
                   disabled={button.disabled}
+                  labeled={labeled && !isVertical}
                 />
               );
             })}

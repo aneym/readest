@@ -32,6 +32,7 @@ import { getLocale } from '@/utils/misc';
 import { initDayjs } from '@/utils/time';
 import ReaderContent from './ReaderContent';
 import { CaptureSheets } from './capture/CaptureSheets';
+import { SelectionNoteSheet } from './capture/SelectionNoteSheet';
 
 /*
 Z-Index Layering Guide:
@@ -164,6 +165,7 @@ const Reader: React.FC<{ ids?: string }> = ({ ids }) => {
         <ProofreadRulesManager />
         <Toast />
         <CaptureSheets />
+        <SelectionNoteSheet />
       </Suspense>
     </div>
   ) : (

@@ -125,6 +125,12 @@ const Notebook: React.FC = ({}) => {
   }, []);
 
   useEffect(() => {
+    if (notebookNewAnnotation || notebookEditAnnotation) {
+      setNotebookActiveTab('notes');
+    }
+  }, [notebookNewAnnotation, notebookEditAnnotation, setNotebookActiveTab]);
+
+  useEffect(() => {
     if (!isNotebookVisible || notebookNewAnnotation || notebookEditAnnotation) {
       setIsSearchBarVisible(false);
       setSearchResults(null);

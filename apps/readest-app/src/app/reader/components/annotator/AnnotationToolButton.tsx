@@ -7,6 +7,7 @@ interface AnnotationToolButtonProps {
   disabled?: boolean;
   Icon: React.ElementType;
   onClick: () => void;
+  labeled?: boolean;
 }
 
 const AnnotationToolButton: React.FC<AnnotationToolButtonProps> = ({
@@ -15,12 +16,32 @@ const AnnotationToolButton: React.FC<AnnotationToolButtonProps> = ({
   disabled,
   Icon,
   onClick,
+  labeled,
 }) => {
   const [buttonClicked, setButtonClicked] = useState(false);
   const handleClick = () => {
     setButtonClicked(true);
     onClick();
   };
+  if (labeled) {
+    return (
+      <button
+        type='button'
+        onClick={handleClick}
+        aria-label={tooltipText}
+        disabled={disabled}
+        className={clsx(
+          'flex h-full min-w-12 flex-1 flex-col items-center justify-center gap-1 rounded-md p-0',
+          disabled && 'cursor-not-allowed opacity-50',
+        )}
+      >
+        <Icon size={22} />
+        <span className='max-w-full truncate text-[11px] font-medium leading-none'>
+          {tooltipText}
+        </span>
+      </button>
+    );
+  }
   return (
     <div
       className='lg:tooltip lg:tooltip-bottom'

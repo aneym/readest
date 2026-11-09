@@ -42,6 +42,7 @@ import {
   getTextFromRange,
 } from '@/utils/sel';
 import { eventDispatcher } from '@/utils/event';
+import { isHouseholdBuild } from '@/services/household';
 import { findTocItemBS } from '@/services/nav';
 import { throttle } from '@/utils/throttle';
 import {
@@ -222,8 +223,10 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
   // of visible tools (responsive) up to a max — otherwise a 2-tool toolbar
   // renders a sparse, full-width bar. Annotated selections keep the max width
   // since they show the wider highlight options / notes instead of the buttons.
-  const annotPopupMaxWidth = Math.min(useResponsiveSize(300), maxWidth);
-  const annotPopupToolSize = useResponsiveSize(44);
+  const annotPopupMaxWidthBase = Math.min(useResponsiveSize(300), maxWidth);
+  const labeledToolbar = isHouseholdBuild() && !viewSettings.vertical;
+  const annotPopupMaxWidth = labeledToolbar ? maxWidth : annotPopupMaxWidthBase;
+  const annotPopupToolSize = useResponsiveSize(labeledToolbar ? 52 : 44);
   const visibleToolCount = getToolbarToolTypes(
     viewSettings.annotationToolbarItems,
     canShare,
@@ -231,8 +234,8 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
   const annotPopupWidth = selection?.annotated
     ? annotPopupMaxWidth
     : Math.min(Math.max(visibleToolCount, 1) * annotPopupToolSize, annotPopupMaxWidth);
-  const annotPopupHeight = useResponsiveSize(44);
-  const androidSelectionHandlerHeight = 0;
+  const annotPopupHeight = useResponsiveSize(labeledToolbar ? 60 : 44);
+  const androidSelectionHandlerHeight = useResponsiveSize(28);
 
   // Reposition popups on scroll without dismissing them
   const repositionPopups = useCallback(() => {
@@ -1453,8 +1456,14 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
     }
   };
 
-  const handleAnnotate = () => {
+  const handleAnnotate = async () => {
     if (!selection || !selection.text) return;
+    if (isHouseholdBuild()) {
+      if (selection.popup && !selection.cfi) return;
+      await eventDispatcher.dispatch('reader-selection-note-open', { bookKey, selection });
+      handleDismissPopupAndSelection();
+      return;
+    }
     // A popup selection without a CFI has nothing to anchor a note to (the
     // toolbar button is disabled, this guards the keyboard shortcut).
     if (selection.popup && !selection.cfi) return;
@@ -1577,7 +1586,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
         handleHighlight(false, 'underline');
       },
       onAnnotateSelection: () => {
-        handleAnnotate();
+        void handleAnnotate();
       },
       onSearchSelection: () => {
         handleSearch();
@@ -2165,6 +2174,7 @@ const Annotator: React.FC<{ bookKey: string; contentInsets: Insets }> = ({
             popupWidth={annotPopupWidth}
             popupHeight={annotPopupHeight}
             globalToggleAvailable={globalToggleAvailable}
+            labeled={labeledToolbar}
             globalToggleActive={globalToggleActive}
             onToggleGlobal={handleToggleGlobal}
             onHighlight={handleHighlight}
