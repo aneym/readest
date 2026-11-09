@@ -58,6 +58,7 @@ const NotebookTabNavigation: React.FC<NotebookTabNavigationProps> = ({
           key={tab}
           tabIndex={0}
           role='button'
+          aria-selected={activeTab === tab}
           className={clsx(
             'm-1.5 flex-1 cursor-pointer rounded-lg p-2 transition-colors duration-200',
             activeTab === tab && 'bg-base-300/85',

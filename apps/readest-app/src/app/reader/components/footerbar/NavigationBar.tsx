@@ -80,8 +80,13 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
         aria-label={_('Reading actions')}
         className='bg-base-100 text-base-content w-full font-sans'
       >
-        <ThumbBarPosition bookKey={bookKey} />
-        <div className='grid grid-cols-4 gap-2 px-4 pb-2 pt-3'>
+        {actionTab !== 'font' && <ThumbBarPosition bookKey={bookKey} />}
+        <div
+          className={clsx(
+            'grid grid-cols-4 gap-2 px-4 pb-2 pt-3',
+            actionTab === 'font' && 'hidden',
+          )}
+        >
           <button
             type='button'
             className='border-base-content min-h-[50px] border text-xs font-medium'
@@ -137,6 +142,12 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
             className='min-h-11'
             onClick={() => {
               useReaderStore.getState().setHoveredBookKey('');
+              const searchConfig = useBookDataStore.getState().getConfig(bookKey);
+              if (searchConfig?.viewSettings && searchConfig.viewSettings.sideBarTab !== 'toc') {
+                useBookDataStore.getState().setConfig(bookKey, {
+                  viewSettings: { ...searchConfig.viewSettings, sideBarTab: 'toc' },
+                });
+              }
               void eventDispatcher.dispatch('search-term', { bookKey });
             }}
           >

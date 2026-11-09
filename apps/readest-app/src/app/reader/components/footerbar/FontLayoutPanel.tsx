@@ -150,8 +150,10 @@ export const FontLayoutPanel: React.FC<FontLayoutPanelProps> = ({
             viewSettings?.gapPercent ?? 5,
           )}
           bubbleElement={<TbBoxMargin size={marginIconSize} />}
-          minLabel={_('Small')}
-          maxLabel={_('Large')}
+          minLabel='−'
+          maxLabel='+'
+          minClassName='text-lg font-semibold'
+          maxClassName='text-lg font-semibold'
           step={10}
           onChange={handleMarginChange}
         />
@@ -159,8 +161,10 @@ export const FontLayoutPanel: React.FC<FontLayoutPanelProps> = ({
           label={_('Line Spacing')}
           initialValue={(viewSettings?.lineHeight ?? 1.6) * LINE_HEIGHT_LIMITS.MULTIPLIER}
           bubbleElement={<RxLineHeight size={marginIconSize} />}
-          minLabel={_('Small')}
-          maxLabel={_('Large')}
+          minLabel='−'
+          maxLabel='+'
+          minClassName='text-lg font-semibold'
+          maxClassName='text-lg font-semibold'
           min={LINE_HEIGHT_LIMITS.MIN}
           max={LINE_HEIGHT_LIMITS.MAX}
           onChange={handleLineHeightChange}

@@ -1187,3 +1187,41 @@ textarea:focus-within,
   border-radius: 0;
   background-color: theme('colors.base-100');
 }
+
+html[data-eink='true'] .bottom-tab {
+  background-color: theme('colors.base-100') !important;
+  border-top: 1px solid theme('colors.base-content') !important;
+}
+
+html[data-eink='true'] .bottom-tab > [aria-selected='true'] {
+  background-color: theme('colors.base-content') !important;
+  color: theme('colors.base-100') !important;
+  outline: none;
+}
+
+html[data-eink='true'] [class*='text-gray-'] {
+  color: theme('colors.base-content') !important;
+}
+
+html[data-eink='true'] .slider {
+  background-color: theme('colors.base-100') !important;
+  border: 2px solid theme('colors.base-content');
+}
+
+html[data-eink='true'] .slider-track,
+html[data-eink='true'] .slider-fill {
+  background-color: transparent !important;
+}
+
+html[data-eink='true'] .slider-thumb {
+  background-color: theme('colors.base-content') !important;
+  color: theme('colors.base-100') !important;
+  font-weight: 600;
+}
+
+html[data-eink='true'] .highlight-options {
+  background-color: theme('colors.base-100');
+  border: 1px solid theme('colors.base-content');
+  border-radius: 12px;
+  padding: 0 6px;
+}

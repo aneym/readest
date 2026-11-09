@@ -52,6 +52,7 @@ const TabNavigation: React.FC<{
           key={tab}
           tabIndex={0}
           role='button'
+          aria-selected={activeTab === tab}
           className={clsx(
             'flex-1 m-1.5 cursor-pointer rounded-lg transition-colors duration-200',
             activeTab === tab && 'bg-base-300/85',
