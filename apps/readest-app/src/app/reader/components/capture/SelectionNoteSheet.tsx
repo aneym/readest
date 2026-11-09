@@ -40,12 +40,25 @@ export function SelectionNoteSheet() {
     if (!isHouseholdBuild()) return;
     const open = (event: CustomEvent) => {
       const detail = event.detail as
-        | { bookKey?: string; selection?: TextSelection; mark?: MarginMark; anchorBottom?: number }
+        | {
+            bookKey?: string;
+            selection?: TextSelection;
+            mark?: MarginMark;
+            anchorBottom?: number;
+            cfi?: string;
+            text?: string;
+            page?: number;
+          }
         | undefined;
       const selection = detail?.selection;
-      if (!detail?.bookKey || !selection?.text) return;
+      const selectedText = detail?.text ?? selection?.text;
+      if (!detail?.bookKey || !selectedText) return;
       const view = useReaderStore.getState().getView(detail.bookKey);
-      const cfi = selection.popup ? selection.cfi : view?.getCFI(selection.index, selection.range);
+      const cfi =
+        detail.cfi ??
+        (selection?.popup
+          ? selection.cfi
+          : selection && view?.getCFI(selection.index, selection.range));
       if (!cfi) return;
       const config = useBookDataStore.getState().getConfig(detail.bookKey);
       const notes = config?.booknotes ?? [];
@@ -55,8 +68,8 @@ export function SelectionNoteSheet() {
       setSession({
         bookKey: detail.bookKey,
         cfi,
-        text: selection.text,
-        page: selection.page,
+        text: selectedText,
+        page: detail.page ?? selection?.page ?? 0,
         mark: parsed.mark,
         anchorBottom: detail.anchorBottom ?? 0,
       });

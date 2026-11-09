@@ -14,6 +14,8 @@ import { useInlineTextEditor } from '../../hooks/useInlineTextEditor';
 import { parseNoteMarkdown } from '../../utils/noteMarkdown';
 import TextButton from '@/components/TextButton';
 import TextEditor from '@/components/TextEditor';
+import { isHouseholdBuild } from '@/services/household';
+import { eventDispatcher } from '@/utils/event';
 
 interface AnnotationNoteItemProps {
   bookKey: string;
@@ -75,6 +77,16 @@ const AnnotationNoteItem: React.FC<AnnotationNoteItemProps> = ({
     // Editing must not also trigger the card's own click handler
     // (handleShowAnnotation), which would open the sidebar underneath it.
     event.stopPropagation();
+    if (isHouseholdBuild()) {
+      onDismiss();
+      void eventDispatcher.dispatch('reader-selection-note-open', {
+        bookKey,
+        cfi: note.cfi,
+        text: note.text || '…',
+        page: note.page,
+      });
+      return;
+    }
     startEdit(note.note || '');
   };
 
