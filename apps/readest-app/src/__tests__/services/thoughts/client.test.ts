@@ -61,7 +61,7 @@ describe('Thoughts device client', () => {
     expect(request?.headers).toEqual({
       Authorization: 'Bearer test-device-token',
       Accept: 'application/json',
-      Origin: 'https://studio.tailf266ac.ts.net',
+      Origin: 'https://studio.tailf266ac.ts.net:3148',
       'X-Homebase-Media-Action': '1',
       'Content-Type': 'application/json',
     });

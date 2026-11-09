@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('discoverClient transport', () => {
-  test('a Tauri POST goes through the plugin with the mutation headers and tailnet Origin', async () => {
+  test('a Tauri POST goes through the plugin with the mutation headers and the server Origin', async () => {
     vi.stubEnv('NEXT_PUBLIC_APP_PLATFORM', 'tauri');
     tauriFetchMock.mockResolvedValue(json(202, { jobs: [] }));
 
@@ -49,7 +49,7 @@ describe('discoverClient transport', () => {
     const headers = new Headers(init?.headers);
     expect(headers.get('content-type')).toBe('application/json');
     expect(headers.get('x-homebase-media-action')).toBe('1');
-    expect(headers.get('origin')).toBe('https://studio.tailf266ac.ts.net');
+    expect(headers.get('origin')).toBe('https://studio.tailf266ac.ts.net:3148');
     expect(JSON.parse(String(init?.body))).toEqual({
       title: 'Dune',
       author: 'Frank Herbert',
