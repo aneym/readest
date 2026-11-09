@@ -33,7 +33,7 @@ export interface RecordSyncClient {
     limit?: number,
   ): Promise<SyncResult>;
   pushChanges(payload: SyncData): Promise<RecordPushResult>;
-  flushOutbox?(): Promise<FlushResult | null>;
+  flushOutbox?(options?: { resendBlocked?: boolean }): Promise<FlushResult | null>;
 }
 
 export interface HomebaseSyncClientOptions {
@@ -145,8 +145,13 @@ export class HomebaseSyncClient implements RecordSyncClient {
     return decodeEnvelope(response);
   }
 
-  async flushOutbox() {
+  async flushOutbox(options: { resendBlocked?: boolean } = {}) {
     if (!this.outbox) return null;
+    if (options.resendBlocked) {
+      const resent = await this.outbox.requeueBlocked();
+      if (resent > 0)
+        recordDiagnostic('sync.resend', 'info', 'blocked rows queued again', { resent });
+    }
     const result = await this.outbox.flush((envelope) => this.push(envelope));
     reportOutboxQueue([...(await this.outbox.pending()), ...result.poisoned]);
     drainDiagnostic(result);

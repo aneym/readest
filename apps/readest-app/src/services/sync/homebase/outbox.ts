@@ -114,7 +114,7 @@ export interface SyncOutbox {
     envelope: HomebaseEnvelope,
     rejected: HomebaseRejection[] | undefined,
   ): Promise<OutboxEntry[]>;
-  clearPoisoned(): Promise<OutboxEntry[]>;
+  requeueBlocked(): Promise<number>;
 }
 
 const transactions = new WeakMap<OutboxStore, Promise<unknown>>();
@@ -241,12 +241,17 @@ export const createSyncOutbox = (options: OutboxOptions): SyncOutbox => {
         entries.filter((entry) => !entry.poisoned || !accepted.has(entry.key)),
       );
     },
-    clearPoisoned: () =>
-      transaction(async () => {
-        const entries = await store.read();
-        await store.write(entries.filter((entry) => !entry.poisoned));
-        return entries.filter((entry) => entry.poisoned);
-      }),
+    requeueBlocked: async () => {
+      let count = 0;
+      await update((entries) =>
+        entries.map((entry) => {
+          if (!entry.poisoned) return entry;
+          count += 1;
+          return { ...entry, poisoned: false };
+        }),
+      );
+      return count;
+    },
     flush(push) {
       const running = drains.get(store);
       if (running) return running;

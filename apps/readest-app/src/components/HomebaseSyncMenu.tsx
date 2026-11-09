@@ -18,7 +18,7 @@ export default function HomebaseSyncMenu({ onSync }: { onSync: () => void | Prom
     setManual(true);
     useHomebaseSyncStatus.setState({ error: null });
     try {
-      const flushed = await syncClient.flushOutbox?.();
+      const flushed = await syncClient.flushOutbox?.({ resendBlocked: true });
       if (flushed?.stoppedBy) return;
       await onSync();
     } catch (error) {
